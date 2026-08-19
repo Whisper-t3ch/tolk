@@ -1,0 +1,390 @@
+"use client";
+import { use, useState, useRef, useEffect } from "react";
+import { motion } from "framer-motion";
+import { Send, Paperclip, ChevronLeft } from "lucide-react";
+import Link from "next/link";
+import { clients } from "@/lib/mock-data";
+import { Card, CardContent } from "@/components/ui";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
+const avatarColors = ["#4F7EFF", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
+
+interface ChatMessage {
+  id: string;
+  role: "client" | "psychologist";
+  text: string;
+  time: string;
+  file?: { name: string; size: string };
+}
+
+const MOCK_MESSAGES: ChatMessage[] = [
+  { id: "1", role: "client", text: "Привет! Как дела?", time: "14:32" },
+  { id: "2", role: "psychologist", text: "Привет! Всё хорошо, спасибо. Как у тебя?", time: "14:34" },
+  { id: "3", role: "client", text: "Мне нужна консультация по поводу работы", time: "14:35" },
+];
+
+export default function ClientProfilePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const client = clients.find(c => c.id === id);
+
+  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
+  const [chatInput, setChatInput] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [activeTab, setActiveTab] = useState("profile");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = () => {
+    if (!chatInput.trim() && !selectedFile) return;
+
+    const now = new Date().toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+    const newMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: "psychologist",
+      text: chatInput,
+      time: now,
+      file: selectedFile ? {
+        name: selectedFile.name,
+        size: (selectedFile.size / 1024).toFixed(1) + " KB",
+      } : undefined,
+    };
+
+    setMessages(prev => [...prev, newMessage]);
+    setChatInput("");
+    setSelectedFile(null);
+  };
+
+  if (!client) {
+    return (
+      <div style={{ textAlign: "center", padding: 40 }}>
+        <p style={{ color: "#9AA3B2" }}>Клиент не найден</p>
+      </div>
+    );
+  }
+
+  const clientIndex = clients.indexOf(client);
+  const avatarColor = avatarColors[clientIndex % avatarColors.length];
+
+  return (
+    <div style={{ maxWidth: "1400px", margin: "0 auto", width: "100%" }}>
+      <div style={{ display: "flex", height: "calc(100vh - 120px)", gap: 12 }}>
+        {/* Левая колонка - Профиль */}
+        <div style={{ flex: "0 0 40%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Кнопка назад */}
+        <Link href="/clients" style={{ textDecoration: "none", marginBottom: 16 }}>
+          <button style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 12px",
+            background: "#F5F7FA",
+            border: "1px solid #E4E7EF",
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#0F1629",
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}>
+            <ChevronLeft size={14} />
+            Назад
+          </button>
+        </Link>
+
+        {/* Профиль карточка */}
+        <Card style={{ marginBottom: 16 }}>
+          <CardContent className="pt-6">
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{
+                width: 56,
+                height: 56,
+                background: avatarColor,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+                fontWeight: 700,
+                color: "#fff",
+              }}>
+                {client.initials}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#0F1629" }}>
+                  {client.name}
+                </div>
+                <div style={{ fontSize: 12, color: "#9AA3B2", marginTop: 2 }}>
+                  {client.age} лет
+                </div>
+              </div>
+            </div>
+            <div style={{
+              display: "inline-block",
+              padding: "4px 8px",
+              background: client.status === "active" ? "#E6F7F2" : "#FEF3C7",
+              color: client.status === "active" ? "#1BAF7A" : "#F59E0B",
+              borderRadius: 4,
+              fontSize: 10,
+              fontWeight: 600,
+            }}>
+              {client.status === "active" ? "Активный" : client.status === "pause" ? "На паузе" : "Завершено"}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Табы */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, borderBottom: "1px solid #E4E7EF", paddingBottom: 12 }}>
+          {["profile", "tests", "homework"].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                padding: "6px 12px",
+                background: activeTab === tab ? "#4F7EFF" : "transparent",
+                color: activeTab === tab ? "#fff" : "#5A6478",
+                border: "none",
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+            >
+              {tab === "profile" ? "Профиль" : tab === "tests" ? "Тесты" : "ДЗ"}
+            </button>
+          ))}
+        </div>
+
+        {/* Содержимое табов */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {activeTab === "profile" && (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9AA3B2", textTransform: "uppercase", marginBottom: 4 }}>Пол</div>
+                <div style={{ fontSize: 13, color: "#0F1629" }}>{client.gender}</div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9AA3B2", textTransform: "uppercase", marginBottom: 4 }}>Запрос</div>
+                <div style={{ fontSize: 13, color: "#0F1629" }}>{client.request}</div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9AA3B2", textTransform: "uppercase", marginBottom: 4 }}>Подход</div>
+                <div style={{ fontSize: 13, color: "#0F1629" }}>{client.approach}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9AA3B2", textTransform: "uppercase", marginBottom: 4 }}>Триггеры</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {client.triggers.map((trigger, i) => (
+                    <span key={i} style={{
+                      padding: "4px 8px",
+                      background: "#EEF2FF",
+                      color: "#4F7EFF",
+                      borderRadius: 4,
+                      fontSize: 11,
+                    }}>
+                      {trigger}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "tests" && (
+            <div>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={client.testHistory}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E4E7EF" />
+                  <XAxis dataKey="date" stroke="#9AA3B2" style={{ fontSize: 11 }} />
+                  <YAxis stroke="#9AA3B2" style={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E4E7EF" }} />
+                  <Line type="monotone" dataKey="score" stroke="#4F7EFF" strokeWidth={2} dot={{ fill: "#4F7EFF", r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9AA3B2", textTransform: "uppercase", marginBottom: 4 }}>Последний тест</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#0F1629" }}>GAD-7: {client.latestTest}</div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "homework" && (
+            <div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {client.homework?.map((item, i) => (
+                  <div key={i} style={{
+                    padding: 10,
+                    background: "#F5F7FA",
+                    borderRadius: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}>
+                    <input type="checkbox" checked={item.completed} style={{ cursor: "pointer" }} readOnly />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, color: "#0F1629", textDecoration: item.completed ? "line-through" : "none" }}>
+                        {item.text}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Правая колонка - Чат на всю высоту */}
+      <div style={{ flex: "0 0 60%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Card style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <CardContent className="pt-4 flex-1 flex flex-col" style={{ minHeight: 0 }}>
+            {/* Сообщения */}
+            <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
+              {messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  style={{
+                    display: "flex",
+                    justifyContent: msg.role === "psychologist" ? "flex-end" : "flex-start",
+                    marginBottom: 8,
+                  }}
+                >
+                  <div style={{
+                    maxWidth: "80%",
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    background: msg.role === "psychologist" ? "#4F7EFF" : "#F5F7FA",
+                    color: msg.role === "psychologist" ? "#fff" : "#0F1629",
+                    fontSize: 12,
+                  }}>
+                    <p style={{ margin: 0 }}>{msg.text}</p>
+                    {msg.file && (
+                      <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>
+                        📎 {msg.file.name} ({msg.file.size})
+                      </div>
+                    )}
+                    <span style={{ fontSize: 10, opacity: 0.6, marginTop: 4, display: "block" }}>
+                      {msg.time}
+                    </span>
+                  </div>
+                </motion.div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Инпут с файлами */}
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+              <div style={{ flex: 1 }}>
+                <textarea
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyPress={e => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                  placeholder="Напишите сообщение..."
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #E4E7EF",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontFamily: "var(--font-sans)",
+                    color: "#0F1629",
+                    resize: "none",
+                    maxHeight: 80,
+                    boxSizing: "border-box",
+                  }}
+                  rows={2}
+                />
+                {selectedFile && (
+                  <div style={{
+                    fontSize: 11,
+                    color: "#4F7EFF",
+                    marginTop: 4,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}>
+                    📎 {selectedFile.name}
+                    <button
+                      onClick={() => setSelectedFile(null)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#9AA3B2",
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    background: "#F5F7FA",
+                    border: "1px solid #E4E7EF",
+                    borderRadius: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    color: "#5A6478",
+                    transition: "all 0.2s",
+                  }}
+                  title="Добавить файл"
+                >
+                  <Paperclip size={16} />
+                </button>
+                <button
+                  onClick={sendMessage}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    background: "#4F7EFF",
+                    border: "none",
+                    borderRadius: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    color: "#FFFFFF",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <Send size={16} />
+                </button>
+              </div>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={e => {
+                if (e.target.files?.[0]) {
+                  setSelectedFile(e.target.files[0]);
+                }
+              }}
+              style={{ display: "none" }}
+            />
+          </CardContent>
+        </Card>
+      </div>
+      </div>
+    </div>
+  );
+}
