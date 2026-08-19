@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Send, Paperclip, User, FileText, X, Mic, Trash2, Play, Pause, Smile, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -65,7 +65,7 @@ const createMockMessages = (): ChatMessage[] => {
   return messages;
 };
 
-export default function ClientsPage() {
+function ClientsPageInner() {
   const searchParams = useSearchParams();
   const clientFromUrl = searchParams.get("client");
   const filterFromUrl = searchParams.get("filter"); // "new" | "attention" | null
@@ -1168,5 +1168,13 @@ export default function ClientsPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function ClientsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ClientsPageInner />
+    </Suspense>
   );
 }
