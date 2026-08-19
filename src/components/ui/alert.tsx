@@ -2,7 +2,7 @@ import React from "react";
 import { AlertCircle, CheckCircle, Info, AlertTriangle, X } from "lucide-react";
 import { motion } from "framer-motion";
 
-interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
+interface AlertProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onDrag" | "onDragStart" | "onDragEnd" | "onAnimationStart" | "onAnimationEnd" | "onAnimationIteration"> {
   variant?: "info" | "success" | "warning" | "error";
   title?: string;
   onClose?: () => void;
