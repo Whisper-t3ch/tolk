@@ -2062,35 +2062,35 @@ const FEATURES_DATA = {
   "Протокол и ассистент": {
     color: "#2D6A5C",
     items: [
-      { id: "ai-notes", name: "Протокол сессии", desc: "Готовый SOAP-протокол за 2 минуты вместо 40–60 минут вручную", icon: FileText, badge: "Популярное" },
-      { id: "ai-assistant", name: "Личный ассистент", desc: "Знает историю клиента по всем сессиям и вашу базу знаний", icon: Bot },
-      { id: "ai-plan", name: "План на сессию", desc: "Блок Plan в протоколе — терапия не теряет нить", icon: ClipboardList },
-      { id: "compliance", name: "Российская защита", desc: "Серверы в РФ, без VPN, соответствие 152-ФЗ", icon: ShieldCheck },
+      { id: "ai-notes", name: "Протокол сессии", desc: "Готовый SOAP-протокол за 2 минуты вместо 40–60 минут вручную", icon: FileText, badge: "Популярное" as string | undefined },
+      { id: "ai-assistant", name: "Личный ассистент", desc: "Знает историю клиента по всем сессиям и вашу базу знаний", icon: Bot, badge: undefined as string | undefined },
+      { id: "ai-plan", name: "План на сессию", desc: "Блок Plan в протоколе — терапия не теряет нить", icon: ClipboardList, badge: undefined as string | undefined },
+      { id: "compliance", name: "Российская защита", desc: "Серверы в РФ, без VPN, соответствие 152-ФЗ", icon: ShieldCheck, badge: undefined as string | undefined },
     ],
   },
   "Управление практикой": {
     color: "#1BAF7A",
     items: [
-      { id: "scheduling", name: "Умный календарь", desc: "Google и Яндекс Календарь создают видеокомнату сами", icon: Calendar },
-      { id: "forms", name: "Тесты и методики", desc: "30+ валидированных методик: PHQ-9, GAD-7, WHO-5 и другие", icon: ListChecks },
-      { id: "portal", name: "Домашние задания", desc: "Отправка в один клик, клиент получает в своём мессенджере", icon: Send },
-      { id: "messaging", name: "Единый чат", desc: "Telegram и ВКонтакте из одного окна платформы", icon: MessageSquare },
+      { id: "scheduling", name: "Умный календарь", desc: "Google и Яндекс Календарь создают видеокомнату сами", icon: Calendar, badge: undefined as string | undefined },
+      { id: "forms", name: "Тесты и методики", desc: "30+ валидированных методик: PHQ-9, GAD-7, WHO-5 и другие", icon: ListChecks, badge: undefined as string | undefined },
+      { id: "portal", name: "Домашние задания", desc: "Отправка в один клик, клиент получает в своём мессенджере", icon: Send, badge: undefined as string | undefined },
+      { id: "messaging", name: "Единый чат", desc: "Telegram и ВКонтакте из одного окна платформы", icon: MessageSquare, badge: undefined as string | undefined },
     ],
   },
   "Видеосвязь и запись": {
     color: "#F59E0B",
     items: [
-      { id: "capture", name: "Запись и транскрибация", desc: "Точное разделение реплик: вы и клиент", icon: Mic },
-      { id: "telehealth", name: "Видеосвязь", desc: "Российские серверы, без VPN, без ограничений по времени", icon: Video },
-      { id: "apps", name: "Дневник и база знаний", desc: "Личная база техник, на которую опирается ассистент", icon: BookOpen },
+      { id: "capture", name: "Запись и транскрибация", desc: "Точное разделение реплик: вы и клиент", icon: Mic, badge: undefined as string | undefined },
+      { id: "telehealth", name: "Видеосвязь", desc: "Российские серверы, без VPN, без ограничений по времени", icon: Video, badge: undefined as string | undefined },
+      { id: "apps", name: "Дневник и база знаний", desc: "Личная база техник, на которую опирается ассистент", icon: BookOpen, badge: undefined as string | undefined },
     ],
   },
   "Оплата и аналитика": {
     color: "#8B5CF6",
     items: [
-      { id: "payments", name: "Приём оплаты", desc: "Автонапоминание и ссылка на оплату через СБП", icon: CreditCard },
-      { id: "insurance", name: "Аналитика по клиенту", desc: "Динамика тестов, темы, паттерны и тенденции терапии", icon: TrendingUp },
-      { id: "managed", name: "Аналитика практики", desc: "Загрузка, финансы, удержание клиентов — в одном месте", icon: PieChart },
+      { id: "payments", name: "Приём оплаты", desc: "Автонапоминание и ссылка на оплату через СБП", icon: CreditCard, badge: undefined as string | undefined },
+      { id: "insurance", name: "Аналитика по клиенту", desc: "Динамика тестов, темы, паттерны и тенденции терапии", icon: TrendingUp, badge: undefined as string | undefined },
+      { id: "managed", name: "Аналитика практики", desc: "Загрузка, финансы, удержание клиентов — в одном месте", icon: PieChart, badge: undefined as string | undefined },
     ],
   },
 };
