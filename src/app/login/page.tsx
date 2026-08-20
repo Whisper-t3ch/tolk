@@ -3,6 +3,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { LogoMark } from "@/components/Logo";
+import { createClient } from "@/lib/supabase/client";
 
 function LoginForm() {
   const router = useRouter();
@@ -11,13 +12,66 @@ function LoginForm() {
 
   const [mode, setMode] = useState<"login" | "register">(initialMode);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("maria@tolk.pro");
-  const [password, setPassword] = useState("••••••••");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [consentChecked, setConsentChecked] = useState(true);
 
-  function handleSubmit() {
+  async function handleSubmit() {
+    setError(null);
+
+    if (!email.trim() || !password.trim()) {
+      setError("Заполните email и пароль");
+      return;
+    }
+    if (mode === "register" && !name.trim()) {
+      setError("Укажите имя");
+      return;
+    }
+    if (mode === "register" && !consentChecked) {
+      setError("Нужно согласие на обработку персональных данных");
+      return;
+    }
+
     setLoading(true);
-    setTimeout(() => router.push("/dashboard"), 800);
+    const supabase = createClient();
+
+    if (mode === "register") {
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: { name: name.trim() },
+        },
+      });
+      if (signUpError) {
+        setError(translateAuthError(signUpError.message));
+        setLoading(false);
+        return;
+      }
+    } else {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) {
+        setError(translateAuthError(signInError.message));
+        setLoading(false);
+        return;
+      }
+    }
+
+    router.push("/dashboard");
+    router.refresh();
+  }
+
+  function translateAuthError(message: string): string {
+    if (message.includes("Invalid login credentials")) return "Неверный email или пароль";
+    if (message.includes("User already registered")) return "Этот email уже зарегистрирован — попробуйте войти";
+    if (message.includes("Password should be at least")) return "Пароль слишком короткий (минимум 6 символов)";
+    if (message.includes("Unable to validate email")) return "Некорректный email";
+    return "Не получилось выполнить действие — попробуйте ещё раз";
   }
 
   return (
@@ -141,9 +195,23 @@ function LoginForm() {
               fontSize: 11.5, color: "#6B6058", lineHeight: 1.4,
               marginTop: 2, cursor: "pointer",
             }}>
-              <input type="checkbox" defaultChecked style={{ marginTop: 2, accentColor: "#2D6A5C" }} />
+              <input
+                type="checkbox"
+                checked={consentChecked}
+                onChange={(e) => setConsentChecked(e.target.checked)}
+                style={{ marginTop: 2, accentColor: "#2D6A5C" }}
+              />
               Согласен(на) с условиями обработки персональных данных и офертой
             </label>
+          )}
+          {error && (
+            <p style={{
+              fontSize: 12.5, color: "#EF4444",
+              background: "#FEE2E2", borderRadius: 8,
+              padding: "8px 12px", margin: 0,
+            }}>
+              {error}
+            </p>
           )}
           <button
             onClick={handleSubmit}
@@ -171,8 +239,8 @@ function LoginForm() {
           fontSize: 12, color: "#8C7355",
         }}>
           {mode === "login"
-            ? "Любой email и пароль для демо-доступа"
-            : "Демо-режим — данные не сохраняются"}
+            ? "Ещё нет аккаунта? Переключитесь на «Регистрация»"
+            : "После регистрации на почту может прийти письмо для подтверждения"}
         </p>
       </div>
     </div>

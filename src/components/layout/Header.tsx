@@ -3,9 +3,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, Search, X } from "lucide-react";
+import { Bell, Search, X, LogOut } from "lucide-react";
 import { ToastContainer } from "@/components/ui";
 import { currentPsychologist, clients } from "@/lib/mock-data";
+import { createClient } from "@/lib/supabase/client";
 
 interface Toast {
   id: string;
@@ -39,6 +40,13 @@ export default function Header() {
 
   const markAllRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+  };
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
   };
 
   return (
@@ -235,6 +243,27 @@ export default function Header() {
               {currentPsychologist.avatarInitials}
             </div>
           </Link>
+
+          {/* Выход из аккаунта */}
+          <button
+            onClick={handleLogout}
+            title="Выйти"
+            style={{
+              width: 36, height: 36,
+              background: "transparent",
+              border: "1px solid #E5DFD5",
+              borderRadius: 10,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#6B6058",
+              cursor: "pointer",
+              transition: "all 0.2s",
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#FEE2E2"; e.currentTarget.style.color = "#EF4444"; e.currentTarget.style.borderColor = "#FCA5A5"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#6B6058"; e.currentTarget.style.borderColor = "#E5DFD5"; }}
+          >
+            <LogOut size={16} />
+          </button>
         </div>
       </header>
 
