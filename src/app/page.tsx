@@ -3802,7 +3802,59 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Pricing */}
+      {/*
+        АРХИВ: обычная сетка из 3 платных тарифов (Практика / Профессионал / Эксперт).
+        Временно заменена на 2 карточки бета-тестирования (см. BETA_PRICING_PLANS ниже).
+        Чтобы вернуть — раскомментировать этот массив и в разделе Pricing заменить
+        `.map` на PRICING_PLANS_ARCHIVE вместо BETA_PRICING_PLANS.
+
+        const PRICING_PLANS_ARCHIVE = [
+          {
+            name: "Практика",
+            price: "1 990 ₽",
+            period: "в месяц",
+            description: "До 5 клиентов",
+            features: [
+              "60 запросов к ассистенту / мес",
+              "Протокол SOAP автоматически",
+              "Тесты (30+ методик)",
+              "Видео + split-screen",
+              "Умный календарь, СБП-оплата",
+              "Мессенджеры TG + VK",
+            ],
+            highlighted: false,
+          },
+          {
+            name: "Профессионал",
+            price: "3 290 ₽",
+            period: "в месяц",
+            description: "До 15 клиентов",
+            features: [
+              "200 запросов к ассистенту / мес",
+              "Всё из тарифа Практика",
+              "Дневник и база знаний",
+              "Vision-разбор фото/бланков",
+              "Режим «Супервизор»",
+              "Сообщество и мастер-классы",
+            ],
+            highlighted: true,
+          },
+          {
+            name: "Эксперт",
+            price: "5 490 ₽",
+            period: "в месяц",
+            description: "До 30 клиентов",
+            features: [
+              "600 запросов к ассистенту / мес",
+              "Всё из тарифа Профессионал",
+              "Приоритет поддержки",
+            ],
+            highlighted: false,
+          },
+        ];
+      */}
+
+      {/* Pricing — бета-тестирование: 2 карточки вместо обычной сетки тарифов */}
       <section id="pricing" style={{ padding: "80px 24px", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", right: "0px", top: "0px", zIndex: 0, pointerEvents: "none", opacity: 0.5, transform: "scale(0.75)", transformOrigin: "top right" }}>
           <ScalesArt />
@@ -3816,11 +3868,26 @@ export default function LandingPage() {
               fontWeight: 800,
               color: "#1C1C1E",
               textAlign: "center",
-              marginBottom: 48,
+              marginBottom: 12,
             }}
           >
-            Простые и честные цены
+            Присоединяйтесь к бета-тесту
           </motion.h2>
+          <motion.p
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            style={{
+              textAlign: "center",
+              fontSize: 15,
+              color: "#6B6058",
+              marginBottom: 48,
+              maxWidth: 600,
+              marginLeft: "auto",
+              marginRight: "auto",
+            }}
+          >
+            Желающих уже много, а мест на бету всего 25 — условия зафиксируются для вас надолго.
+          </motion.p>
 
           <motion.div
             initial="hidden"
@@ -3828,54 +3895,47 @@ export default function LandingPage() {
             variants={containerVariants}
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
               gap: 24,
-              maxWidth: 1000,
+              maxWidth: 800,
               margin: "0 auto",
             }}
           >
             {[
               {
-                name: "Практика",
-                price: "1 990 ₽",
-                period: "в месяц",
-                description: "До 5 клиентов",
+                name: "Бесплатное место",
+                price: "0 ₽",
+                period: "",
+                badge: "БЕСПЛАТНО",
+                description: "2 недели полного доступа бесплатно — попробуйте платформу в деле.",
+                oldPrice: undefined as string | undefined,
                 features: [
-                  "60 запросов к ассистенту / мес",
-                  "Протокол SOAP автоматически",
-                  "Тесты (30+ методик)",
-                  "Видео + split-screen",
-                  "Умный календарь, СБП-оплата",
-                  "Мессенджеры TG + VK",
+                  "Полный доступ на 2 недели",
+                  "Ранний доступ к новым функциям — за 2 недели до остальных",
                 ],
+                footnote: undefined as string | undefined,
                 highlighted: false,
               },
               {
-                name: "Профессионал",
-                price: "3 290 ₽",
-                period: "в месяц",
-                description: "До 15 клиентов",
+                name: "Платное VIP-место",
+                price: "4 900 ₽",
+                period: "разово",
+                badge: "VIP",
+                description: "3 месяца тарифа Эксперт в подарок",
+                oldPrice: "3 × 5 490 = 16 470 ₽",
                 features: [
-                  "200 запросов к ассистенту / мес",
-                  "Всё из тарифа Практика",
-                  "Дневник и база знаний",
-                  "Vision-разбор фото/бланков",
-                  "Режим «Супервизор»",
-                  "Сообщество и мастер-классы",
+                  "Экономия 11 570 ₽ уже на старте",
+                  "После беты — тариф Профессионал по фиксированной цене навсегда: 1 990 ₽",
+                  "За год только на разнице в цене — от 12 000 ₽ экономии (без учёта роста тарифа)",
+                  "Приоритет на бета-тест — желающих много, мест всего 25",
+                  "Ваше имя на сайте",
+                  "Ранний доступ к новым функциям — за 2 недели до остальных",
+                  "Закрытый Telegram-чат с командой",
+                  "Ваши запросы в разработку — первыми",
+                  "Прямой доступ к основателю",
                 ],
+                footnote: "4 900 ₽ сейчас — это покупка максимального тарифа на 3 месяца с фиксацией условий на годы вперёд.",
                 highlighted: true,
-              },
-              {
-                name: "Эксперт",
-                price: "5 490 ₽",
-                period: "в месяц",
-                description: "До 30 клиентов",
-                features: [
-                  "600 запросов к ассистенту / мес",
-                  "Всё из тарифа Профессионал",
-                  "Приоритет поддержки",
-                ],
-                highlighted: false,
               },
             ].map((plan, i) => (
               <motion.div
@@ -3900,16 +3960,18 @@ export default function LandingPage() {
                   position: "relative",
                   transformStyle: "preserve-3d",
                   perspective: 800,
+                  display: "flex",
+                  flexDirection: "column",
                 }}
               >
-                {plan.highlighted && (
+                {plan.badge && (
                   <div
                     style={{
                       position: "absolute",
                       top: -12,
                       right: 24,
-                      background: "#fff",
-                      color: "#2D6A5C",
+                      background: plan.highlighted ? "#fff" : "#2D6A5C",
+                      color: plan.highlighted ? "#2D6A5C" : "#fff",
                       padding: "4px 12px",
                       borderRadius: 20,
                       fontSize: 11,
@@ -3917,7 +3979,7 @@ export default function LandingPage() {
                       letterSpacing: "0.06em",
                     }}
                   >
-                    ПОПУЛЯРНЫЙ
+                    {plan.badge}
                   </div>
                 )}
 
@@ -3926,28 +3988,50 @@ export default function LandingPage() {
                 </h3>
                 <p
                   style={{
-                    fontSize: 12,
-                    opacity: plan.highlighted ? 0.8 : 0.7,
+                    fontSize: 12.5,
+                    opacity: plan.highlighted ? 0.85 : 0.75,
                     marginBottom: 20,
                     margin: "0 0 20px 0",
+                    lineHeight: 1.5,
                   }}
                 >
                   {plan.description}
                 </p>
 
-                <div style={{ marginBottom: 24 }}>
+                {plan.oldPrice && (
+                  <div style={{ marginBottom: 4 }}>
+                    <span style={{ fontSize: 13.5, opacity: 0.6, textDecoration: "line-through" }}>{plan.oldPrice}</span>
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 24, display: "flex", alignItems: "baseline", gap: 6, flexWrap: "nowrap", whiteSpace: "nowrap" }}>
                   <span style={{ fontSize: 36, fontWeight: 800 }}>{plan.price}</span>
-                  {plan.period && <span style={{ fontSize: 13, opacity: 0.8 }}> {plan.period}</span>}
+                  {plan.period && <span style={{ fontSize: 13, opacity: 0.8 }}>{plan.period}</span>}
                 </div>
 
-                <ul style={{ listStyle: "none", padding: 0, marginBottom: 24 }}>
+                <ul style={{ listStyle: "none", padding: 0, marginBottom: 24, flex: 1 }}>
                   {plan.features.map((f, j) => (
-                    <li key={j} style={{ fontSize: 13, marginBottom: 12, display: "flex", gap: 8 }}>
+                    <li key={j} style={{ fontSize: 13, marginBottom: 12, display: "flex", gap: 8, lineHeight: 1.4 }}>
                       <span>✓</span>
                       {f}
                     </li>
                   ))}
                 </ul>
+
+                {plan.footnote && (
+                  <p
+                    style={{
+                      fontSize: 11.5,
+                      opacity: 0.8,
+                      lineHeight: 1.5,
+                      marginBottom: 20,
+                      margin: "0 0 20px 0",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {plan.footnote}
+                  </p>
+                )}
 
                 <Link
                   href="/login"
@@ -3964,24 +4048,11 @@ export default function LandingPage() {
                     transition: "all 0.2s",
                   }}
                 >
-                  Выбрать план
+                  {plan.highlighted ? "Занять VIP-место" : "Занять бесплатное место"}
                 </Link>
               </motion.div>
             ))}
           </motion.div>
-
-          <motion.p
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            style={{
-              textAlign: "center",
-              fontSize: 12,
-              color: "#6B6058",
-              marginTop: 32,
-            }}
-          >
-            Докупить запросы к ассистенту: +100 за 99 ₽ в любой момент.
-          </motion.p>
 
           {/* Бейджи доверия */}
           <TrustBadges />
