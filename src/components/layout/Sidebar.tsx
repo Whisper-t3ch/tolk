@@ -8,8 +8,9 @@ import {
   BookOpen, Brain, Settings, Plus, X,
   ClipboardList, HelpCircle, Sparkles
 } from "lucide-react";
-import { currentPsychologist, clients } from "@/lib/mock-data";
+import { currentPsychologist } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
+import { useClients } from "@/lib/useClients";
 import ConferenceModal from "@/components/ConferenceModal";
 import { LogoMark } from "@/components/Logo";
 
@@ -45,9 +46,10 @@ export default function Sidebar() {
   const [conferenceClientName, setConferenceClientName] = useState("");
   const [notification, setNotification] = useState<string | null>(null);
   const { addSession } = useSession();
+  const { clients } = useClients();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  const createSession = (clientId: string) => {
+  const createSession = async (clientId: string) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
 
@@ -56,12 +58,18 @@ export default function Sidebar() {
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
-    addSession({
-      clientId,
-      clientName: client.name,
-      date: dateStr,
-      time: timeStr,
-    });
+    try {
+      await addSession({
+        clientId,
+        clientName: client.name,
+        date: dateStr,
+        time: timeStr,
+      });
+    } catch {
+      setNotification("Не удалось создать сессию — попробуйте ещё раз");
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
 
     // Открываем окно конференции
     setConferenceClientName(client.name);
@@ -483,7 +491,7 @@ export default function Sidebar() {
                           {client.name}
                         </div>
                         <div style={{ fontSize: 11, color: "#8C7355" }}>
-                          {client.age} лет
+                          {client.age ? `${client.age} лет` : client.request || "—"}
                         </div>
                       </div>
                       <div style={{

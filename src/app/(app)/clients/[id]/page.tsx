@@ -6,10 +6,14 @@ import {
   Send, Paperclip, ChevronLeft, FileText, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
 } from "lucide-react";
-import { clients, testHistory as testHistoryByClient } from "@/lib/mock-data";
+import { testHistory as testHistoryByClient } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
+import { useClients } from "@/lib/useClients";
 import { Button, Card, CardContent } from "@/components/ui";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
+const EMPTY_TRIGGERS: string[] = [];
+const EMPTY_PROGRESS = { aiScore: 0, psychologistScore: null, clientScore: null, history: [] as Array<{ date: string; aiScore: number; psychologistScore?: number; clientScore?: number }> };
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
 
@@ -44,6 +48,7 @@ type TabId = typeof TABS[number]["id"];
 
 export default function ClientProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { clients, loading: clientsLoading } = useClients();
   const client = clients.find(c => c.id === id);
   const { sessions } = useSession();
 
@@ -66,6 +71,17 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const upcomingSessions = clientSessions.filter(s => s.date >= today);
   const pastSessions = clientSessions.filter(s => s.date < today).reverse();
 
+  const progress = client?.progress ?? EMPTY_PROGRESS;
+  const trend = useMemo(() => {
+    if (progress.history.length < 2) return "stable";
+    const recent = progress.history.slice(-2);
+    if (recent[1].aiScore > recent[0].aiScore) return "improving";
+    if (recent[1].aiScore < recent[0].aiScore) return "degrading";
+    return "stable";
+  }, [progress]);
+  const trendColor = trend === "improving" ? "#1BAF7A" : trend === "degrading" ? "#EF4444" : "#F59E0B";
+  const TrendIcon = trend === "improving" ? TrendingUp : trend === "degrading" ? TrendingDown : Minus;
+
   const sendMessage = () => {
     if (!chatInput.trim() && !selectedFile) return;
 
@@ -86,6 +102,14 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     setSelectedFile(null);
   };
 
+  if (clientsLoading) {
+    return (
+      <div style={{ textAlign: "center", padding: 40 }}>
+        <p style={{ color: "#8C7355" }}>Загрузка…</p>
+      </div>
+    );
+  }
+
   if (!client) {
     return (
       <div style={{ textAlign: "center", padding: 40 }}>
@@ -98,16 +122,10 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const clientIdx = clients.indexOf(client);
   const avatarColor = avatarColors[clientIdx % avatarColors.length];
   const clientTestHistory = testHistoryByClient[client.id] ?? [];
-
-  const trend = useMemo(() => {
-    if (client.progress.history.length < 2) return "stable";
-    const recent = client.progress.history.slice(-2);
-    if (recent[1].aiScore > recent[0].aiScore) return "improving";
-    if (recent[1].aiScore < recent[0].aiScore) return "degrading";
-    return "stable";
-  }, [client]);
-  const trendColor = trend === "improving" ? "#1BAF7A" : trend === "degrading" ? "#EF4444" : "#F59E0B";
-  const TrendIcon = trend === "improving" ? TrendingUp : trend === "degrading" ? TrendingDown : Minus;
+  const triggers = client.triggers ?? EMPTY_TRIGGERS;
+  const hwTotal = client.hwTotal ?? 0;
+  const hwCompleted = client.hwCompleted ?? 0;
+  const hwPct = hwTotal > 0 ? Math.round((hwCompleted / hwTotal) * 100) : 0;
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", width: "100%" }}>
@@ -354,12 +372,15 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Всего сессий</div>
-                  <div style={{ fontSize: 13, color: "#1C1C1E" }}>{client.sessions}</div>
+                  <div style={{ fontSize: 13, color: "#1C1C1E" }}>{clientSessions.length}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Триггеры</div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {client.triggers.map((trigger, i) => (
+                    {triggers.length === 0 && (
+                      <span style={{ fontSize: 12, color: "#8C7355" }}>Пока не отмечены</span>
+                    )}
+                    {triggers.map((trigger, i) => (
                       <span key={i} style={{ padding: "4px 8px", background: "#E8F2EF", color: "#2D6A5C", borderRadius: 4, fontSize: 11 }}>
                         {trigger}
                       </span>
@@ -373,11 +394,11 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           <Card>
             <CardContent className="pt-6">
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>
-                Домашние задания ({client.hwCompleted}/{client.hwTotal})
+                Домашние задания ({hwCompleted}/{hwTotal})
               </h3>
               <div style={{ height: 8, background: "rgba(79,126,255,0.1)", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
                 <div style={{
-                  width: `${Math.round((client.hwCompleted / client.hwTotal) * 100)}%`,
+                  width: `${hwPct}%`,
                   height: "100%", background: "#2D6A5C", borderRadius: 4,
                 }} />
               </div>
@@ -396,7 +417,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             <CardContent className="pt-6">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
-                  Динамика теста {client.lastTest.name}
+                  Динамика теста {client.lastTest?.name ?? "—"}
                 </h3>
                 <div style={{
                   display: "flex", alignItems: "center", gap: 6,
@@ -423,7 +444,9 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               )}
               <div style={{ marginTop: 12 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
-                  Последний результат: {client.lastTest.name} {client.lastTest.score}/{client.lastTest.maxScore} ({client.lastTest.date})
+                  {client.lastTest
+                    ? `Последний результат: ${client.lastTest.name} ${client.lastTest.score}/${client.lastTest.maxScore} (${client.lastTest.date})`
+                    : "Тесты ещё не проводились"}
                 </span>
               </div>
             </CardContent>
@@ -435,7 +458,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 Оценка прогресса (ИИ / психолог / клиент)
               </h3>
               <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={client.progress.history}>
+                <LineChart data={progress.history}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
                   <XAxis dataKey="date" stroke="#8C7355" style={{ fontSize: 11 }} />
                   <YAxis domain={[-5, 5]} stroke="#8C7355" style={{ fontSize: 11 }} />

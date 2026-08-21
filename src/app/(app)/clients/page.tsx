@@ -4,9 +4,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, Send, Paperclip, User, FileText, X, Mic, Trash2, Play, Pause, Smile, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { clients } from "@/lib/mock-data";
+import { useClients } from "@/lib/useClients";
+import { createClientRecord } from "@/lib/data/clients";
 import { Card, CardContent, Input } from "@/components/ui";
 import ClientProgressScale from "@/components/ClientProgressScale";
+
+// Триггеры/тесты/история прогресса пока не мигрированы на Supabase (Этап 2
+// осознанно ограничен клиентами и сессиями) — для реальных клиентов
+// показываем пустые заглушки вместо padения интерфейса.
+const EMPTY_TRIGGERS: string[] = [];
+const EMPTY_PROGRESS = { aiScore: 0, psychologistScore: null, clientScore: null, history: [] as Array<{ date: string; aiScore: number; psychologistScore?: number; clientScore?: number }> };
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
 
@@ -66,6 +73,7 @@ const createMockMessages = (): ChatMessage[] => {
 };
 
 function ClientsPageInner() {
+  const { clients, loading: clientsLoading, refresh: refreshClients } = useClients();
   const searchParams = useSearchParams();
   const clientFromUrl = searchParams.get("client");
   const filterFromUrl = searchParams.get("filter"); // "new" | "attention" | null
@@ -84,6 +92,14 @@ function ClientsPageInner() {
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [reactionMenuFor, setReactionMenuFor] = useState<string | null>(null);
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientRequest, setNewClientRequest] = useState("");
+  const [newClientApproach, setNewClientApproach] = useState("");
+  const [newClientAge, setNewClientAge] = useState("");
+  const [newClientGender, setNewClientGender] = useState<"male" | "female">("female");
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [createClientError, setCreateClientError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recordIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -114,7 +130,7 @@ function ClientsPageInner() {
         (specialFilter === "attention" && client.needsAttention);
       return matchesSearch && matchesStatus && matchesSpecial;
     });
-  }, [search, statusFilter, specialFilter]);
+  }, [clients, search, statusFilter, specialFilter]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -248,6 +264,41 @@ function ClientsPageInner() {
     setMessages(prev => [...prev, newMessage]);
   };
 
+  const resetNewClientForm = () => {
+    setNewClientName("");
+    setNewClientRequest("");
+    setNewClientApproach("");
+    setNewClientAge("");
+    setNewClientGender("female");
+    setCreateClientError(null);
+  };
+
+  const handleCreateClient = async () => {
+    if (!newClientName.trim()) {
+      setCreateClientError("Укажите имя клиента");
+      return;
+    }
+    setCreatingClient(true);
+    setCreateClientError(null);
+    try {
+      const created = await createClientRecord({
+        name: newClientName.trim(),
+        request: newClientRequest.trim() || undefined,
+        approach: newClientApproach.trim() || undefined,
+        age: newClientAge ? Number(newClientAge) : undefined,
+        gender: newClientGender,
+      });
+      await refreshClients();
+      setShowNewClient(false);
+      resetNewClientForm();
+      setSelectedClientId(created.id);
+    } catch (e) {
+      setCreateClientError(e instanceof Error ? e.message : "Не удалось создать клиента");
+    } finally {
+      setCreatingClient(false);
+    }
+  };
+
   const statuses = [
     { value: "active", label: "Активные" },
     { value: "pause", label: "На паузе" },
@@ -258,9 +309,27 @@ function ClientsPageInner() {
     <div style={{ display: "flex", height: "calc(100vh - 120px)", gap: 12 }}>
       {/* Левая колонка - Список клиентов */}
       <div style={{ flex: "0 0 30%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>
-          Клиенты
-        </h1>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E" }}>
+            Клиенты
+          </h1>
+          <button
+            onClick={() => setShowNewClient(true)}
+            style={{
+              padding: "7px 12px",
+              background: "#2D6A5C",
+              color: "#FFFFFF",
+              border: "none",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "var(--font-sans)",
+            }}
+          >
+            + Новый клиент
+          </button>
+        </div>
 
         {specialFilter && (
           <div style={{
@@ -358,6 +427,12 @@ function ClientsPageInner() {
 
         {/* Список клиентов */}
         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+          {clientsLoading && (
+            <p style={{ fontSize: 12, color: "#8C7355", padding: 12 }}>Загрузка клиентов…</p>
+          )}
+          {!clientsLoading && filtered.length === 0 && (
+            <p style={{ fontSize: 12, color: "#8C7355", padding: 12 }}>Клиенты не найдены</p>
+          )}
           <AnimatePresence>
             {filtered.map((client, idx) => (
               <motion.div
@@ -1117,7 +1192,7 @@ function ClientsPageInner() {
                         {selectedClient.name}
                       </h3>
                       <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
-                        {selectedClient.age} лет · {selectedClient.gender}
+                        {[selectedClient.age ? `${selectedClient.age} лет` : null, selectedClient.gender === "female" ? "Женский" : selectedClient.gender === "male" ? "Мужской" : null].filter(Boolean).join(" · ") || "Данные не указаны"}
                       </p>
                     </div>
 
@@ -1134,7 +1209,10 @@ function ClientsPageInner() {
                     <div style={{ marginBottom: 16 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 6 }}>Триггеры</div>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {selectedClient.triggers.map((trigger, i) => (
+                        {(selectedClient.triggers ?? EMPTY_TRIGGERS).length === 0 && (
+                          <span style={{ fontSize: 12, color: "#8C7355" }}>Пока не отмечены</span>
+                        )}
+                        {(selectedClient.triggers ?? EMPTY_TRIGGERS).map((trigger, i) => (
                           <span key={i} style={{
                             padding: "4px 8px",
                             background: "#E8F2EF",
@@ -1151,7 +1229,11 @@ function ClientsPageInner() {
 
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 6 }}>Последний тест</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{selectedClient.lastTest.name}: {selectedClient.lastTest.score}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
+                        {selectedClient.lastTest
+                          ? `${selectedClient.lastTest.name}: ${selectedClient.lastTest.score}`
+                          : "Тесты ещё не проводились"}
+                      </div>
                     </div>
                   </>
                 )}
@@ -1159,9 +1241,153 @@ function ClientsPageInner() {
                 {profileTab === "progress" && (
                   <ClientProgressScale
                     clientName={selectedClient.name}
-                    progress={selectedClient.progress}
+                    progress={selectedClient.progress ?? EMPTY_PROGRESS}
                   />
                 )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Модальное окно создания клиента */}
+      <AnimatePresence>
+        {showNewClient && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !creatingClient && setShowNewClient(false)}
+              style={{
+                position: "fixed", inset: 0,
+                background: "rgba(0, 0, 0, 0.4)",
+                zIndex: 60,
+                backdropFilter: "blur(2px)",
+              }}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", damping: 22, stiffness: 320 }}
+              style={{
+                position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                zIndex: 65,
+              }}
+            >
+              <div style={{
+                background: "#FFFFFF",
+                borderRadius: 16,
+                boxShadow: "0 25px 80px rgba(0, 0, 0, 0.2)",
+                width: "90%",
+                maxWidth: 420,
+                maxHeight: "85vh",
+                overflowY: "auto",
+              }}>
+                <div style={{
+                  padding: "20px 24px",
+                  borderBottom: "1px solid #E5DFD5",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
+                    Новый клиент
+                  </h2>
+                  <button
+                    onClick={() => !creatingClient && setShowNewClient(false)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                      Имя *
+                    </label>
+                    <Input
+                      placeholder="Имя и фамилия"
+                      value={newClientName}
+                      onChange={e => setNewClientName(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                        Возраст
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="32"
+                        value={newClientAge}
+                        onChange={e => setNewClientAge(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                        Пол
+                      </label>
+                      <select
+                        value={newClientGender}
+                        onChange={e => setNewClientGender(e.target.value as "male" | "female")}
+                        style={{
+                          width: "100%", padding: "9px 12px",
+                          border: "1px solid #E5DFD5", borderRadius: 8,
+                          fontSize: 13, color: "#1C1C1E",
+                          fontFamily: "var(--font-sans)", background: "#FFFFFF",
+                        }}
+                      >
+                        <option value="female">Женский</option>
+                        <option value="male">Мужской</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                      Запрос
+                    </label>
+                    <Input
+                      placeholder="Например: тревожность, панические атаки"
+                      value={newClientRequest}
+                      onChange={e => setNewClientRequest(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                      Подход
+                    </label>
+                    <Input
+                      placeholder="Например: КПТ"
+                      value={newClientApproach}
+                      onChange={e => setNewClientApproach(e.target.value)}
+                    />
+                  </div>
+
+                  {createClientError && (
+                    <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
+                      {createClientError}
+                    </p>
+                  )}
+
+                  <button
+                    onClick={handleCreateClient}
+                    disabled={creatingClient}
+                    style={{
+                      marginTop: 4, padding: "12px",
+                      background: creatingClient ? "#1F4E43" : "#2D6A5C",
+                      color: "#fff", border: "none", borderRadius: 10,
+                      fontSize: 14, fontWeight: 600,
+                      cursor: creatingClient ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {creatingClient ? "Создаём..." : "Создать клиента"}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </>

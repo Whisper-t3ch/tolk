@@ -3,16 +3,11 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Calendar, Clock, ArrowRight, Video } from "lucide-react";
-import { clients } from "@/lib/mock-data";
 import { useSession, type PlannedSession } from "@/lib/SessionContext";
+import { useClients } from "@/lib/useClients";
 import { Button, Card, CardContent } from "@/components/ui";
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
-
-function clientIndex(clientId: string) {
-  const idx = clients.findIndex(c => c.id === clientId);
-  return idx === -1 ? 0 : idx;
-}
 
 function formatDateLabel(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
@@ -21,7 +16,13 @@ function formatDateLabel(dateStr: string): string {
 
 export default function SessionsPage() {
   const { sessions } = useSession();
+  const { clients } = useClients();
   const [filter, setFilter] = useState<"upcoming" | "past">("upcoming");
+
+  function clientIndex(clientId: string) {
+    const idx = clients.findIndex(c => c.id === clientId);
+    return idx === -1 ? 0 : idx;
+  }
 
   const today = "2026-08-16";
 

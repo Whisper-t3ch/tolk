@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Search, X, LogOut } from "lucide-react";
 import { ToastContainer } from "@/components/ui";
-import { currentPsychologist, clients } from "@/lib/mock-data";
+import { currentPsychologist } from "@/lib/mock-data";
 import { createClient } from "@/lib/supabase/client";
+import { useClients } from "@/lib/useClients";
 
 interface Toast {
   id: string;
@@ -22,6 +23,7 @@ const NOTIFICATIONS = [
 
 export default function Header() {
   const router = useRouter();
+  const { clients } = useClients();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);

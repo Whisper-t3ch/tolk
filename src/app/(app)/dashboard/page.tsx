@@ -2,8 +2,8 @@
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { clients, dashboardStats } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
+import { useClients } from "@/lib/useClients";
 import { getScoreColor, getScoreBg } from "@/lib/utils";
 import { Users, Video, UserPlus, AlertCircle, ArrowRight, Clock, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -11,19 +11,27 @@ import { Button, Card, CardContent } from "@/components/ui";
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
 const TODAY = "2026-08-16";
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const EMPTY_LAST_TEST = { name: "—", score: 0, maxScore: 1, date: "—" };
 
 function toDateStr(y: number, m: number, d: number) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-function clientIndex(clientId: string) {
-  const idx = clients.findIndex(c => c.id === clientId);
-  return idx === -1 ? 0 : idx;
-}
-
 export default function DashboardPage() {
   const [hoveredClient, setHoveredClient] = useState<string | null>(null);
   const { sessions } = useSession();
+  const { clients } = useClients();
+
+  function clientIndex(clientId: string) {
+    const idx = clients.findIndex(c => c.id === clientId);
+    return idx === -1 ? 0 : idx;
+  }
+
+  const sessionCountByClient = useMemo(() => {
+    const map = new Map<string, number>();
+    sessions.forEach(s => map.set(s.clientId, (map.get(s.clientId) ?? 0) + 1));
+    return map;
+  }, [sessions]);
   const todayDate = new Date(TODAY + "T00:00:00");
   const [viewMonth, setViewMonth] = useState(new Date(todayDate.getFullYear(), todayDate.getMonth(), 1));
   const [selectedDateStr, setSelectedDateStr] = useState(TODAY);
@@ -70,12 +78,21 @@ export default function DashboardPage() {
     const cutoff = new Date(TODAY + "T00:00:00");
     cutoff.setDate(cutoff.getDate() - 30);
     return clients.filter(c => new Date(c.joinedDate + "T00:00:00") >= cutoff);
-  }, []);
-  const attentionClients = useMemo(() => clients.filter(c => c.needsAttention), []);
-  const avgSessionsPerClient = useMemo(
-    () => Math.round(clients.reduce((sum, c) => sum + c.sessions, 0) / clients.length),
-    []
-  );
+  }, [clients]);
+  const attentionClients = useMemo(() => clients.filter(c => c.needsAttention), [clients]);
+  const activeClients = useMemo(() => clients.filter(c => c.status === "active"), [clients]);
+  const sessionsThisMonth = useMemo(() => {
+    const [y, m] = TODAY.split("-").map(Number);
+    return sessions.filter(s => {
+      const [sy, sm] = s.date.split("-").map(Number);
+      return sy === y && sm === m;
+    }).length;
+  }, [sessions]);
+  const avgSessionsPerClient = useMemo(() => {
+    if (clients.length === 0) return 0;
+    const total = clients.reduce((sum, c) => sum + (sessionCountByClient.get(c.id) ?? 0), 0);
+    return Math.round(total / clients.length);
+  }, [clients, sessionCountByClient]);
 
   return (
     <div style={{ maxWidth: 1200, width: "100%", margin: "0 auto" }}>
@@ -92,8 +109,8 @@ export default function DashboardPage() {
       {/* Статистика */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
         {[
-          { label: "Активных клиентов", value: dashboardStats.activeClients, icon: Users, color: "#2D6A5C", href: "/clients" },
-          { label: "Сессий в месяце", value: dashboardStats.sessionsThisMonth, icon: Video, color: "#1BAF7A", href: "/sessions" },
+          { label: "Активных клиентов", value: activeClients.length, icon: Users, color: "#2D6A5C", href: "/clients" },
+          { label: "Сессий в месяце", value: sessionsThisMonth, icon: Video, color: "#1BAF7A", href: "/sessions" },
           { label: "Новых клиентов", value: `+${newClients.length}`, icon: UserPlus, color: "#8B5CF6", href: "/clients?filter=new" },
           { label: "Требуют внимания", value: attentionClients.length, icon: AlertCircle, color: "#F59E0B", href: "/clients?filter=attention" },
         ].map(({ label, value, icon: Icon, color, href }, idx) => (
@@ -416,8 +433,12 @@ export default function DashboardPage() {
           </div>
 
           {clients.map((client, i) => {
-            const scorePct = Math.round((client.lastTest.score / client.lastTest.maxScore) * 100);
-            const hwPct = Math.round((client.hwCompleted / client.hwTotal) * 100);
+            const lastTest = client.lastTest ?? EMPTY_LAST_TEST;
+            const scorePct = lastTest.maxScore > 0 ? Math.round((lastTest.score / lastTest.maxScore) * 100) : 0;
+            const hwTotal = client.hwTotal ?? 0;
+            const hwCompleted = client.hwCompleted ?? 0;
+            const hwPct = hwTotal > 0 ? Math.round((hwCompleted / hwTotal) * 100) : 0;
+            const sessionCount = sessionCountByClient.get(client.id) ?? 0;
             return (
               <motion.div
                 key={client.id}
@@ -459,15 +480,15 @@ export default function DashboardPage() {
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 5,
                     padding: "3px 8px",
-                    background: getScoreBg(client.lastTest.score, client.lastTest.maxScore),
+                    background: getScoreBg(lastTest.score, lastTest.maxScore),
                     borderRadius: 6,
                     fontSize: 13, fontWeight: 600,
-                    color: getScoreColor(client.lastTest.score, client.lastTest.maxScore),
+                    color: getScoreColor(lastTest.score, lastTest.maxScore),
                   }}>
-                    {client.lastTest.name}: {client.lastTest.score}
+                    {client.lastTest ? `${lastTest.name}: ${lastTest.score}` : "Нет данных"}
                   </span>
                   <div style={{ fontSize: 11, color: "#8C7355", marginTop: 3 }}>
-                    {client.lastTest.date}
+                    {lastTest.date}
                   </div>
                 </div>
 
@@ -476,7 +497,7 @@ export default function DashboardPage() {
                   <div style={{ height: 6, background: "rgba(79, 126, 255, 0.1)", borderRadius: 4, overflow: "hidden", width: 100 }}>
                     <div style={{
                       width: `${scorePct}%`, height: "100%",
-                      background: getScoreColor(client.lastTest.score, client.lastTest.maxScore),
+                      background: getScoreColor(lastTest.score, lastTest.maxScore),
                       borderRadius: 4,
                     }} />
                   </div>
@@ -486,14 +507,14 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Сессии */}
-                <span style={{ fontSize: 14, fontWeight: 500, color: "#1C1C1E" }}>{client.sessions}</span>
+                <span style={{ fontSize: 14, fontWeight: 500, color: "#1C1C1E" }}>{sessionCount}</span>
 
                 {/* ДЗ */}
                 <span style={{
                   fontSize: 13, fontWeight: 500,
                   color: hwPct >= 60 ? "#1BAF7A" : "#8C7355",
                 }}>
-                  {client.hwCompleted}/{client.hwTotal}
+                  {hwCompleted}/{hwTotal}
                 </span>
 
                 {/* Действие */}

@@ -1,5 +1,6 @@
 "use client";
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { fetchSessions, createSessionRecord, type NewSessionInput } from "@/lib/data/sessions";
 
 export interface PlannedSession {
   id: string;
@@ -11,27 +12,48 @@ export interface PlannedSession {
 
 interface SessionContextType {
   sessions: PlannedSession[];
-  addSession: (session: Omit<PlannedSession, "id">) => void;
+  loading: boolean;
+  error: string | null;
+  addSession: (session: Omit<PlannedSession, "id">) => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [sessions, setSessions] = useState<PlannedSession[]>([
-    { id: "1", clientId: "1", clientName: "Анна Иванова", date: "2026-08-12", time: "18:00" },
-    { id: "2", clientId: "2", clientName: "Дмитрий Орлов", date: "2026-08-13", time: "10:00" },
-    { id: "3", clientId: "3", clientName: "Светлана Морозова", date: "2026-08-13", time: "14:00" },
-    { id: "4", clientId: "3", clientName: "Светлана Морозова", date: "2026-08-15", time: "15:00" },
-    { id: "5", clientId: "1", clientName: "Анна Иванова", date: "2026-08-18", time: "11:00" },
-    { id: "6", clientId: "2", clientName: "Дмитрий Орлов", date: "2026-08-22", time: "16:00" },
-  ]);
+  const [sessions, setSessions] = useState<PlannedSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const addSession = (session: Omit<PlannedSession, "id">) => {
-    setSessions(prev => [...prev, { ...session, id: Math.random().toString() }]);
-  };
+  const refresh = useCallback(async () => {
+    try {
+      setError(null);
+      const data = await fetchSessions();
+      setSessions(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить сессии");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const addSession = useCallback(async (session: Omit<PlannedSession, "id">) => {
+    const input: NewSessionInput = {
+      clientId: session.clientId,
+      clientName: session.clientName,
+      date: session.date,
+      time: session.time,
+    };
+    const created = await createSessionRecord(input);
+    setSessions(prev => [...prev, created]);
+  }, []);
 
   return (
-    <SessionContext.Provider value={{ sessions, addSession }}>
+    <SessionContext.Provider value={{ sessions, loading, error, addSession, refresh }}>
       {children}
     </SessionContext.Provider>
   );
