@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { currentPsychologist } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
-import { useClients } from "@/lib/useClients";
+import { useClients } from "@/lib/ClientsContext";
 import ConferenceModal from "@/components/ConferenceModal";
 import { LogoMark } from "@/components/Logo";
 

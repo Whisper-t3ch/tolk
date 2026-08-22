@@ -7,7 +7,7 @@ import { Bell, Search, X, LogOut } from "lucide-react";
 import { ToastContainer } from "@/components/ui";
 import { currentPsychologist } from "@/lib/mock-data";
 import { createClient } from "@/lib/supabase/client";
-import { useClients } from "@/lib/useClients";
+import { useClients } from "@/lib/ClientsContext";
 
 interface Toast {
   id: string;

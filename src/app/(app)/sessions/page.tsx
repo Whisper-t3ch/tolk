@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Calendar, Clock, ArrowRight, Video } from "lucide-react";
 import { useSession, type PlannedSession } from "@/lib/SessionContext";
-import { useClients } from "@/lib/useClients";
+import { useClients } from "@/lib/ClientsContext";
 import { Button, Card, CardContent } from "@/components/ui";
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];

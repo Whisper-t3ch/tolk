@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Manrope, Inter } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/lib/SessionContext";
+import { ClientsProvider } from "@/lib/ClientsContext";
 
 const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
@@ -28,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="ru" className={`${manrope.variable} ${inter.variable}`}>
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <ClientsProvider>
+          <SessionProvider>{children}</SessionProvider>
+        </ClientsProvider>
       </body>
     </html>
   );

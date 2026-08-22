@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useSession } from "@/lib/SessionContext";
-import { useClients } from "@/lib/useClients";
+import { useClients } from "@/lib/ClientsContext";
 import { getScoreColor, getScoreBg } from "@/lib/utils";
 import { Users, Video, UserPlus, AlertCircle, ArrowRight, Clock, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";

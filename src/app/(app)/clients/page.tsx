@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, Send, Paperclip, User, FileText, X, Mic, Trash2, Play, Pause, Smile, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useClients } from "@/lib/useClients";
+import { useClients } from "@/lib/ClientsContext";
 import { createClientRecord } from "@/lib/data/clients";
 import { Card, CardContent, Input } from "@/components/ui";
 import ClientProgressScale from "@/components/ClientProgressScale";

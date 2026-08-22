@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { testHistory as testHistoryByClient } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
-import { useClients } from "@/lib/useClients";
+import { useClients } from "@/lib/ClientsContext";
 import { Button, Card, CardContent } from "@/components/ui";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
