@@ -164,71 +164,78 @@ export default function NoteTemplatesPage() {
               onClick={() => setSelected(null)}
               style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 40 }}
             />
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+            <div
               style={{
-                position: "fixed", top: "50%", left: "50%",
-                transform: "translate(-50%, -50%)",
-                background: "#FFFFFF", borderRadius: 16,
-                width: "90%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto",
-                zIndex: 45, boxShadow: "0 25px 80px rgba(0,0,0,0.2)",
+                position: "fixed", inset: 0, zIndex: 45,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 24, pointerEvents: "none",
               }}
             >
-              <div style={{
-                padding: 24, borderBottom: "1px solid #E5DFD5",
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-              }}>
-                <div>
-                  <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>{selected.name}</h2>
-                  <p style={{ fontSize: 12, color: "#8C7355", margin: "4px 0 0" }}>{selected.fullName}</p>
-                </div>
-                <button
-                  onClick={() => setSelected(null)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div style={{ padding: 24 }}>
-                <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.6, marginBottom: 20 }}>
-                  {selected.description}
-                </p>
-
-                <h3 style={{ fontSize: 12, fontWeight: 700, color: "#8C7355", textTransform: "uppercase", marginBottom: 10 }}>
-                  Структура протокола
-                </h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-                  {selected.fields.map((field, i) => (
-                    <div key={i} style={{ padding: "10px 12px", background: "#F5F3EF", borderRadius: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E", marginBottom: 2 }}>
-                        {field.label}
-                      </div>
-                      <div style={{ fontSize: 12, color: "#6B6058" }}>{field.hint}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {selected.id === "soap" && (
-                  <div style={{ marginBottom: 20 }}>
-                    <h3 style={{ fontSize: 12, fontWeight: 700, color: "#8C7355", textTransform: "uppercase", marginBottom: 10 }}>
-                      Пример готового протокола
-                    </h3>
-                    <div style={{ padding: 12, background: "#E8F2EF", borderRadius: 8, fontSize: 12, color: "#1C1C1E", lineHeight: 1.5 }}>
-                      <strong>{mockSOAP.clientName}</strong>, сессия №{mockSOAP.sessionNumber} · {mockSOAP.date}
-                      <p style={{ margin: "8px 0 0" }}>{mockSOAP.s.slice(0, 140)}…</p>
-                    </div>
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                style={{
+                  background: "#FFFFFF", borderRadius: 16,
+                  width: "90%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto",
+                  boxShadow: "0 25px 80px rgba(0,0,0,0.2)",
+                  pointerEvents: "auto",
+                }}
+              >
+                <div style={{
+                  padding: 24, borderBottom: "1px solid #E5DFD5",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <div>
+                    <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>{selected.name}</h2>
+                    <p style={{ fontSize: 12, color: "#8C7355", margin: "4px 0 0" }}>{selected.fullName}</p>
                   </div>
-                )}
+                  <button
+                    onClick={() => setSelected(null)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
 
-                <Button size="md" className="w-full" onClick={() => setAsDefault(selected)} disabled={defaultId === selected.id}>
-                  {defaultId === selected.id ? "Уже используется по умолчанию" : "Сделать шаблоном по умолчанию"}
-                  {defaultId !== selected.id && <ArrowRight size={15} style={{ marginLeft: 8 }} />}
-                </Button>
-              </div>
-            </motion.div>
+                <div style={{ padding: 24 }}>
+                  <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.6, marginBottom: 20 }}>
+                    {selected.description}
+                  </p>
+
+                  <h3 style={{ fontSize: 12, fontWeight: 700, color: "#8C7355", textTransform: "uppercase", marginBottom: 10 }}>
+                    Структура протокола
+                  </h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                    {selected.fields.map((field, i) => (
+                      <div key={i} style={{ padding: "10px 12px", background: "#F5F3EF", borderRadius: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E", marginBottom: 2 }}>
+                          {field.label}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#6B6058" }}>{field.hint}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {selected.id === "soap" && (
+                    <div style={{ marginBottom: 20 }}>
+                      <h3 style={{ fontSize: 12, fontWeight: 700, color: "#8C7355", textTransform: "uppercase", marginBottom: 10 }}>
+                        Пример готового протокола
+                      </h3>
+                      <div style={{ padding: 12, background: "#E8F2EF", borderRadius: 8, fontSize: 12, color: "#1C1C1E", lineHeight: 1.5 }}>
+                        <strong>{mockSOAP.clientName}</strong>, сессия №{mockSOAP.sessionNumber} · {mockSOAP.date}
+                        <p style={{ margin: "8px 0 0" }}>{mockSOAP.s.slice(0, 140)}…</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <Button size="md" className="w-full" onClick={() => setAsDefault(selected)} disabled={defaultId === selected.id}>
+                    {defaultId === selected.id ? "Уже используется по умолчанию" : "Сделать шаблоном по умолчанию"}
+                    {defaultId !== selected.id && <ArrowRight size={15} style={{ marginLeft: 8 }} />}
+                  </Button>
+                </div>
+              </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>
