@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Send, Paperclip, ChevronLeft, FileText, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
+  Sparkles, X,
 } from "lucide-react";
 import { testHistory as testHistoryByClient } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
@@ -56,6 +57,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [chatInput, setChatInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("sessions");
+  const [exportingTranscripts, setExportingTranscripts] = useState(false);
+  const [showPeriodSummary, setShowPeriodSummary] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [periodSummaryResult, setPeriodSummaryResult] = useState<string | null>(null);
+  const [periodSummaryError, setPeriodSummaryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -126,6 +133,83 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const hwTotal = client.hwTotal ?? 0;
   const hwCompleted = client.hwCompleted ?? 0;
   const hwPct = hwTotal > 0 ? Math.round((hwCompleted / hwTotal) * 100) : 0;
+
+  const handleExportAllTranscripts = async () => {
+    setExportingTranscripts(true);
+    try {
+      const res = await fetch(`/api/clients/${client.id}/export/transcripts`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? "Не удалось выгрузить транскрипты");
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? "transcripts.txt";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Не удалось выгрузить транскрипты — проверьте соединение");
+    } finally {
+      setExportingTranscripts(false);
+    }
+  };
+
+  const toggleSessionSelected = (sessionId: string) => {
+    setSelectedSessionIds(prev =>
+      prev.includes(sessionId) ? prev.filter(id => id !== sessionId) : [...prev, sessionId]
+    );
+  };
+
+  const handleGenerateSummary = async () => {
+    if (selectedSessionIds.length === 0) {
+      setPeriodSummaryError("Выберите хотя бы одну сессию");
+      return;
+    }
+    setGeneratingSummary(true);
+    setPeriodSummaryError(null);
+    setPeriodSummaryResult(null);
+    try {
+      const res = await fetch(`/api/clients/${client.id}/summary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_ids: selectedSessionIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPeriodSummaryError(data.error ?? "Не удалось сгенерировать срез");
+        return;
+      }
+      setPeriodSummaryResult(data.summary);
+    } catch {
+      setPeriodSummaryError("Не удалось связаться с сервером — проверьте соединение");
+    } finally {
+      setGeneratingSummary(false);
+    }
+  };
+
+  const handleDownloadSummary = () => {
+    if (!periodSummaryResult) return;
+    const blob = new Blob([periodSummaryResult], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `srez_${client.name.replace(/[^\p{L}\p{N}_-]+/gu, "_")}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const closePeriodSummaryModal = () => {
+    setShowPeriodSummary(false);
+    setSelectedSessionIds([]);
+    setPeriodSummaryResult(null);
+    setPeriodSummaryError(null);
+  };
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", width: "100%" }}>
@@ -204,6 +288,31 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       {activeTab === "sessions" && (
         <div style={{ display: "flex", gap: 16, height: "calc(100vh - 340px)", minHeight: 480 }}>
           <div style={{ flex: "0 0 34%", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={handleExportAllTranscripts}
+                disabled={exportingTranscripts}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  padding: "8px 12px", background: "#F5F3EF", border: "1px solid #E5DFD5",
+                  borderRadius: 8, fontSize: 12, fontWeight: 600, color: "#1C1C1E",
+                  cursor: exportingTranscripts ? "not-allowed" : "pointer", fontFamily: "var(--font-sans)",
+                }}
+              >
+                <Download size={13} /> {exportingTranscripts ? "Готовлю..." : "Выгрузить все транскрипты"}
+              </button>
+              <button
+                onClick={() => setShowPeriodSummary(true)}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  padding: "8px 12px", background: "#E8F2EF", border: "1px solid #2D6A5C40",
+                  borderRadius: 8, fontSize: 12, fontWeight: 600, color: "#2D6A5C",
+                  cursor: "pointer", fontFamily: "var(--font-sans)",
+                }}
+              >
+                <Sparkles size={13} /> Срез за период
+              </button>
+            </div>
             <div>
               <h3 style={{ fontSize: 12, fontWeight: 700, color: "#8C7355", textTransform: "uppercase", marginBottom: 10 }}>
                 Предстоящие ({upcomingSessions.length})
@@ -508,6 +617,108 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Модалка "Срез за период" */}
+      {showPeriodSummary && (
+        <>
+          <div
+            onClick={() => !generatingSummary && closePeriodSummaryModal()}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 70 }}
+          />
+          <div style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 75,
+          }}>
+            <div style={{
+              background: "#FFFFFF", borderRadius: 16, width: "90%", maxWidth: 560,
+              maxHeight: "85vh", overflowY: "auto", boxShadow: "0 25px 80px rgba(0,0,0,0.2)",
+            }}>
+              <div style={{
+                padding: "18px 22px", borderBottom: "1px solid #E5DFD5",
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+              }}>
+                <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
+                  Срез за период
+                </h2>
+                <button
+                  onClick={() => !generatingSummary && closePeriodSummaryModal()}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+                {!periodSummaryResult && (
+                  <>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
+                        Выберите сессии
+                      </label>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
+                        {clientSessions.length === 0 && (
+                          <p style={{ fontSize: 12, color: "#8C7355" }}>У этого клиента пока нет сессий</p>
+                        )}
+                        {clientSessions.map(s => (
+                          <label
+                            key={s.id}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8,
+                              padding: "8px 10px", background: "#F5F3EF", borderRadius: 8,
+                              fontSize: 13, color: "#1C1C1E", cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedSessionIds.includes(s.id)}
+                              onChange={() => toggleSessionSelected(s.id)}
+                              style={{ accentColor: "#2D6A5C" }}
+                            />
+                            {s.date} · {s.time}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {periodSummaryError && (
+                      <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
+                        {periodSummaryError}
+                      </p>
+                    )}
+
+                    <p style={{ fontSize: 11, color: "#8C7355", margin: 0, fontStyle: "italic" }}>
+                      Тяжёлый запрос — стоит 3 из лимита
+                    </p>
+
+                    <Button onClick={handleGenerateSummary} variant="primary" disabled={generatingSummary}>
+                      {generatingSummary ? "Генерирую..." : "Сгенерировать"}
+                    </Button>
+                  </>
+                )}
+
+                {periodSummaryResult && (
+                  <>
+                    <div style={{
+                      whiteSpace: "pre-wrap", fontSize: 13, color: "#1C1C1E",
+                      lineHeight: 1.5, background: "#F5F3EF", borderRadius: 8, padding: 14,
+                    }}>
+                      {periodSummaryResult}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Button onClick={handleDownloadSummary} variant="secondary">
+                        <Download size={14} style={{ marginRight: 6 }} /> Скачать
+                      </Button>
+                      <Button onClick={closePeriodSummaryModal} variant="secondary">
+                        Закрыть
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -2,7 +2,26 @@
 import { useState, useRef, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Sparkles, X } from "lucide-react";
+import { Send, Sparkles, X, Mic } from "lucide-react";
+
+// Web Speech API не имеет официальных типов в TS lib.dom — минимальный
+// набросок нужных полей, чтобы не тащить сторонний пакет ради одного use case.
+interface SpeechRecognitionResultLike {
+  transcript: string;
+}
+interface SpeechRecognitionEventLike extends Event {
+  results: { [index: number]: { [index: number]: SpeechRecognitionResultLike; length: number }; length: number };
+}
+interface SpeechRecognitionLike extends EventTarget {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+}
 
 interface Message {
   id: string;
@@ -21,7 +40,57 @@ export default function AIAssistant() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  const voiceSupported =
+    typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  const toggleVoiceInput = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const SpeechRecognitionCtor =
+      (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike })
+        .SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition;
+
+    if (!SpeechRecognitionCtor) {
+      setVoiceError("Голосовой ввод не поддерживается этим браузером");
+      setTimeout(() => setVoiceError(null), 3000);
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = "ru-RU";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
+      const last = event.results[event.results.length - 1];
+      const text = last?.[0]?.transcript ?? "";
+      if (text) {
+        setInput(prev => (prev ? `${prev} ${text}` : text));
+      }
+    };
+    recognition.onerror = () => {
+      setVoiceError("Не удалось распознать речь — попробуйте ещё раз");
+      setTimeout(() => setVoiceError(null), 3000);
+      setIsRecording(false);
+    };
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+    setIsRecording(true);
+    recognition.start();
+  };
 
   // Позволяет открыть тот же чат-ассистент из любой точки приложения
   // (например, с кнопки-блока в конце страницы /clients), не дублируя логику.
@@ -352,6 +421,11 @@ export default function AIAssistant() {
               </div>
 
               {/* Инпут */}
+              {voiceError && (
+                <div style={{ padding: "0 12px", fontSize: 11, color: "#EF4444" }}>
+                  {voiceError}
+                </div>
+              )}
               <div
                 style={{
                   padding: "12px",
@@ -382,6 +456,28 @@ export default function AIAssistant() {
                     boxSizing: "border-box",
                   }}
                 />
+                {voiceSupported && (
+                  <button
+                    onClick={toggleVoiceInput}
+                    title={isRecording ? "Остановить запись" : "Голосовой ввод"}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      background: isRecording ? "#EF4444" : "#F5F3EF",
+                      border: "1px solid #E5DFD5",
+                      borderRadius: 6,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      color: isRecording ? "#fff" : "#6B6058",
+                      flexShrink: 0,
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <Mic size={14} />
+                  </button>
+                )}
                 <button
                   onClick={handleSend}
                   disabled={isLoading}
