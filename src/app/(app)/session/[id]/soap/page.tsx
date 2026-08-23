@@ -1,9 +1,8 @@
 "use client";
-import { use, useState } from "react";
+import { use, useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Download, Copy, FileOutput, CheckCircle, Sparkles, Send, X } from "lucide-react";
-import { mockSOAP } from "@/lib/mock-data";
 import { Button, Card, CardContent } from "@/components/ui";
 
 const SOAP_BLOCKS = [
@@ -13,10 +12,28 @@ const SOAP_BLOCKS = [
   { key: "p" as const, label: "P — План", color: "#8B5CF6", emoji: "📋", hint: "ДЗ, задачи следующей сессии" },
 ];
 
+interface SoapContent {
+  s: string;
+  o: string;
+  a: string;
+  p: string;
+}
+
+const EMPTY_SOAP: SoapContent = { s: "", o: "", a: "", p: "" };
+
 export default function SOAPPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = use(params);
-  const [content, setContent] = useState({ ...mockSOAP });
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{ clientName: string; scheduledAt: string; durationMinutes: number } | null>(null);
+  const [soapNoteId, setSoapNoteId] = useState<string | null>(null);
+  const [content, setContent] = useState<SoapContent>(EMPTY_SOAP);
+  const [protocolExists, setProtocolExists] = useState(false);
+
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
@@ -27,9 +44,64 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   const [sendingSummary, setSendingSummary] = useState(false);
   const [sendSummaryError, setSendSummaryError] = useState<string | null>(null);
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const loadSoap = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/soap`);
+      const data = await res.json();
+      if (!res.ok) {
+        setLoadError(data.error ?? "Не удалось загрузить протокол");
+        return;
+      }
+      setSessionInfo({
+        clientName: data.session.clientName,
+        scheduledAt: data.session.scheduledAt,
+        durationMinutes: data.session.durationMinutes,
+      });
+      if (data.soapNote) {
+        setSoapNoteId(data.soapNote.id);
+        setContent({ s: data.soapNote.s, o: data.soapNote.o, a: data.soapNote.a, p: data.soapNote.p });
+        setProtocolExists(true);
+      } else {
+        setSoapNoteId(null);
+        setContent(EMPTY_SOAP);
+        setProtocolExists(false);
+      }
+    } catch {
+      setLoadError("Не удалось связаться с сервером — проверьте соединение");
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    loadSoap();
+  }, [loadSoap]);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/soap`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(content),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSaveError(data.error ?? "Не удалось сохранить протокол");
+        return;
+      }
+      setSoapNoteId(data.soapNote.id);
+      setProtocolExists(true);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setSaveError("Не удалось связаться с сервером — проверьте соединение");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDownloadTranscript() {
@@ -73,17 +145,32 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   }
 
   async function handleSendSummary() {
+    if (!soapNoteId) {
+      setSendSummaryError("Сначала сохраните протокол — без этого его не к чему привязать резюме.");
+      return;
+    }
     setSendingSummary(true);
     setSendSummaryError(null);
     try {
-      // ВНИМАНИЕ: этот SOAP-протокол сейчас на моках (mockSOAP), у него нет
-      // реального id в таблице soap_notes — реальную отправку можно
-      // проверить только после того, как SOAP будет сохраняться в БД
-      // (следующий шаг интеграции). Явно сообщаем об этом вместо тихой
-      // отправки в никуда.
-      setSendSummaryError(
-        "Этот протокол ещё не сохранён в базе (страница работает на демо-данных) — отправка резюме заработает после подключения SOAP к реальным данным."
-      );
+      const res = await fetch(`/api/soap/${soapNoteId}/send-summary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_summary: summaryDraft, channel: summaryChannel }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendSummaryError(data.error ?? "Не удалось отправить резюме");
+        return;
+      }
+      if (data.warning) {
+        setSendSummaryError(data.warning);
+      } else {
+        setShowSendSummary(false);
+        setNotification("Резюме сохранено и отправлено клиенту");
+        setTimeout(() => setNotification(null), 3000);
+      }
+    } catch {
+      setSendSummaryError("Не удалось связаться с сервером — проверьте соединение");
     } finally {
       setSendingSummary(false);
     }
@@ -123,7 +210,11 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                   </h1>
                 </div>
                 <p style={{ fontSize: 13, color: "#6B6058", margin: 0, marginTop: 4 }}>
-                  {content.clientName} · {content.date} · Сессия #{content.sessionNumber} · {content.duration}
+                  {loading
+                    ? "Загрузка…"
+                    : sessionInfo
+                    ? `${sessionInfo.clientName} · ${new Date(sessionInfo.scheduledAt).toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" })} · ${sessionInfo.durationMinutes} минут`
+                    : loadError ?? "Сессия не найдена"}
                 </p>
               </div>
 
@@ -132,14 +223,44 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                   <Download size={14} style={{ marginRight: 4 }} />
                   {pdfLoading ? "Готовлю..." : "PDF"}
                 </Button>
-                <Button onClick={handleSave} variant="primary" size="sm">
-                  {saved ? <><CheckCircle size={14} style={{ marginRight: 4 }} /> Сохранено</> : "Сохранить"}
+                <Button onClick={handleSave} variant="primary" size="sm" disabled={saving}>
+                  {saved ? <><CheckCircle size={14} style={{ marginRight: 4 }} /> Сохранено</> : saving ? "Сохраняю..." : "Сохранить"}
                 </Button>
               </div>
             </div>
+            {saveError && (
+              <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginTop: 12 }}>
+                {saveError}
+              </p>
+            )}
           </CardContent>
         </Card>
       </motion.div>
+
+      {!loading && !protocolExists && !loadError && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ marginBottom: 24 }}
+        >
+          <Card>
+            <CardContent className="pt-6" style={{ textAlign: "center", padding: "32px 24px" }}>
+              <Sparkles size={28} style={{ color: "#8C7355", marginBottom: 12 }} />
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: "0 0 6px 0" }}>
+                Протокол не создан
+              </h3>
+              <p style={{ fontSize: 13, color: "#6B6058", margin: "0 0 16px 0" }}>
+                Для этой сессии ещё нет SOAP-протокола. Сгенерируйте его автоматически или заполните блоки ниже вручную.
+              </p>
+              <span title="Генерация будет доступна после настройки API" style={{ display: "inline-block" }}>
+                <Button variant="primary" disabled>
+                  <Sparkles size={14} style={{ marginRight: 6 }} /> Сгенерировать SOAP
+                </Button>
+              </span>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* SOAP блоки */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 24 }}>
@@ -199,7 +320,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               Действия
             </h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Link href={`/content?session=${content.sessionNumber}`} style={{ textDecoration: "none" }}>
+              <Link href={`/content?session=${sessionId}`} style={{ textDecoration: "none" }}>
                 <Button variant="primary">
                   <FileOutput size={14} style={{ marginRight: 6 }} /> Сгенерировать контент
                 </Button>
