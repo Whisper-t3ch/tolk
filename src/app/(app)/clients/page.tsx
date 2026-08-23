@@ -73,7 +73,7 @@ const createMockMessages = (): ChatMessage[] => {
 };
 
 function ClientsPageInner() {
-  const { clients, loading: clientsLoading, refresh: refreshClients } = useClients();
+  const { clients, loading: clientsLoading, error: clientsError, refresh: refreshClients } = useClients();
   const searchParams = useSearchParams();
   const clientFromUrl = searchParams.get("client");
   const filterFromUrl = searchParams.get("filter"); // "new" | "attention" | null
@@ -430,7 +430,20 @@ function ClientsPageInner() {
           {clientsLoading && (
             <p style={{ fontSize: 12, color: "#8C7355", padding: 12 }}>Загрузка клиентов…</p>
           )}
-          {!clientsLoading && filtered.length === 0 && (
+          {!clientsLoading && clientsError && (
+            <div style={{ padding: 12, background: "#FEE2E2", borderRadius: 8, margin: 12 }}>
+              <p style={{ fontSize: 12, color: "#EF4444", margin: 0, marginBottom: 6 }}>
+                Не удалось загрузить клиентов: {clientsError}
+              </p>
+              <button
+                onClick={refreshClients}
+                style={{ fontSize: 11, color: "#2D6A5C", fontWeight: 600, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+              >
+                Попробовать снова
+              </button>
+            </div>
+          )}
+          {!clientsLoading && !clientsError && filtered.length === 0 && (
             <p style={{ fontSize: 12, color: "#8C7355", padding: 12 }}>Клиенты не найдены</p>
           )}
           <AnimatePresence>

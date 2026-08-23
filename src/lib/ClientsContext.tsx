@@ -38,6 +38,26 @@ export function ClientsProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
+  // Если первая загрузка совпала с сетевым сбоем (например, вкладка была
+  // открыта до восстановления соединения), список клиентов мог остаться
+  // пустым до ручного обновления страницы — ClientsProvider живёт в
+  // корневом layout и не перемонтируется при переходах между страницами.
+  // Подстраховка: перечитываем список при возврате фокуса на вкладку,
+  // если к этому моменту он всё ещё пуст и не грузится.
+  useEffect(() => {
+    const handleFocus = () => {
+      if (!loading && clients.length === 0) {
+        refresh();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
+  }, [loading, clients.length, refresh]);
+
   return (
     <ClientsContext.Provider value={{ clients, loading, error, refresh }}>
       {children}
