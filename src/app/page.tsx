@@ -163,6 +163,7 @@ const IconAnimatedAnalytics = () => (
       <motion.rect
         key={i}
         x={bar.x} width="6" rx="2" fill="#8B5CF6"
+        initial={{ height: 4, y: 42 }}
         animate={{ height: [4, bar.h, bar.h * 0.7, bar.h], y: [42, 42 - bar.h, 42 - bar.h * 0.7, 42 - bar.h] }}
         transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut", delay: bar.delay }}
       />
@@ -344,6 +345,7 @@ const IconVoiceWaveform = () => {
           width="6"
           rx="3"
           fill="#2D6A5C"
+          initial={{ height: h * 0.3, y: 28 - (h * 0.3) / 2, opacity: 0.5 }}
           animate={{
             height: [h * 0.3, h, h * 0.3],
             y: [28 - (h * 0.3) / 2, 28 - h / 2, 28 - (h * 0.3) / 2],
@@ -1252,6 +1254,7 @@ const WorkflowArt = () => {
           stroke="#2D6A5C"
           strokeOpacity="0.35"
           strokeWidth="2"
+          initial={{ height: h * 0.4, y: 160 - (h * 0.4) / 2 }}
           animate={{ height: [h * 0.4, h, h * 0.4], y: [160 - (h * 0.4) / 2, 160 - h / 2, 160 - (h * 0.4) / 2] }}
           transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut", delay: i * 0.1 }}
         />
@@ -2993,7 +2996,7 @@ export default function LandingPage() {
                 lineHeight: 1.6,
               }}
             >
-              <strong style={{ color: "#1C1C1E", fontWeight: 700 }}>Протокол по SOAP</strong>, карточка клиента, тесты и напоминания клиентам — платформа берёт это на себя, пока вы отдыхаете или ведёте следующую сессию.
+              <strong style={{ color: "#1C1C1E", fontWeight: 700 }}>Заметки по сессии превращаются в готовый протокол</strong>, карточка клиента заполняется сама, тесты и напоминания клиентам платформа отправляет за вас — пока вы отдыхаете или ведёте следующую сессию.
             </p>
 
             <div style={{ display: "flex", gap: 16, marginBottom: 40, flexWrap: "wrap" }}>
