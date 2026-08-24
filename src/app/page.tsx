@@ -2996,7 +2996,7 @@ export default function LandingPage() {
                 lineHeight: 1.6,
               }}
             >
-Пока вы наливаете кофе после сессии, <strong style={{ color: "#1C1C1E", fontWeight: 700 }}>платформа уже написала протокол</strong>, обновила карточку клиента и напомнила ему про домашнее задание.
+              <strong style={{ color: "#1C1C1E", fontWeight: 700 }}>Конспект сессии</strong>, карточка клиента, тесты и напоминания клиентам — платформа берёт это на себя, пока вы отдыхаете или ведёте следующую сессию.
             </p>
 
             <div style={{ display: "flex", gap: 16, marginBottom: 40, flexWrap: "wrap" }}>
