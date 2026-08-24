@@ -2985,7 +2985,7 @@ export default function LandingPage() {
                 lineHeight: 1.2,
               }}
             >
-              <span style={{ color: "#2D6A5C" }}>20 часов в месяц</span> экономит психологам ТОЛК — рутину берём на себя
+              <span style={{ color: "#2D6A5C" }}>20 часов в месяц</span> экономит психологам ТОЛК
             </h1>
 
             <p
