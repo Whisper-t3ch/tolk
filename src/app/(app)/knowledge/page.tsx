@@ -1,11 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, BookOpen } from "lucide-react";
+import { Plus, BookOpen, Trash2, X, Loader2 } from "lucide-react";
 import { knowledgeTechniques } from "@/lib/mock-data";
 import { Button, Card, CardContent, Badge, Tabs } from "@/components/ui";
-
-const TABS = ["Техники", "Шаблоны ДЗ", "Материалы"] as const;
 
 const HW_TEMPLATES = [
   {
@@ -28,8 +26,309 @@ const HW_TEMPLATES = [
   },
 ];
 
+// ------------------------------------------------------------
+// Вкладка "Материалы" — личная база знаний психолога, которую
+// использует AI-ассистент для RAG-поиска (/api/knowledge). Раньше
+// здесь была заглушка "в разработке" — теперь реальная загрузка
+// с созданием эмбеддингов через YandexGPT.
+// ------------------------------------------------------------
+interface KnowledgeItem {
+  id: string;
+  title: string | null;
+  content: string;
+  source_type: "technique" | "article" | "protocol" | "manual";
+  approach: string | null;
+  created_at: string;
+}
+
+const SOURCE_TYPE_LABELS: Record<KnowledgeItem["source_type"], string> = {
+  technique: "Техника",
+  article: "Статья",
+  protocol: "Протокол",
+  manual: "Материал",
+};
+
+function MaterialsTab() {
+  const [items, setItems] = useState<KnowledgeItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [sourceType, setSourceType] = useState<KnowledgeItem["source_type"]>("manual");
+  const [approach, setApproach] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const loadItems = useCallback(async () => {
+    try {
+      setLoadError(null);
+      const res = await fetch("/api/knowledge");
+      const data = await res.json();
+      if (!res.ok) {
+        setLoadError(data?.error ?? "Не удалось загрузить материалы");
+        return;
+      }
+      setItems(data.items ?? []);
+    } catch {
+      setLoadError("Не удалось связаться с сервером");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadItems();
+  }, [loadItems]);
+
+  const handleSubmit = async () => {
+    if (!content.trim()) {
+      setSubmitError("Добавьте содержимое материала");
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch("/api/knowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim() || undefined,
+          content: content.trim(),
+          source_type: sourceType,
+          approach: approach.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSubmitError(data?.error ?? "Не удалось сохранить материал");
+        return;
+      }
+      setTitle("");
+      setContent("");
+      setApproach("");
+      setSourceType("manual");
+      setShowForm(false);
+      await loadItems();
+    } catch {
+      setSubmitError("Не удалось связаться с сервером");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id));
+    try {
+      const res = await fetch(`/api/knowledge?id=${id}`, { method: "DELETE" });
+      if (!res.ok) await loadItems();
+    } catch {
+      await loadItems();
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <p style={{ fontSize: 12.5, color: "#6B6058", margin: 0 }}>
+          Личные материалы — статьи, протоколы, заметки. Ассистент использует их при ответах.
+        </p>
+        <Button onClick={() => setShowForm(true)} variant="primary" size="sm">
+          <Plus size={14} style={{ marginRight: 6 }} /> Добавить материал
+        </Button>
+      </div>
+
+      {loadError && (
+        <div style={{ padding: 12, background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, color: "#B91C1C", fontSize: 13, marginBottom: 16 }}>
+          {loadError}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>
+      ) : items.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px" }}>
+          <BookOpen size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+          <p style={{ color: "#6B6058", marginBottom: 0 }}>
+            Пока нет собственных материалов — добавьте первый, и ассистент сможет опираться на него в ответах.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {items.map(item => (
+            <Card key={item.id}>
+              <CardContent className="pt-6" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{
+                  width: 36, height: 36, background: "#E8F2EF", borderRadius: 8,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}>
+                  <BookOpen size={16} style={{ color: "#2D6A5C" }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
+                      {item.title || "Без названия"}
+                    </span>
+                    <Badge variant="muted">{SOURCE_TYPE_LABELS[item.source_type]}</Badge>
+                    {item.approach && <Badge variant="muted">{item.approach}</Badge>}
+                  </div>
+                  <p style={{ fontSize: 12.5, color: "#6B6058", lineHeight: 1.5, margin: 0 }}>
+                    {item.content.length > 200 ? `${item.content.slice(0, 200)}…` : item.content}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDelete(item.id)}
+                  title="Удалить материал"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4, flexShrink: 0 }}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <AnimatePresence>
+        {showForm && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !submitting && setShowForm(false)}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 40 }}
+            />
+            <div
+              style={{
+                position: "fixed", inset: 0, zIndex: 45,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 24, pointerEvents: "none",
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                style={{
+                  background: "#FFFFFF", borderRadius: 16,
+                  width: "90%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto",
+                  boxShadow: "0 25px 80px rgba(0,0,0,0.2)",
+                  pointerEvents: "auto",
+                }}
+              >
+                <div style={{
+                  padding: 24, borderBottom: "1px solid #E5DFD5",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Новый материал</h3>
+                  <button
+                    onClick={() => !submitting && setShowForm(false)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", display: "block", marginBottom: 6 }}>
+                      Название (опционально)
+                    </label>
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={e => setTitle(e.target.value)}
+                      placeholder="Например: Мой протокол первой сессии"
+                      style={{
+                        width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
+                        borderRadius: 8, fontSize: 13, color: "#1C1C1E", boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", display: "block", marginBottom: 6 }}>
+                        Тип материала
+                      </label>
+                      <select
+                        value={sourceType}
+                        onChange={e => setSourceType(e.target.value as KnowledgeItem["source_type"])}
+                        style={{
+                          width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
+                          borderRadius: 8, fontSize: 13, color: "#1C1C1E", boxSizing: "border-box",
+                          background: "#fff",
+                        }}
+                      >
+                        <option value="manual">Материал</option>
+                        <option value="technique">Техника</option>
+                        <option value="article">Статья</option>
+                        <option value="protocol">Протокол</option>
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", display: "block", marginBottom: 6 }}>
+                        Подход (опционально)
+                      </label>
+                      <input
+                        type="text"
+                        value={approach}
+                        onChange={e => setApproach(e.target.value)}
+                        placeholder="Например: КПТ"
+                        style={{
+                          width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
+                          borderRadius: 8, fontSize: 13, color: "#1C1C1E", boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", display: "block", marginBottom: 6 }}>
+                      Содержание
+                    </label>
+                    <textarea
+                      value={content}
+                      onChange={e => setContent(e.target.value)}
+                      rows={8}
+                      placeholder="Вставьте текст материала…"
+                      style={{
+                        width: "100%", padding: "10px 12px", border: "1px solid #E5DFD5",
+                        borderRadius: 8, fontSize: 13, color: "#1C1C1E", boxSizing: "border-box",
+                        fontFamily: "var(--font-sans)", resize: "vertical",
+                      }}
+                    />
+                  </div>
+
+                  {submitError && <div style={{ fontSize: 12, color: "#B91C1C" }}>{submitError}</div>}
+
+                  <Button size="md" className="w-full" onClick={handleSubmit} disabled={submitting}>
+                    {submitting ? (
+                      <>
+                        <Loader2 size={15} style={{ marginRight: 8, animation: "knowledgeSpin 1s linear infinite" }} />
+                        Создаём эмбеддинги…
+                      </>
+                    ) : (
+                      "Сохранить материал"
+                    )}
+                  </Button>
+                </div>
+              </motion.div>
+            </div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <style>{`
+        @keyframes knowledgeSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+}
+
 export default function KnowledgePage() {
-  const [tab, setTab] = useState<typeof TABS[number]>("Техники");
   const [detail, setDetail] = useState<{ title: string; description: string; tags: string[] } | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -112,17 +411,7 @@ export default function KnowledgePage() {
     {
       id: "materials",
       label: "Материалы",
-      content: (
-        <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <BookOpen size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
-          <p style={{ color: "#6B6058", marginBottom: 16 }}>
-            Материалы в разработке
-          </p>
-          <Button onClick={() => notify("Раздел «Материалы» скоро появится — мы уже над ним работаем")} variant="primary">
-            <Plus size={14} style={{ marginRight: 6 }} /> Добавить материал
-          </Button>
-        </div>
-      ),
+      content: <MaterialsTab />,
     },
   ];
 
