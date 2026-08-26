@@ -3618,6 +3618,52 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Партнёры */}
+      <section id="partners" style={{ padding: "72px 24px", background: "#F5F3EF", borderTop: "1px solid #E5DFD5" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} style={{ textAlign: "center", marginBottom: 40 }}>
+            <h2 style={{ fontSize: 28, fontWeight: 800, color: "#1C1C1E", marginBottom: 10 }}>
+              Наши партнёры
+            </h2>
+            <p style={{ fontSize: 14, color: "#6B6058", maxWidth: 560, margin: "0 auto" }}>
+              Образовательные платформы, с которыми мы развиваем профессиональное сообщество психологов
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 28,
+              background: "#FFFFFF",
+              border: "1px solid #E5DFD5",
+              borderRadius: 16,
+              padding: "28px 32px",
+              maxWidth: 780,
+              margin: "0 auto",
+              flexWrap: "wrap",
+            }}
+          >
+            <img
+              src="/images/newpsy-logo.png"
+              alt="NEWPSY"
+              style={{ width: 96, height: 96, borderRadius: "50%", flexShrink: 0, objectFit: "cover" }}
+            />
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", marginBottom: 6 }}>
+                NEWPSY
+              </div>
+              <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.6, margin: 0 }}>
+                Эксклюзивный дистрибьютор на русском языке одной из крупнейших коллекций курсов с сессиями великих мастеров психотерапии <strong>PsychotherapyNet</strong> (Калифорния, США), а также провайдер русскоязычных программ по нейропсихоанализу автора подхода — профессора Марка Солмса.
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
       {/* Why ТОЛК Section */}
       <section style={{ padding: "80px 24px", background: "#E8F2EF" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
