@@ -3650,7 +3650,7 @@ export default function LandingPage() {
             <img
               src="/images/newpsy-logo.png"
               alt="NEWPSY"
-              style={{ width: 96, height: 96, borderRadius: "50%", flexShrink: 0, objectFit: "cover" }}
+              style={{ width: 140, height: "auto", flexShrink: 0, objectFit: "contain" }}
             />
             <div style={{ flex: 1, minWidth: 240 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", marginBottom: 6 }}>
