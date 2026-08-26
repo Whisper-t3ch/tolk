@@ -231,7 +231,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
         properties: {
           client_id: { type: "string", description: "UUID клиента" },
           text: { type: "string", description: "Текст сообщения" },
-          channel: { type: "string", enum: ["telegram", "vk", "max"], description: "Канал отправки" },
+          channel: { type: "string", enum: ["telegram", "vk"], description: "Канал отправки" },
         },
         required: ["client_id", "text", "channel"],
       },

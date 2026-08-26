@@ -16,6 +16,7 @@ import {
   formatPeriodSummaryAsText,
   type PeriodSummaryResult,
 } from "@/lib/prompts/periodSummary";
+import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
 import type { AgentToolName } from "./tools";
 
 export class AgentToolError extends Error {
@@ -352,16 +353,69 @@ async function cancelSession(ctx: ExecutorContext, args: { session_id: string; r
 }
 
 // ------------------------------------------------------------
-// КОММУНИКАЦИЯ — реальных интеграций с мессенджерами пока нет,
-// сообщения сохраняются со status='pending' (см. migration_004_agent.sql,
-// таблица messages). Решение подтверждено психологом: код готов к
-// подключению реальной отправки, когда появятся Telegram/VK-боты.
+// КОММУНИКАЦИЯ — реальная отправка через Telegram/VK, если у
+// клиента есть привязанный чат (client_messenger_links) и
+// интеграция психолога подключена (messenger_integrations,
+// см. migration_005_integrations.sql). Если привязки/интеграции
+// нет — сообщение всё равно сохраняется в messages со
+// status='pending', чтобы психолог видел его в едином чате и мог
+// разобраться (например, отправить клиенту ссылку-приглашение на
+// подключение мессенджера).
 // ------------------------------------------------------------
+
+type MessengerPlatform = "telegram" | "vk";
+
+async function tryDeliverMessage(
+  ctx: ExecutorContext,
+  clientId: string,
+  channel: "telegram" | "vk" | "max",
+  text: string
+): Promise<{ status: "sent" | "pending"; externalMessageId?: string; errorMessage?: string }> {
+  if (channel !== "telegram" && channel !== "vk") {
+    // 'max' оставлен только для старых записей — новых отправок через него не бывает.
+    return { status: "pending" };
+  }
+  const platform = channel as MessengerPlatform;
+
+  const { data: link } = await ctx.supabase
+    .from("client_messenger_links")
+    .select("external_chat_id")
+    .eq("client_id", clientId)
+    .eq("psychologist_id", ctx.psychologistId)
+    .eq("platform", platform)
+    .maybeSingle();
+  if (!link) return { status: "pending" };
+
+  const { data: integration } = await ctx.supabase
+    .from("messenger_integrations")
+    .select("bot_token, vk_group_id, status")
+    .eq("psychologist_id", ctx.psychologistId)
+    .eq("platform", platform)
+    .maybeSingle();
+  if (!integration || integration.status !== "connected" || !integration.bot_token) {
+    return { status: "pending" };
+  }
+
+  try {
+    const result = await sendViaMessenger(
+      platform,
+      { botToken: integration.bot_token, vkGroupId: integration.vk_group_id },
+      link.external_chat_id as string,
+      text
+    );
+    return { status: "sent", externalMessageId: result.externalMessageId };
+  } catch (err) {
+    const message = err instanceof MessengerSendError ? err.message : "Не удалось отправить сообщение";
+    return { status: "pending", errorMessage: message };
+  }
+}
 
 async function sendMessageToClient(
   ctx: ExecutorContext,
   args: { client_id: string; text: string; channel: "telegram" | "vk" | "max" }
 ) {
+  const delivery = await tryDeliverMessage(ctx, args.client_id, args.channel, args.text);
+
   const { data, error } = await ctx.supabase
     .from("messages")
     .insert({
@@ -370,18 +424,29 @@ async function sendMessageToClient(
       channel: args.channel,
       kind: "message",
       text: args.text,
-      status: "pending",
+      status: delivery.status,
+      external_message_id: delivery.externalMessageId ?? null,
+      error_message: delivery.errorMessage ?? null,
+      sent_at: delivery.status === "sent" ? new Date().toISOString() : null,
     })
     .select("id, channel, text, status, created_at")
     .single();
   if (error) throw new AgentToolError(error.message, "send_message_to_client");
+
   return {
     message: data,
-    note: "Сообщение подготовлено и сохранено. Отправка в мессенджер будет доступна после подключения каналов.",
+    note:
+      delivery.status === "sent"
+        ? "Сообщение отправлено клиенту."
+        : delivery.errorMessage
+          ? `Не удалось отправить: ${delivery.errorMessage}. Сообщение сохранено, можно повторить позже.`
+          : "У клиента нет привязанного чата в мессенджере (или канал не подключён) — сообщение сохранено, отправка станет доступна после привязки.",
   };
 }
 
 async function sendHomework(ctx: ExecutorContext, args: { client_id: string; homework_text: string }) {
+  const delivery = await tryDeliverMessage(ctx, args.client_id, "telegram", args.homework_text);
+
   const { data, error } = await ctx.supabase
     .from("messages")
     .insert({
@@ -390,14 +455,21 @@ async function sendHomework(ctx: ExecutorContext, args: { client_id: string; hom
       channel: "telegram",
       kind: "homework",
       text: args.homework_text,
-      status: "pending",
+      status: delivery.status,
+      external_message_id: delivery.externalMessageId ?? null,
+      error_message: delivery.errorMessage ?? null,
+      sent_at: delivery.status === "sent" ? new Date().toISOString() : null,
     })
     .select("id, channel, text, status, created_at")
     .single();
   if (error) throw new AgentToolError(error.message, "send_homework");
+
   return {
     message: data,
-    note: "Домашнее задание подготовлено и сохранено. Отправка в мессенджер будет доступна после подключения каналов.",
+    note:
+      delivery.status === "sent"
+        ? "Домашнее задание отправлено клиенту в Telegram."
+        : "Домашнее задание сохранено. У клиента нет привязанного Telegram (или бот не подключён) — отправка станет доступна после привязки.",
   };
 }
 
@@ -410,6 +482,9 @@ async function sendSessionInvite(ctx: ExecutorContext, args: { session_id: strin
   if (sessionError) throw new AgentToolError(sessionError.message, "send_session_invite");
   if (!session) throw new AgentToolError("Сессия не найдена", "send_session_invite");
 
+  const text = "Ссылка на видеовстречу будет доступна после подключения видеосвязи (Трек Б).";
+  const delivery = await tryDeliverMessage(ctx, session.client_id as string, "telegram", text);
+
   const { data, error } = await ctx.supabase
     .from("messages")
     .insert({
@@ -417,16 +492,23 @@ async function sendSessionInvite(ctx: ExecutorContext, args: { session_id: strin
       client_id: session.client_id,
       channel: "telegram",
       kind: "session_invite",
-      text: `Ссылка на видеовстречу будет доступна после подключения видеосвязи (Трек Б).`,
-      status: "pending",
+      text,
+      status: delivery.status,
+      external_message_id: delivery.externalMessageId ?? null,
+      error_message: delivery.errorMessage ?? null,
       related_session_id: session.id,
+      sent_at: delivery.status === "sent" ? new Date().toISOString() : null,
     })
     .select("id, channel, text, status, created_at")
     .single();
   if (error) throw new AgentToolError(error.message, "send_session_invite");
+
   return {
     message: data,
-    note: "Приглашение подготовлено и сохранено. Реальная ссылка на видеокомнату и отправка появятся после подключения Jitsi (Трек Б) и мессенджер-каналов.",
+    note:
+      delivery.status === "sent"
+        ? "Приглашение отправлено клиенту в Telegram. Реальная ссылка на видеокомнату появится после подключения Jitsi (Трек Б) — сейчас отправлен текст-заглушка."
+        : "Приглашение сохранено. У клиента нет привязанного Telegram (или бот не подключён) — отправка станет доступна после привязки. Ссылка на видеокомнату появится после подключения Jitsi (Трек Б).",
   };
 }
 

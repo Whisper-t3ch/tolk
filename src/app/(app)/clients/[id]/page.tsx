@@ -3,9 +3,9 @@ import { use, useState, useRef, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import {
-  Send, Paperclip, ChevronLeft, FileText, Download,
+  Send, ChevronLeft, FileText, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
-  Sparkles, X,
+  Sparkles, X, Link2, Copy, Check,
 } from "lucide-react";
 import { testHistory as testHistoryByClient } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
@@ -24,13 +24,31 @@ interface ChatMessage {
   text: string;
   time: string;
   file?: { name: string; size: string };
+  status?: "pending" | "sent" | "delivered" | "failed";
+  errorMessage?: string | null;
 }
 
-const MOCK_MESSAGES: ChatMessage[] = [
-  { id: "1", role: "client", text: "Привет! Как дела?", time: "14:32" },
-  { id: "2", role: "psychologist", text: "Привет! Всё хорошо, спасибо. Как у тебя?", time: "14:34" },
-  { id: "3", role: "client", text: "Мне нужна консультация по поводу работы", time: "14:35" },
-];
+interface MessengerLink {
+  platform: "telegram" | "vk";
+  external_username: string | null;
+  linked_at: string;
+}
+
+// Приводит запись из таблицы messages (API-формат) к формату чата на экране.
+function toChatMessage(raw: {
+  id: string; direction: string; text: string; created_at: string;
+  status: string; error_message: string | null;
+}): ChatMessage {
+  const time = new Date(raw.created_at).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+  return {
+    id: raw.id,
+    role: raw.direction === "incoming" ? "client" : "psychologist",
+    text: raw.text,
+    time,
+    status: raw.status as ChatMessage["status"],
+    errorMessage: raw.error_message,
+  };
+}
 
 const MOCK_FILES = [
   { name: "Дневник_ситуаций_неделя_6.pdf", size: "214 KB", date: "12 авг", uploadedBy: "client" as const },
@@ -53,9 +71,16 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const client = clients.find(c => c.id === id);
   const { sessions } = useSession();
 
-  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
+  const [messengerLinks, setMessengerLinks] = useState<MessengerLink[]>([]);
+  const [sendChannel, setSendChannel] = useState<"telegram" | "vk">("telegram");
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [sending, setSending] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("sessions");
   const [exportingTranscripts, setExportingTranscripts] = useState(false);
   const [showPeriodSummary, setShowPeriodSummary] = useState(false);
@@ -69,6 +94,26 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMessages() {
+      setMessagesLoading(true);
+      try {
+        const res = await fetch(`/api/messages?client_id=${id}`);
+        const data = await res.json();
+        if (!cancelled && res.ok) {
+          setMessages((data.messages ?? []).map(toChatMessage));
+          setMessengerLinks(data.links ?? []);
+          if ((data.links ?? []).some((l: MessengerLink) => l.platform === "vk")) setSendChannel("vk");
+        }
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
+      }
+    }
+    loadMessages();
+    return () => { cancelled = true; };
+  }, [id]);
 
   const clientSessions = useMemo(
     () => sessions.filter(s => s.clientId === id).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)),
@@ -89,24 +134,54 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const trendColor = trend === "improving" ? "#1BAF7A" : trend === "degrading" ? "#EF4444" : "#F59E0B";
   const TrendIcon = trend === "improving" ? TrendingUp : trend === "degrading" ? TrendingDown : Minus;
 
-  const sendMessage = () => {
-    if (!chatInput.trim() && !selectedFile) return;
-
-    const now = new Date().toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: "psychologist",
-      text: chatInput,
-      time: now,
-      file: selectedFile ? {
-        name: selectedFile.name,
-        size: (selectedFile.size / 1024).toFixed(1) + " KB",
-      } : undefined,
-    };
-
-    setMessages(prev => [...prev, newMessage]);
+  const sendMessage = async () => {
+    if (!chatInput.trim() || sending) return;
+    // Вложения пока не поддерживаются реальной отправкой — Telegram/VK
+    // API для файлов требует отдельной загрузки, добавим отдельно.
+    const text = chatInput;
     setChatInput("");
-    setSelectedFile(null);
+    setSending(true);
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: id, text, channel: sendChannel }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessages(prev => [...prev, toChatMessage(data.message)]);
+        setSelectedFile(null);
+      } else {
+        setChatInput(text);
+        alert(data.error ?? "Не удалось отправить сообщение");
+      }
+    } catch {
+      setChatInput(text);
+      alert("Не удалось связаться с сервером");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const loadInviteLink = async () => {
+    setInviteError(null);
+    setInviteUrl(null);
+    try {
+      const res = await fetch(`/api/clients/${id}/messenger-link?platform=telegram`);
+      const data = await res.json();
+      if (data.linked) return; // уже привязан, баннер и так не покажется
+      if (data.invite_url) setInviteUrl(data.invite_url);
+      else setInviteError(data.error ?? "Не удалось получить ссылку-приглашение");
+    } catch {
+      setInviteError("Не удалось связаться с сервером");
+    }
+  };
+
+  const copyInviteLink = () => {
+    if (!inviteUrl) return;
+    navigator.clipboard.writeText(inviteUrl);
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 2000);
   };
 
   if (clientsLoading) {
@@ -360,7 +435,43 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           <div style={{ flex: "0 0 66%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <Card style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <CardContent className="pt-4 flex-1 flex flex-col" style={{ minHeight: 0 }}>
+                {/* Баннер привязки мессенджера — показываем, пока у клиента нет ни одной привязки */}
+                {!messagesLoading && messengerLinks.length === 0 && (
+                  <div style={{
+                    padding: "10px 12px", background: "#FEF3C7", borderRadius: 8,
+                    marginBottom: 10, fontSize: 12, color: "#92400E",
+                  }}>
+                    {inviteUrl ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <Link2 size={13} style={{ flexShrink: 0 }} />
+                        <span style={{ wordBreak: "break-all" }}>{inviteUrl}</span>
+                        <button
+                          onClick={copyInviteLink}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "#92400E", display: "flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 600 }}
+                        >
+                          {inviteCopied ? <Check size={12} /> : <Copy size={12} />} {inviteCopied ? "Скопировано" : "Скопировать"}
+                        </button>
+                      </div>
+                    ) : inviteError ? (
+                      <span>{inviteError}</span>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <span>Чат клиента не подключён — сообщения сохранятся, но не дойдут, пока клиент не подключит мессенджер.</span>
+                        <button onClick={loadInviteLink} style={{ background: "none", border: "none", cursor: "pointer", color: "#92400E", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}>
+                          Получить ссылку →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
+                  {messagesLoading && (
+                    <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Загрузка переписки…</p>
+                  )}
+                  {!messagesLoading && messages.length === 0 && (
+                    <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Переписки пока нет</p>
+                  )}
                   {messages.map((msg) => (
                     <motion.div
                       key={msg.id}
@@ -384,14 +495,40 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                             📎 {msg.file.name} ({msg.file.size})
                           </div>
                         )}
-                        <span style={{ fontSize: 10, opacity: 0.6, marginTop: 4, display: "block" }}>
-                          {msg.time}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                          <span style={{ fontSize: 10, opacity: 0.6 }}>{msg.time}</span>
+                          {msg.role === "psychologist" && msg.status === "pending" && (
+                            <span style={{ fontSize: 10, opacity: 0.75 }} title={msg.errorMessage ?? "Клиент ещё не подключил чат"}>· не доставлено</span>
+                          )}
+                          {msg.role === "psychologist" && msg.status === "failed" && (
+                            <span style={{ fontSize: 10, color: "#FCA5A5" }} title={msg.errorMessage ?? ""}>· ошибка отправки</span>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   ))}
                   <div ref={messagesEndRef} />
                 </div>
+
+                {messengerLinks.length > 1 && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                    {messengerLinks.map(l => (
+                      <button
+                        key={l.platform}
+                        onClick={() => setSendChannel(l.platform)}
+                        style={{
+                          padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                          border: sendChannel === l.platform ? "1px solid #2D6A5C" : "1px solid #E5DFD5",
+                          background: sendChannel === l.platform ? "#E8F2EF" : "#fff",
+                          color: sendChannel === l.platform ? "#2D6A5C" : "#6B6058",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {l.platform === "telegram" ? "Telegram" : "ВКонтакте"}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <div style={{ flex: 1 }}>
@@ -414,46 +551,22 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                       }}
                       rows={2}
                     />
-                    {selectedFile && (
-                      <div style={{ fontSize: 11, color: "#2D6A5C", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
-                        📎 {selectedFile.name}
-                        <button onClick={() => setSelectedFile(null)} style={{ background: "none", border: "none", color: "#8C7355", cursor: "pointer", fontSize: 12 }}>✕</button>
-                      </div>
-                    )}
                   </div>
                   <div style={{ display: "flex", gap: 4 }}>
                     <button
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{
-                        width: 32, height: 32, background: "#F5F3EF",
-                        border: "1px solid #E5DFD5", borderRadius: 6,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        cursor: "pointer", color: "#6B6058",
-                      }}
-                      title="Добавить файл"
-                    >
-                      <Paperclip size={16} />
-                    </button>
-                    <button
                       onClick={sendMessage}
+                      disabled={sending || !chatInput.trim()}
                       style={{
-                        width: 32, height: 32, background: "#2D6A5C",
+                        width: 32, height: 32, background: sending || !chatInput.trim() ? "#A7C4BC" : "#2D6A5C",
                         border: "none", borderRadius: 6,
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        cursor: "pointer", color: "#FFFFFF",
+                        cursor: sending || !chatInput.trim() ? "default" : "pointer", color: "#FFFFFF",
                       }}
                     >
                       <Send size={16} />
                     </button>
                   </div>
                 </div>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  onChange={e => { if (e.target.files?.[0]) setSelectedFile(e.target.files[0]); }}
-                  style={{ display: "none" }}
-                />
               </CardContent>
             </Card>
           </div>

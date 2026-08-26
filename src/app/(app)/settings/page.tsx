@@ -7,7 +7,7 @@ import {
   ExternalLink, Sun, Moon, Monitor,
 } from "lucide-react";
 import { currentPsychologist } from "@/lib/mock-data";
-import { Button, Card, CardContent } from "@/components/ui";
+import { Button, Card, CardContent, Badge } from "@/components/ui";
 
 const SECTIONS = [
   { id: "notifications", label: "Уведомления", icon: Bell },
@@ -28,15 +28,115 @@ export default function SettingsPage() {
   const [notification, setNotification] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteText, setDeleteText] = useState("");
-  const [telegramConnected, setTelegramConnected] = useState(currentPsychologist.telegram.connected);
-  const [vkConnected, setVkConnected] = useState(currentPsychologist.vk.connected);
+
+  // Интеграции — реальные данные из /api/integrations, а не моки.
+  interface Integration {
+    platform: "telegram" | "vk";
+    bot_username: string | null;
+    status: "disconnected" | "connected" | "error";
+    last_error: string | null;
+  }
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
+  const [showTelegramForm, setShowTelegramForm] = useState(false);
+  const [showVkForm, setShowVkForm] = useState(false);
+  const [telegramTokenInput, setTelegramTokenInput] = useState("");
+  const [vkTokenInput, setVkTokenInput] = useState("");
+  const [vkGroupIdInput, setVkGroupIdInput] = useState("");
+  const [vkConfirmationInput, setVkConfirmationInput] = useState("");
+  const [integrationSubmitting, setIntegrationSubmitting] = useState(false);
+  const [integrationError, setIntegrationError] = useState<string | null>(null);
+  const [vkSetupInfo, setVkSetupInfo] = useState<{ callback_url: string; secret_key: string } | null>(null);
+
+  const loadIntegrations = async () => {
+    try {
+      const res = await fetch("/api/integrations");
+      const data = await res.json();
+      if (res.ok) setIntegrations(data.integrations ?? []);
+    } finally {
+      setIntegrationsLoading(false);
+    }
+  };
 
   useEffect(() => {
     const hash = window.location.hash.replace("#", "");
     if (SECTIONS.some(s => s.id === hash)) {
       setActiveSection(hash as SectionId);
     }
+    loadIntegrations();
   }, []);
+
+  const telegramIntegration = integrations.find(i => i.platform === "telegram");
+  const vkIntegration = integrations.find(i => i.platform === "vk");
+
+  const connectTelegram = async () => {
+    if (!telegramTokenInput.trim()) return;
+    setIntegrationSubmitting(true);
+    setIntegrationError(null);
+    try {
+      const res = await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "telegram", bot_token: telegramTokenInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIntegrationError(data.error ?? "Не удалось подключить бота");
+        return;
+      }
+      notify(`Telegram-бот @${data.integration.bot_username} подключён`);
+      setShowTelegramForm(false);
+      setTelegramTokenInput("");
+      await loadIntegrations();
+    } catch {
+      setIntegrationError("Не удалось связаться с сервером");
+    } finally {
+      setIntegrationSubmitting(false);
+    }
+  };
+
+  const connectVk = async () => {
+    if (!vkTokenInput.trim() || !vkGroupIdInput.trim() || !vkConfirmationInput.trim()) return;
+    setIntegrationSubmitting(true);
+    setIntegrationError(null);
+    try {
+      const res = await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "vk",
+          bot_token: vkTokenInput.trim(),
+          vk_group_id: vkGroupIdInput.trim(),
+          confirmation_code: vkConfirmationInput.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIntegrationError(data.error ?? "Не удалось подключить сообщество");
+        return;
+      }
+      notify(`Сообщество «${data.integration.bot_username}» подключено`);
+      if (data.setup_instructions?.callback_url) {
+        setVkSetupInfo(data.setup_instructions);
+      } else {
+        setShowVkForm(false);
+      }
+      setVkTokenInput("");
+      setVkGroupIdInput("");
+      setVkConfirmationInput("");
+      await loadIntegrations();
+    } catch {
+      setIntegrationError("Не удалось связаться с сервером");
+    } finally {
+      setIntegrationSubmitting(false);
+    }
+  };
+
+  const disconnectIntegration = async (platform: "telegram" | "vk") => {
+    await fetch(`/api/integrations?platform=${platform}`, { method: "DELETE" });
+    notify(platform === "telegram" ? "Telegram отключён" : "ВКонтакте отключён");
+    await loadIntegrations();
+  };
 
   const { plan } = currentPsychologist;
   const totalRequests = plan.assistantRequests.total + extraCredits;
@@ -152,45 +252,141 @@ export default function SettingsPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Интеграции</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Подключите каналы связи с клиентами</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        padding: "14px", background: "#F5F3EF", borderRadius: 10,
-                      }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>Telegram</div>
-                          <div style={{ fontSize: 12, color: telegramConnected ? "#1BAF7A" : "#8C7355" }}>
-                            {telegramConnected ? `Подключено · ${currentPsychologist.telegram.username}` : "Не подключено"}
+                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Подключите каналы связи с клиентами — сообщения и домашние задания будут приходить прямо в мессенджер</p>
+
+                    {integrationsLoading ? (
+                      <p style={{ fontSize: 13, color: "#8C7355" }}>Загрузка…</p>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {/* Telegram */}
+                        <div style={{ padding: "14px", background: "#F5F3EF", borderRadius: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>Telegram</span>
+                                {telegramIntegration?.status === "connected" && <Badge variant="success">Подключено</Badge>}
+                                {telegramIntegration?.status === "error" && <Badge variant="danger">Ошибка</Badge>}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#8C7355", marginTop: 2 }}>
+                                {telegramIntegration?.status === "connected"
+                                  ? `@${telegramIntegration.bot_username}`
+                                  : telegramIntegration?.status === "error"
+                                    ? telegramIntegration.last_error
+                                    : "Бот не подключён"}
+                              </div>
+                            </div>
+                            {telegramIntegration?.status === "connected" ? (
+                              <Button variant="secondary" size="sm" onClick={() => disconnectIntegration("telegram")}>Отключить</Button>
+                            ) : (
+                              <Button variant="primary" size="sm" onClick={() => { setShowTelegramForm(v => !v); setIntegrationError(null); }}>
+                                {showTelegramForm ? "Закрыть" : "Подключить"}
+                              </Button>
+                            )}
                           </div>
+
+                          {showTelegramForm && telegramIntegration?.status !== "connected" && (
+                            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5DFD5" }}>
+                              <p style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.6, marginBottom: 10 }}>
+                                1. Откройте <strong>@BotFather</strong> в Telegram и создайте бота командой <code>/newbot</code>.<br />
+                                2. Скопируйте выданный токен и вставьте его сюда.
+                              </p>
+                              <input
+                                value={telegramTokenInput}
+                                onChange={e => setTelegramTokenInput(e.target.value)}
+                                placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+                                style={{
+                                  width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
+                                  borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8,
+                                  fontFamily: "monospace",
+                                }}
+                              />
+                              {integrationError && <div style={{ fontSize: 12, color: "#B91C1C", marginBottom: 8 }}>{integrationError}</div>}
+                              <Button size="sm" onClick={connectTelegram} disabled={integrationSubmitting || !telegramTokenInput.trim()}>
+                                {integrationSubmitting ? "Проверяем…" : "Сохранить и подключить"}
+                              </Button>
+                            </div>
+                          )}
                         </div>
-                        <Button
-                          variant={telegramConnected ? "secondary" : "primary"}
-                          size="sm"
-                          onClick={() => { setTelegramConnected(v => !v); notify(telegramConnected ? "Telegram отключён" : "Telegram подключён"); }}
-                        >
-                          {telegramConnected ? "Отключить" : "Подключить"}
-                        </Button>
-                      </div>
-                      <div style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        padding: "14px", background: "#F5F3EF", borderRadius: 10,
-                      }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>ВКонтакте</div>
-                          <div style={{ fontSize: 12, color: vkConnected ? "#1BAF7A" : "#8C7355" }}>
-                            {vkConnected ? "Подключено" : "Не подключено"}
+
+                        {/* VK */}
+                        <div style={{ padding: "14px", background: "#F5F3EF", borderRadius: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>ВКонтакте</span>
+                                {vkIntegration?.status === "connected" && <Badge variant="success">Подключено</Badge>}
+                                {vkIntegration?.status === "error" && <Badge variant="danger">Ошибка</Badge>}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#8C7355", marginTop: 2 }}>
+                                {vkIntegration?.status === "connected"
+                                  ? vkIntegration.bot_username
+                                  : vkIntegration?.status === "error"
+                                    ? vkIntegration.last_error
+                                    : "Сообщество не подключено"}
+                              </div>
+                            </div>
+                            {vkIntegration?.status === "connected" ? (
+                              <Button variant="secondary" size="sm" onClick={() => disconnectIntegration("vk")}>Отключить</Button>
+                            ) : (
+                              <Button variant="primary" size="sm" onClick={() => { setShowVkForm(v => !v); setIntegrationError(null); }}>
+                                {showVkForm ? "Закрыть" : "Подключить"}
+                              </Button>
+                            )}
                           </div>
+
+                          {showVkForm && vkIntegration?.status !== "connected" && (
+                            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5DFD5" }}>
+                              <p style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.6, marginBottom: 10 }}>
+                                1. В настройках сообщества откройте <strong>Управление → Работа с API → Ключи доступа</strong> — создайте ключ сообщества.<br />
+                                2. Там же включите <strong>Callback API</strong> — скопируйте код подтверждения (появится после включения).<br />
+                                3. ID сообщества — число из ссылки на сообщество или из раздела «Управление».
+                              </p>
+                              <input
+                                value={vkTokenInput}
+                                onChange={e => setVkTokenInput(e.target.value)}
+                                placeholder="Ключ доступа сообщества"
+                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8, fontFamily: "monospace" }}
+                              />
+                              <input
+                                value={vkGroupIdInput}
+                                onChange={e => setVkGroupIdInput(e.target.value)}
+                                placeholder="ID сообщества"
+                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8 }}
+                              />
+                              <input
+                                value={vkConfirmationInput}
+                                onChange={e => setVkConfirmationInput(e.target.value)}
+                                placeholder="Код подтверждения Callback API"
+                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8, fontFamily: "monospace" }}
+                              />
+                              {integrationError && <div style={{ fontSize: 12, color: "#B91C1C", marginBottom: 8 }}>{integrationError}</div>}
+                              <Button
+                                size="sm"
+                                onClick={connectVk}
+                                disabled={integrationSubmitting || !vkTokenInput.trim() || !vkGroupIdInput.trim() || !vkConfirmationInput.trim()}
+                              >
+                                {integrationSubmitting ? "Проверяем…" : "Сохранить и подключить"}
+                              </Button>
+                            </div>
+                          )}
+
+                          {vkSetupInfo && (
+                            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5DFD5" }}>
+                              <p style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.6, marginBottom: 8 }}>
+                                Осталось вставить эти значения в настройках Callback API сообщества:
+                              </p>
+                              <div style={{ fontSize: 11, fontFamily: "monospace", background: "#FFFFFF", padding: 10, borderRadius: 6, marginBottom: 6, wordBreak: "break-all" }}>
+                                URL: {vkSetupInfo.callback_url}
+                              </div>
+                              <div style={{ fontSize: 11, fontFamily: "monospace", background: "#FFFFFF", padding: 10, borderRadius: 6, marginBottom: 8, wordBreak: "break-all" }}>
+                                Секретный ключ: {vkSetupInfo.secret_key}
+                              </div>
+                              <Button size="sm" variant="secondary" onClick={() => { setVkSetupInfo(null); setShowVkForm(false); }}>Понятно</Button>
+                            </div>
+                          )}
                         </div>
-                        <Button
-                          variant={vkConnected ? "secondary" : "primary"}
-                          size="sm"
-                          onClick={() => { setVkConnected(v => !v); notify(vkConnected ? "ВКонтакте отключён" : "ВКонтакте подключён"); }}
-                        >
-                          {vkConnected ? "Отключить" : "Подключить"}
-                        </Button>
                       </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
