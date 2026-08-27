@@ -2966,7 +2966,7 @@ export default function LandingPage() {
             position: "relative",
             zIndex: 10,
             display: "grid",
-            gridTemplateColumns: "minmax(280px, 560px) minmax(280px, 480px)",
+            gridTemplateColumns: "minmax(280px, 1fr) minmax(280px, 1fr)",
             gap: 48,
             alignItems: "center",
           }}
@@ -3096,7 +3096,7 @@ export default function LandingPage() {
               Партнёры
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 40, flexWrap: "wrap", flex: 1, justifyContent: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 40, flexWrap: "wrap", flex: 1 }}>
               {[
                 {
                   name: "NEWPSY",
