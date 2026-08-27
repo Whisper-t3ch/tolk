@@ -142,13 +142,13 @@ export default function CalendarPage() {
   };
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", position: "relative" }}>
+    <div style={{ maxWidth: selectedDay !== null ? 1560 : 1200, margin: "0 auto", padding: "0 24px", position: "relative", transition: "max-width 0.2s" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E", marginBottom: 24 }}>
         Календарь
       </h1>
 
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", overflowX: "auto" }}>
+        <div style={{ flex: "1 1 auto", minWidth: 640 }}>
           <Card>
             <CardContent className="pt-6">
               {/* Навигация по месяцам */}
@@ -313,7 +313,7 @@ export default function CalendarPage() {
               exit={{ opacity: 0, x: 24 }}
               style={{ width: 320, flexShrink: 0 }}
             >
-              <Card style={{ position: "sticky", top: 16 }}>
+              <Card style={{ position: "sticky", top: 16, maxWidth: 320 }}>
                 <CardContent className="pt-6" style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 140px)" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
