@@ -2940,7 +2940,7 @@ export default function LandingPage() {
       {/* Hero */}
       <section
         style={{
-          padding: "100px 24px",
+          padding: "72px 24px 64px",
           background: "linear-gradient(135deg, #E8F2EF 0%, #E6F7F2 100%)",
           position: "relative",
           overflow: "hidden",
@@ -3076,22 +3076,22 @@ export default function LandingPage() {
         </div>
 
         {/* Партнёры — полоса на всю ширину, растёт по мере добавления новых */}
-        <div style={{ maxWidth: 1200, margin: "56px auto 0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+        <div style={{ maxWidth: 1200, margin: "44px auto 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
             <div style={{
               writingMode: "vertical-rl",
               transform: "rotate(180deg)",
-              fontSize: 11,
-              fontWeight: 700,
+              fontSize: 14,
+              fontWeight: 800,
               letterSpacing: "0.12em",
-              color: "#8C7355",
+              color: "#6B6058",
               textTransform: "uppercase",
               flexShrink: 0,
               alignSelf: "stretch",
               display: "flex",
               alignItems: "center",
               borderRight: "1px solid #E5DFD5",
-              paddingRight: 20,
+              paddingRight: 24,
             }}>
               Партнёры
             </div>
@@ -3119,17 +3119,17 @@ export default function LandingPage() {
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    gap: 6,
+                    gap: 8,
                     textDecoration: "none",
-                    maxWidth: 200,
+                    maxWidth: 260,
                   }}
                 >
                   <img
                     src={partner.avatar}
                     alt={partner.name}
-                    style={{ height: 40, width: "auto", objectFit: "contain" }}
+                    style={{ height: 64, width: "auto", objectFit: "contain" }}
                   />
-                  <span style={{ fontSize: 11.5, color: "#8C7355", lineHeight: 1.4 }}>
+                  <span style={{ fontSize: 14, color: "#6B6058", lineHeight: 1.45 }}>
                     {partner.description}
                   </span>
                 </motion.a>
