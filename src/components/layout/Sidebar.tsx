@@ -45,11 +45,18 @@ export default function Sidebar() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [conferenceClientName, setConferenceClientName] = useState("");
   const [notification, setNotification] = useState<string | null>(null);
+  // Шаг 2 модалки «Новая сессия»: после выбора клиента — сейчас или
+  // запланировать на конкретные дату/время (создаётся в календаре
+  // без мгновенного старта видео).
+  const [schedulingClientId, setSchedulingClientId] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduling, setScheduling] = useState(false);
   const { addSession } = useSession();
   const { clients } = useClients();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  const createSession = async (clientId: string) => {
+  const startSessionNow = async (clientId: string) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
 
@@ -79,6 +86,51 @@ export default function Sidebar() {
 
     // Уведомление
     setNotification(`Ссылка на конференцию отправлена ${client.name}`);
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const closeNewSessionModal = () => {
+    setShowNewSession(false);
+    setSelectedClientId(null);
+    setSchedulingClientId(null);
+  };
+
+  // Переход ко второму шагу модалки — выбору даты/времени для планирования
+  // (в отличие от startSessionNow, здесь ещё нет ни client, ни отправки —
+  // только подготовка формы с датой по умолчанию "сегодня").
+  const openScheduleStep = (clientId: string) => {
+    const today = new Date();
+    setScheduleDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
+    setScheduleTime("10:00");
+    setSchedulingClientId(clientId);
+  };
+
+  const confirmSchedule = async () => {
+    const client = clients.find(c => c.id === schedulingClientId);
+    if (!client || !scheduleDate || !scheduleTime) return;
+
+    setScheduling(true);
+    try {
+      await addSession({
+        clientId: client.id,
+        clientName: client.name,
+        date: scheduleDate,
+        time: scheduleTime,
+      });
+    } catch {
+      setNotification("Не удалось запланировать сессию — попробуйте ещё раз");
+      setTimeout(() => setNotification(null), 3000);
+      setScheduling(false);
+      return;
+    }
+
+    setScheduling(false);
+    setShowNewSession(false);
+    setSelectedClientId(null);
+    setSchedulingClientId(null);
+
+    const dateLabel = new Date(`${scheduleDate}T00:00:00`).toLocaleDateString("ru", { day: "numeric", month: "long" });
+    setNotification(`Сессия с ${client.name} запланирована на ${dateLabel} в ${scheduleTime}`);
     setTimeout(() => setNotification(null), 3000);
   };
 
@@ -383,7 +435,7 @@ export default function Sidebar() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowNewSession(false)}
+              onClick={closeNewSessionModal}
               style={{
                 position: "fixed",
                 inset: 0,
@@ -430,7 +482,7 @@ export default function Sidebar() {
                   Новая сессия
                 </h2>
                 <button
-                  onClick={() => setShowNewSession(false)}
+                  onClick={closeNewSessionModal}
                   style={{
                     background: "none",
                     border: "none",
@@ -443,83 +495,166 @@ export default function Sidebar() {
                 </button>
               </div>
 
-              <div style={{
-                padding: "16px",
-                maxHeight: "calc(85vh - 240px)",
-                overflowY: "auto",
-                scrollBehavior: "smooth",
-              }}>
-                <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12 }}>
-                  Выберите клиента для встречи:
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {clients.map((client, idx) => (
+              {!schedulingClientId ? (
+                <>
+                  <div style={{
+                    padding: "16px",
+                    maxHeight: "calc(85vh - 240px)",
+                    overflowY: "auto",
+                    scrollBehavior: "smooth",
+                  }}>
+                    <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12 }}>
+                      Выберите клиента для встречи:
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {clients.map((client, idx) => (
+                        <button
+                          key={client.id}
+                          onClick={() => openScheduleStep(client.id)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 12,
+                            padding: "12px",
+                            background: selectedClientId === client.id ? "#E8F2EF" : "#FFFFFF",
+                            border: selectedClientId === client.id ? "1px solid #2D6A5C" : "1px solid #E5DFD5",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                            textAlign: "left",
+                            fontFamily: "var(--font-sans)",
+                          }}
+                        >
+                          <div style={{
+                            width: 40,
+                            height: 40,
+                            background: ["#2D6A5C", "#1BAF7A", "#F59E0B"][idx % 3],
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "#fff",
+                            flexShrink: 0,
+                          }}>
+                            {client.initials}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
+                              {client.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#8C7355" }}>
+                              {client.age ? `${client.age} лет` : client.request || "—"}
+                            </div>
+                          </div>
+                          <div style={{
+                            padding: "4px 8px",
+                            background: client.status === "active" ? "#E6F7F2" : "#FEF3C7",
+                            color: client.status === "active" ? "#1BAF7A" : "#F59E0B",
+                            borderRadius: 4,
+                            fontSize: 10,
+                            fontWeight: 600,
+                          }}>
+                            {client.status === "active" ? "Активный" : "На паузе"}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    padding: "16px",
+                    borderTop: "1px solid #E5DFD5",
+                    background: "#F5F3EF",
+                    borderRadius: "0 0 12px 12px",
+                    fontSize: 11,
+                    color: "#6B6058",
+                    textAlign: "center",
+                  }}>
+                    ✅ Клиенту будет отправлена ссылка для присоединения к конференции
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: "20px 16px" }}>
+                  {(() => {
+                    const client = clients.find(c => c.id === schedulingClientId);
+                    return (
+                      <p style={{ fontSize: 13, color: "#1C1C1E", marginBottom: 20 }}>
+                        Сессия с <strong>{client?.name}</strong>
+                      </p>
+                    );
+                  })()}
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", display: "block", marginBottom: 6 }}>
+                        Дата
+                      </label>
+                      <input
+                        type="date"
+                        value={scheduleDate}
+                        onChange={e => setScheduleDate(e.target.value)}
+                        style={{
+                          width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
+                          borderRadius: 8, fontSize: 13, boxSizing: "border-box",
+                          color: "#1C1C1E", background: "#FFFFFF", fontFamily: "var(--font-sans)",
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", display: "block", marginBottom: 6 }}>
+                        Время
+                      </label>
+                      <input
+                        type="time"
+                        value={scheduleTime}
+                        onChange={e => setScheduleTime(e.target.value)}
+                        style={{
+                          width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
+                          borderRadius: 8, fontSize: 13, boxSizing: "border-box",
+                          color: "#1C1C1E", background: "#FFFFFF", fontFamily: "var(--font-sans)",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                     <button
-                      key={client.id}
-                      onClick={() => createSession(client.id)}
+                      onClick={() => setSchedulingClientId(null)}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "12px",
-                        background: selectedClientId === client.id ? "#E8F2EF" : "#FFFFFF",
-                        border: selectedClientId === client.id ? "1px solid #2D6A5C" : "1px solid #E5DFD5",
-                        borderRadius: 8,
-                        cursor: "pointer",
-                        transition: "all 0.2s",
-                        textAlign: "left",
+                        flex: 1, padding: "10px", background: "#FFFFFF", border: "1px solid #E5DFD5",
+                        borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#6B6058", cursor: "pointer",
                         fontFamily: "var(--font-sans)",
                       }}
                     >
-                      <div style={{
-                        width: 40,
-                        height: 40,
-                        background: ["#2D6A5C", "#1BAF7A", "#F59E0B"][idx % 3],
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: "#fff",
-                        flexShrink: 0,
-                      }}>
-                        {client.initials}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
-                          {client.name}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#8C7355" }}>
-                          {client.age ? `${client.age} лет` : client.request || "—"}
-                        </div>
-                      </div>
-                      <div style={{
-                        padding: "4px 8px",
-                        background: client.status === "active" ? "#E6F7F2" : "#FEF3C7",
-                        color: client.status === "active" ? "#1BAF7A" : "#F59E0B",
-                        borderRadius: 4,
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}>
-                        {client.status === "active" ? "Активный" : "На паузе"}
-                      </div>
+                      Назад
                     </button>
-                  ))}
-                </div>
-              </div>
+                    <button
+                      onClick={confirmSchedule}
+                      disabled={scheduling || !scheduleDate || !scheduleTime}
+                      style={{
+                        flex: 1, padding: "10px", background: scheduling ? "#A7C4BC" : "#2D6A5C", border: "none",
+                        borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#fff",
+                        cursor: scheduling ? "default" : "pointer", fontFamily: "var(--font-sans)",
+                      }}
+                    >
+                      {scheduling ? "Планируем…" : "Запланировать"}
+                    </button>
+                  </div>
 
-              <div style={{
-                padding: "16px",
-                borderTop: "1px solid #E5DFD5",
-                background: "#F5F3EF",
-                borderRadius: "0 0 12px 12px",
-                fontSize: 11,
-                color: "#6B6058",
-                textAlign: "center",
-              }}>
-                ✅ Клиенту будет отправлена ссылка для присоединения к конференции
-              </div>
+                  <button
+                    onClick={() => startSessionNow(schedulingClientId)}
+                    style={{
+                      width: "100%", padding: "10px", background: "#F5F3EF", border: "1px solid #E5DFD5",
+                      borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: "#2D6A5C", cursor: "pointer",
+                      fontFamily: "var(--font-sans)",
+                    }}
+                  >
+                    Или начать видеовстречу прямо сейчас
+                  </button>
+                </div>
+              )}
               </div>
             </motion.div>
           </>
