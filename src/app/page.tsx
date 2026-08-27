@@ -3076,8 +3076,8 @@ export default function LandingPage() {
         </div>
 
         {/* Партнёры — полоса на всю ширину, растёт по мере добавления новых */}
-        <div style={{ maxWidth: 1100, margin: "48px auto 0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap" }}>
+        <div style={{ maxWidth: 1200, margin: "56px auto 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
             <div style={{
               writingMode: "vertical-rl",
               transform: "rotate(180deg)",
@@ -3096,7 +3096,7 @@ export default function LandingPage() {
               Партнёры
             </div>
 
-            <div style={{ display: "flex", gap: 32, flexWrap: "wrap", flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 40, flexWrap: "wrap", flex: 1 }}>
               {[
                 {
                   name: "NEWPSY",
@@ -3124,7 +3124,7 @@ export default function LandingPage() {
                   <img
                     src={partner.avatar}
                     alt={partner.name}
-                    style={{ height: 32, width: "auto", objectFit: "contain" }}
+                    style={{ height: 48, width: "auto", objectFit: "contain" }}
                   />
                 </motion.a>
               ))}
