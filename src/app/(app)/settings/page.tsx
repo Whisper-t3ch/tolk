@@ -29,6 +29,26 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteText, setDeleteText] = useState("");
 
+  // Лимит запросов к ассистенту — реальные данные из /api/assistant/limit,
+  // а не мок currentPsychologist.plan.assistantRequests (в проде used/limit
+  // зависят от тарифа психолога, см. PLAN_LIMITS в assistantLimits.ts).
+  interface AssistantLimitInfo {
+    used: number;
+    limit: number;
+    remaining: number;
+    planName: string;
+    planLabel: string;
+  }
+  const [limitInfo, setLimitInfo] = useState<AssistantLimitInfo | null>(null);
+  const [limitLoading, setLimitLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/assistant/limit")
+      .then(res => res.json())
+      .then(data => { if (!data.error) setLimitInfo(data); })
+      .finally(() => setLimitLoading(false));
+  }, []);
+
   // Интеграции — реальные данные из /api/integrations, а не моки.
   interface Integration {
     platform: "telegram" | "vk";
@@ -139,8 +159,11 @@ export default function SettingsPage() {
   };
 
   const { plan } = currentPsychologist;
-  const totalRequests = plan.assistantRequests.total + extraCredits;
-  const creditPct = Math.round((plan.assistantRequests.used / totalRequests) * 100);
+  const requestsUsed = limitInfo?.used ?? plan.assistantRequests.used;
+  const totalRequests = (limitInfo?.limit ?? plan.assistantRequests.total) + extraCredits;
+  const creditPct = totalRequests > 0 ? Math.round((requestsUsed / totalRequests) * 100) : 0;
+  const requestsRemaining = Math.max(0, totalRequests - requestsUsed);
+  const planLabel = limitInfo?.planLabel ?? plan.name;
 
   const notify = (msg: string) => {
     setNotification(msg);
@@ -394,24 +417,47 @@ export default function SettingsPage() {
               {activeSection === "billing" && (
                 <Card>
                   <CardContent className="pt-6">
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Тариф «{plan.name}»</h3>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Тариф «{planLabel}»</h3>
                     <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>
                       {plan.price} · до {plan.maxClients} клиентов · продление {plan.renewsOn}
                     </p>
-                    <div style={{ padding: 12, background: "#F5F3EF", borderRadius: 8, marginBottom: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12 }}>
-                        <span style={{ color: "#6B6058" }}>
-                          Запросы к ассистенту: {plan.assistantRequests.used} / {totalRequests}
-                          {extraCredits > 0 && <span style={{ color: "#1BAF7A" }}> (+{extraCredits})</span>}
-                        </span>
-                        <span style={{ color: "#2D6A5C", fontWeight: 600 }}>{creditPct}%</span>
-                      </div>
-                      <div style={{ height: 6, background: "rgba(79,126,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
-                        <div style={{ width: `${creditPct}%`, height: "100%", background: "#2D6A5C", borderRadius: 4 }} />
-                      </div>
-                    </div>
+
+                    {limitLoading ? (
+                      <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 12 }}>Загрузка…</p>
+                    ) : (
+                      <>
+                        <div style={{ padding: 12, background: "#F5F3EF", borderRadius: 8, marginBottom: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12 }}>
+                            <span style={{ color: "#6B6058" }}>
+                              Запросы к ассистенту: {requestsUsed} / {totalRequests}
+                              {extraCredits > 0 && <span style={{ color: "#1BAF7A" }}> (+{extraCredits})</span>}
+                            </span>
+                            <span style={{ color: requestsRemaining === 0 ? "#EF4444" : "#2D6A5C", fontWeight: 600 }}>{creditPct}%</span>
+                          </div>
+                          <div style={{ height: 6, background: "rgba(79,126,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{
+                              width: `${Math.min(100, creditPct)}%`, height: "100%",
+                              background: requestsRemaining === 0 ? "#EF4444" : requestsRemaining <= 10 ? "#F59E0B" : "#2D6A5C",
+                              borderRadius: 4, transition: "width 0.2s, background 0.2s",
+                            }} />
+                          </div>
+                        </div>
+
+                        {requestsRemaining === 0 && (
+                          <div style={{ padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 12, fontSize: 12.5, color: "#B91C1C" }}>
+                            Лимит запросов исчерпан — ассистент не будет отвечать до докупки или сброса в начале месяца.
+                          </div>
+                        )}
+                        {requestsRemaining > 0 && requestsRemaining <= 10 && (
+                          <div style={{ padding: "10px 12px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, marginBottom: 12, fontSize: 12.5, color: "#92400E" }}>
+                            Осталось всего {requestsRemaining} {requestsRemaining === 1 ? "запрос" : requestsRemaining < 5 ? "запроса" : "запросов"} до конца месяца.
+                          </div>
+                        )}
+                      </>
+                    )}
+
                     <div style={{ display: "flex", gap: 8 }}>
-                      <Button onClick={buyCredits} variant="primary" className="w-full">
+                      <Button onClick={buyCredits} variant={requestsRemaining === 0 ? "primary" : "secondary"} className="w-full">
                         Докупить +100 за 99 ₽
                       </Button>
                       <Button onClick={() => notify("Список тарифов скоро будет доступен здесь")} variant="secondary" className="w-full">

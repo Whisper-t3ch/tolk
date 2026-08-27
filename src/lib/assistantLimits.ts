@@ -23,6 +23,27 @@ export const ASSISTANT_REQUEST_COST = {
 
 export type AssistantRequestCostKey = keyof typeof ASSISTANT_REQUEST_COST;
 
+// Месячный лимит запросов к ассистенту по тарифу психолога
+// (psychologists.plan_name, см. migration_006_plan_limits.sql).
+// Лимит намеренно вынесен в код, а не хранится числом в БД — смена
+// условий тарифа (например, поднять Профессионал с 200 до 300) это
+// правка одной константы, а не миграция данных по всем психологам.
+export const PLAN_LIMITS = {
+  beta: 200,
+  practice: 60,
+  professional: 200,
+  expert: 600,
+} as const;
+
+export type PlanName = keyof typeof PLAN_LIMITS;
+
+function resolvePlanLimit(planName: string | null | undefined): number {
+  if (planName && planName in PLAN_LIMITS) {
+    return PLAN_LIMITS[planName as PlanName];
+  }
+  return PLAN_LIMITS.beta; // консервативный дефолт для неизвестного/пустого значения
+}
+
 export interface LimitCheckResult {
   allowed: boolean;
   used: number;
@@ -97,13 +118,13 @@ async function resetIfDue(
 ): Promise<{ used: number; limit: number }> {
   const { data, error } = await supabase
     .from("psychologists")
-    .select("assistant_requests_used, assistant_requests_limit, assistant_requests_reset_at")
+    .select("assistant_requests_used, plan_name, assistant_requests_reset_at")
     .eq("id", psychologistId)
     .single();
   if (error) throw error;
 
   const used = (data?.assistant_requests_used as number | null) ?? 0;
-  const limit = (data?.assistant_requests_limit as number | null) ?? 60;
+  const limit = resolvePlanLimit(data?.plan_name as string | null);
   const resetAt = data?.assistant_requests_reset_at as string | null;
 
   if (!resetAt || new Date(resetAt) > new Date()) {
@@ -127,5 +148,37 @@ export function limitExceededResponse(limit: number) {
   return {
     error: "Лимит запросов исчерпан. Докупить: +100 за 99 ₽",
     limit,
+  };
+}
+
+export interface AssistantLimitStatus extends LimitCheckResult {
+  planName: PlanName;
+}
+
+/**
+ * Текущее состояние лимита для отображения в UI (счётчик "45 / 200" в
+ * /settings) — без списания. Использует ту же логику авто-сброса по
+ * дате, что и checkAssistantLimit, поэтому счётчик в UI не "залипает"
+ * на старом значении, даже если психолог просто открыл настройки, не
+ * сделав ни одного запроса к ассистенту в новом месяце.
+ */
+export async function getAssistantLimitStatus(
+  supabase: SupabaseClient,
+  psychologistId: string
+): Promise<AssistantLimitStatus> {
+  const { data } = await supabase
+    .from("psychologists")
+    .select("plan_name")
+    .eq("id", psychologistId)
+    .single();
+  const planName = (data?.plan_name as PlanName | null) ?? "beta";
+
+  const { used, limit } = await resetIfDue(supabase, psychologistId);
+  return {
+    allowed: used < limit,
+    used,
+    limit,
+    remaining: Math.max(0, limit - used),
+    planName,
   };
 }
