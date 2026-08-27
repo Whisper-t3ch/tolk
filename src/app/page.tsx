@@ -4126,6 +4126,165 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Тарифы после бета-теста — обычная сетка из 3 планов */}
+      <section id="pricing-regular" style={{ padding: "40px 24px 80px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <motion.h2
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            style={{
+              fontSize: 30,
+              fontWeight: 800,
+              color: "#1C1C1E",
+              textAlign: "center",
+              marginBottom: 12,
+            }}
+          >
+            Тарифы после бета-теста
+          </motion.h2>
+          <motion.p
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            style={{
+              textAlign: "center",
+              fontSize: 14,
+              color: "#6B6058",
+              marginBottom: 40,
+              maxWidth: 560,
+              marginLeft: "auto",
+              marginRight: "auto",
+            }}
+          >
+            Фиксированная подписка без сгораемых токенов — платите за доступ, а не за каждый запрос.
+          </motion.p>
+
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            variants={containerVariants}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: 24,
+            }}
+          >
+            {[
+              {
+                name: "Практика",
+                price: "1 990 ₽",
+                period: "в месяц",
+                description: "До 5 клиентов",
+                features: [
+                  "60 запросов к ассистенту / мес",
+                  "Конспект сессии автоматически",
+                  "Тесты (30+ методик)",
+                  "Видео + split-screen",
+                  "Умный календарь, СБП-оплата",
+                  "Мессенджеры TG + VK",
+                ],
+                highlighted: false,
+              },
+              {
+                name: "Профессионал",
+                price: "3 290 ₽",
+                period: "в месяц",
+                description: "До 15 клиентов",
+                features: [
+                  "200 запросов к ассистенту / мес",
+                  "Всё из тарифа Практика",
+                  "Дневник и база знаний",
+                  "Vision-разбор фото/бланков",
+                  "Режим «Супервизор»",
+                  "Сообщество и мастер-классы",
+                ],
+                highlighted: true,
+              },
+              {
+                name: "Эксперт",
+                price: "5 490 ₽",
+                period: "в месяц",
+                description: "До 30 клиентов",
+                features: [
+                  "600 запросов к ассистенту / мес",
+                  "Всё из тарифа Профессионал",
+                  "Приоритет поддержки",
+                ],
+                highlighted: false,
+              },
+            ].map((plan, i) => (
+              <motion.div
+                key={i}
+                variants={itemVariants}
+                whileHover={{
+                  y: -10,
+                  boxShadow: plan.highlighted
+                    ? "0 30px 60px rgba(79,126,255,0.35)"
+                    : "0 24px 48px rgba(79,126,255,0.18)",
+                }}
+                style={{
+                  padding: 32,
+                  background: plan.highlighted
+                    ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)"
+                    : "#FFFFFF",
+                  borderRadius: 12,
+                  border: plan.highlighted ? "none" : "1px solid #E5DFD5",
+                  color: plan.highlighted ? "#fff" : "#1C1C1E",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, margin: "0 0 4px 0" }}>
+                  {plan.name}
+                </h3>
+                <p
+                  style={{
+                    fontSize: 12.5,
+                    opacity: plan.highlighted ? 0.85 : 0.75,
+                    marginBottom: 20,
+                    margin: "0 0 20px 0",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {plan.description}
+                </p>
+
+                <div style={{ marginBottom: 24, display: "flex", alignItems: "baseline", gap: 6, flexWrap: "nowrap", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 36, fontWeight: 800 }}>{plan.price}</span>
+                  <span style={{ fontSize: 13, opacity: 0.8 }}>{plan.period}</span>
+                </div>
+
+                <ul style={{ listStyle: "none", padding: 0, marginBottom: 24, flex: 1 }}>
+                  {plan.features.map((f, j) => (
+                    <li key={j} style={{ fontSize: 13, marginBottom: 12, display: "flex", gap: 8, lineHeight: 1.4 }}>
+                      <span>✓</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+
+                <Link
+                  href="/login"
+                  style={{
+                    display: "block",
+                    padding: "12px 16px",
+                    background: plan.highlighted ? "#FFFFFF" : "#2D6A5C",
+                    color: plan.highlighted ? "#2D6A5C" : "#fff",
+                    borderRadius: 8,
+                    textDecoration: "none",
+                    textAlign: "center",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    transition: "all 0.2s",
+                  }}
+                >
+                  Выбрать тариф
+                </Link>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section id="faq" style={{ padding: "80px 24px" }}>
         <div style={{ maxWidth: 800, margin: "0 auto" }}>
