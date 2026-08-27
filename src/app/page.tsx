@@ -3057,7 +3057,7 @@ export default function LandingPage() {
             </div>
 
             {/* Социальное доказательство */}
-            <div style={{ display: "flex", gap: 24, fontSize: 13, color: "#6B6058", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 24, fontSize: 13, color: "#6B6058", flexWrap: "wrap", marginBottom: 20 }}>
               {[
                 "✓ Соответствие 152-ФЗ",
                 "✓ Российские серверы, без VPN",
@@ -3069,6 +3069,39 @@ export default function LandingPage() {
                 </motion.div>
               ))}
             </div>
+
+            {/* Партнёр */}
+            <motion.a
+              href="https://newpsy.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.7 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "12px 18px",
+                background: "#FFFFFF",
+                border: "1px solid #E5DFD5",
+                borderRadius: 12,
+                maxWidth: 480,
+                textDecoration: "none",
+                transition: "border-color 0.2s, box-shadow 0.2s",
+              }}
+              whileHover={{ borderColor: "#2D6A5C", boxShadow: "0 4px 16px rgba(45,106,92,0.12)" }}
+            >
+              <span style={{ fontSize: 11, color: "#8C7355", flexShrink: 0 }}>Партнёр:</span>
+              <img
+                src="/images/newpsy-logo.png"
+                alt="NEWPSY"
+                style={{ height: 20, width: "auto", flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.4 }}>
+                эксклюзивный дистрибьютор PsychotherapyNet и программ по нейропсихоанализу Марка Солмса на русском
+              </span>
+            </motion.a>
           </motion.div>
 
           <HeroProductVisual />
@@ -3615,52 +3648,6 @@ export default function LandingPage() {
             ))}
           </motion.div>
 
-        </div>
-      </section>
-
-      {/* Партнёры */}
-      <section id="partners" style={{ padding: "72px 24px", background: "#F5F3EF", borderTop: "1px solid #E5DFD5" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} style={{ textAlign: "center", marginBottom: 40 }}>
-            <h2 style={{ fontSize: 28, fontWeight: 800, color: "#1C1C1E", marginBottom: 10 }}>
-              Наши партнёры
-            </h2>
-            <p style={{ fontSize: 14, color: "#6B6058", maxWidth: 560, margin: "0 auto" }}>
-              Образовательные платформы, с которыми мы развиваем профессиональное сообщество психологов
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 28,
-              background: "#FFFFFF",
-              border: "1px solid #E5DFD5",
-              borderRadius: 16,
-              padding: "28px 32px",
-              maxWidth: 780,
-              margin: "0 auto",
-              flexWrap: "wrap",
-            }}
-          >
-            <img
-              src="/images/newpsy-logo.png"
-              alt="NEWPSY"
-              style={{ width: 140, height: "auto", flexShrink: 0, objectFit: "contain" }}
-            />
-            <div style={{ flex: 1, minWidth: 240 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", marginBottom: 6 }}>
-                NEWPSY
-              </div>
-              <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.6, margin: 0 }}>
-                Эксклюзивный дистрибьютор на русском языке одной из крупнейших коллекций курсов с сессиями великих мастеров психотерапии <strong>PsychotherapyNet</strong> (Калифорния, США), а также провайдер русскоязычных программ по нейропсихоанализу автора подхода — профессора Марка Солмса.
-              </p>
-            </div>
-          </motion.div>
         </div>
       </section>
 
