@@ -22,7 +22,7 @@ export default function DashboardPage() {
   const [hoveredClient, setHoveredClient] = useState<string | null>(null);
   const { sessions } = useSession();
   const { clients } = useClients();
-  const { events: personalEvents } = usePersonalEvents();
+  const { events: personalEvents, updateEventTime } = usePersonalEvents();
 
   function clientIndex(clientId: string) {
     const idx = clients.findIndex(c => c.id === clientId);
@@ -356,14 +356,18 @@ export default function DashboardPage() {
                                   padding: "10px 12px", background: "#FFFFFF", border: "1px dashed #D8CFC0", borderRadius: 10,
                                 }}
                               >
-                                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 56 }}>
-                                  <Clock size={13} style={{ color: "#8C7355" }} />
-                                  <span style={{ fontSize: 13, fontWeight: 700, color: "#8C7355" }}>{evt.time}</span>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <span style={{ fontSize: 16 }}>{evt.emoji}</span>
-                                  <span style={{ fontSize: 13, fontWeight: 500, color: "#6B6058" }}>{evt.title}</span>
-                                </div>
+                                <input
+                                  type="time"
+                                  value={evt.time}
+                                  onChange={e => updateEventTime(evt.id, e.target.value)}
+                                  title="Изменить время"
+                                  style={{
+                                    minWidth: 76, fontSize: 12, fontWeight: 700, color: "#8C7355",
+                                    border: "1px solid #E5DFD5", borderRadius: 5, padding: "2px 4px",
+                                    background: "#F5F3EF", cursor: "pointer", flexShrink: 0,
+                                  }}
+                                />
+                                <span style={{ fontSize: 13, fontWeight: 500, color: "#6B6058" }}>{evt.title}</span>
                               </div>
                             );
                           })}

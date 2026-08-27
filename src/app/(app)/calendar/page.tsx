@@ -27,8 +27,6 @@ function getSessionsByDay(sessions: any[], month: number, year: number): Session
   return result;
 }
 
-const EVENT_EMOJIS = ["📌", "🧘", "🏋️", "🥣", "🍲", "🍽️", "🌳", "🚶", "🩺", "🎬", "👨‍👩‍👧", "🎲", "🧑‍⚕️", "📚"];
-
 const clientColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"];
 function colorForClient(clientId: string): string {
   let hash = 0;
@@ -44,7 +42,6 @@ interface DayEntry {
   kind: "session" | "personal";
   title: string;
   subtitle?: string;
-  emoji?: string;
   color?: string;
   clientId?: string;
 }
@@ -62,9 +59,8 @@ export default function CalendarPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newTime, setNewTime] = useState("09:00");
-  const [newEmoji, setNewEmoji] = useState(EVENT_EMOJIS[0]);
   const { sessions } = useSession();
-  const { events: personalEvents, addEvent, removeEvent } = usePersonalEvents();
+  const { events: personalEvents, addEvent, removeEvent, updateEventTime } = usePersonalEvents();
   const sessionsByDay = getSessionsByDay(sessions, currentMonth.getMonth(), currentMonth.getFullYear());
 
   const personalEventsByDay = useMemo(() => {
@@ -123,7 +119,7 @@ export default function CalendarPage() {
       });
     });
     (personalEventsByDay[selectedDay] ?? []).forEach(evt => {
-      entries.push({ id: evt.id, time: evt.time, kind: "personal", title: evt.title, emoji: evt.emoji });
+      entries.push({ id: evt.id, time: evt.time, kind: "personal", title: evt.title });
     });
     return entries.sort((a, b) => a.time.localeCompare(b.time));
   }, [selectedDay, sessionsByDay, personalEventsByDay]);
@@ -139,7 +135,6 @@ export default function CalendarPage() {
       date: toDateStr(currentMonth.getFullYear(), currentMonth.getMonth(), selectedDay),
       time: newTime,
       title: newTitle.trim(),
-      emoji: newEmoji,
     });
     setNewTitle("");
     setNewTime("09:00");
@@ -210,13 +205,13 @@ export default function CalendarPage() {
                   const isToday = day === today.getDate() && currentMonth.getMonth() === today.getMonth() && currentMonth.getFullYear() === today.getFullYear();
                   const isSelected = day !== null && day === selectedDay;
 
-                  // Превью: сначала сессии (важнее), потом личные дела, максимум MAX_PREVIEW_ITEMS.
+                  // Превью: все события дня вместе, отсортированные по времени, максимум MAX_PREVIEW_ITEMS.
                   const previewEntries: DayEntry[] = [
                     ...daySessions.map(s => ({
                       time: s.time, kind: "session" as const, title: s.clientName, color: colorForClient(s.clientId),
                     })),
                     ...dayPersonal.map(evt => ({
-                      time: evt.time, kind: "personal" as const, title: evt.title, emoji: evt.emoji,
+                      time: evt.time, kind: "personal" as const, title: evt.title,
                     })),
                   ].sort((a, b) => a.time.localeCompare(b.time));
                   const shown = previewEntries.slice(0, MAX_PREVIEW_ITEMS);
@@ -265,11 +260,10 @@ export default function CalendarPage() {
                                   border: entry.kind === "personal" ? "1px dashed #D8CFC0" : "none",
                                 }}
                               >
-                                {entry.kind === "session" ? (
-                                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: entry.color, flexShrink: 0 }} />
-                                ) : (
-                                  <span style={{ fontSize: 9 }}>{entry.emoji}</span>
-                                )}
+                                <div style={{
+                                  width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                                  background: entry.kind === "session" ? entry.color : "#8C7355",
+                                }} />
                                 <span style={{
                                   fontSize: 9.5,
                                   fontWeight: entry.kind === "session" ? 600 : 400,
@@ -278,7 +272,7 @@ export default function CalendarPage() {
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
                                 }}>
-                                  {entry.title}
+                                  {entry.time} · {entry.title}
                                 </span>
                               </div>
                             ))}
@@ -301,10 +295,10 @@ export default function CalendarPage() {
           <Card style={{ marginTop: 24 }}>
             <CardContent className="pt-6">
               <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 12 }}>
-                📌 Информация
+                Информация
               </h3>
               <p style={{ fontSize: 13, color: "#6B6058", margin: 0 }}>
-                Кликните на число, чтобы открыть все события дня и добавить своё. Сплошная граница — текущий день. Пунктирные карточки — личные дела (зал, семья, врач и т.д.).
+                Кликните на число, чтобы открыть все события дня, добавить своё или изменить время личного дела (клик на время в списке справа). Сплошная граница — текущий день. Пунктирные карточки — личные дела (зал, семья, врач и т.д.).
               </p>
             </CardContent>
           </Card>
@@ -347,6 +341,7 @@ export default function CalendarPage() {
                     marginBottom: 12,
                   }}>
                     {selectedDayEntries.map((entry, i) => {
+                      const isPersonal = entry.kind === "personal" && entry.id;
                       const content = (
                         <div
                           style={{
@@ -360,20 +355,41 @@ export default function CalendarPage() {
                             cursor: entry.kind === "session" ? "pointer" : "default",
                           }}
                         >
-                          <div style={{
-                            display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
-                            fontSize: 11.5, fontWeight: 700, color: entry.kind === "session" ? entry.color : "#8C7355",
-                            minWidth: 42,
-                          }}>
-                            <Clock size={11} />
-                            {entry.time}
-                          </div>
+                          {isPersonal ? (
+                            <input
+                              type="time"
+                              value={entry.time}
+                              onClick={e => { e.preventDefault(); e.stopPropagation(); }}
+                              onChange={e => updateEventTime(entry.id!, e.target.value)}
+                              title="Изменить время"
+                              style={{
+                                flexShrink: 0,
+                                minWidth: 76,
+                                fontSize: 11.5,
+                                fontWeight: 700,
+                                color: "#8C7355",
+                                border: "1px solid #E5DFD5",
+                                borderRadius: 5,
+                                padding: "2px 4px",
+                                background: "#FFFFFF",
+                                cursor: "pointer",
+                              }}
+                            />
+                          ) : (
+                            <div style={{
+                              display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
+                              fontSize: 11.5, fontWeight: 700, color: entry.color,
+                              minWidth: 42,
+                            }}>
+                              <Clock size={11} />
+                              {entry.time}
+                            </div>
+                          )}
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{
                               fontSize: 13, fontWeight: 600, color: "#1C1C1E",
                               display: "flex", alignItems: "center", gap: 6,
                             }}>
-                              {entry.kind === "personal" && <span>{entry.emoji}</span>}
                               {entry.title}
                               {entry.kind === "session" && <Video size={12} style={{ color: entry.color, opacity: 0.7 }} />}
                             </div>
@@ -381,7 +397,7 @@ export default function CalendarPage() {
                               <div style={{ fontSize: 11, color: "#8C7355", marginTop: 2 }}>{entry.subtitle}</div>
                             )}
                           </div>
-                          {entry.kind === "personal" && entry.id && (
+                          {isPersonal && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeEvent(entry.id!); }}
                               title="Удалить"
@@ -404,27 +420,15 @@ export default function CalendarPage() {
 
                   {showAddForm ? (
                     <div style={{ borderTop: "1px solid #E5DFD5", paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <input
-                          type="time"
-                          value={newTime}
-                          onChange={e => setNewTime(e.target.value)}
-                          style={{
-                            width: 90, padding: "8px 8px", border: "1px solid #E5DFD5", borderRadius: 6,
-                            fontSize: 12, color: "#1C1C1E", background: "#FFFFFF",
-                          }}
-                        />
-                        <select
-                          value={newEmoji}
-                          onChange={e => setNewEmoji(e.target.value)}
-                          style={{
-                            padding: "8px 6px", border: "1px solid #E5DFD5", borderRadius: 6,
-                            fontSize: 14, color: "#1C1C1E", background: "#FFFFFF",
-                          }}
-                        >
-                          {EVENT_EMOJIS.map(em => <option key={em} value={em}>{em}</option>)}
-                        </select>
-                      </div>
+                      <input
+                        type="time"
+                        value={newTime}
+                        onChange={e => setNewTime(e.target.value)}
+                        style={{
+                          padding: "8px 8px", border: "1px solid #E5DFD5", borderRadius: 6,
+                          fontSize: 12, color: "#1C1C1E", background: "#FFFFFF",
+                        }}
+                      />
                       <input
                         type="text"
                         value={newTitle}

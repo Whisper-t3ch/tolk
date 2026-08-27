@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Users, Video, Bot, FileText,
   BookOpen, Brain, Settings, Plus, X,
-  ClipboardList, HelpCircle, Sparkles
+  ClipboardList, HelpCircle, Sparkles, CalendarDays
 } from "lucide-react";
 import { currentPsychologist } from "@/lib/mock-data";
 import { useSession } from "@/lib/SessionContext";
@@ -16,6 +16,7 @@ import { LogoMark } from "@/components/Logo";
 
 const navItems = [
   { href: "/dashboard",      icon: LayoutDashboard, label: "Главная" },
+  { href: "/calendar",       icon: CalendarDays,    label: "Календарь" },
   { href: "/sessions",       icon: Video,           label: "Сессии" },
   { href: "/clients",        icon: Users,           label: "Клиенты" },
   { href: "/note-templates", icon: ClipboardList,   label: "Шаблоны протоколов" },

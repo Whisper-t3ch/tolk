@@ -15,17 +15,17 @@ export interface PersonalEvent {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   title: string;
-  emoji: string;
 }
 
 interface PersonalEventsContextType {
   events: PersonalEvent[];
   addEvent: (event: Omit<PersonalEvent, "id">) => void;
   removeEvent: (id: string) => void;
+  updateEventTime: (id: string, time: string) => void;
 }
 
-const STORAGE_KEY = "tolk_personal_events_v1";
-const SEEDED_FLAG_KEY = "tolk_personal_events_seeded_v1";
+const STORAGE_KEY = "tolk_personal_events_v2";
+const SEEDED_FLAG_KEY = "tolk_personal_events_seeded_v2";
 
 const PersonalEventsContext = createContext<PersonalEventsContextType | undefined>(undefined);
 
@@ -35,47 +35,47 @@ function toDateStr(d: Date): string {
 
 // Плотное демо-расписание для показа на созвоне — генерируется один раз
 // при первом заходе (если в localStorage ещё ничего нет), дальше психолог
-// может добавлять/удалять события сам и они не будут перезатираться.
-const DAILY_TEMPLATES: Array<Array<{ time: string; title: string; emoji: string }>> = [
+// может добавлять/удалять/двигать события сам и они не будут перезатираться.
+const DAILY_TEMPLATES: Array<Array<{ time: string; title: string }>> = [
   [
-    { time: "07:00", title: "Йога", emoji: "🧘" },
-    { time: "08:00", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "18:30", title: "Прогулка в парке", emoji: "🌳" },
+    { time: "07:00", title: "Йога" },
+    { time: "08:00", title: "Завтрак" },
+    { time: "13:00", title: "Обед" },
+    { time: "18:30", title: "Прогулка в парке" },
   ],
   [
-    { time: "07:30", title: "Зал", emoji: "🏋️" },
-    { time: "08:30", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "19:00", title: "Ужин с семьёй", emoji: "🍽️" },
+    { time: "07:30", title: "Зал" },
+    { time: "08:30", title: "Завтрак" },
+    { time: "13:00", title: "Обед" },
+    { time: "19:00", title: "Ужин с семьёй" },
   ],
   [
-    { time: "07:00", title: "Медитация", emoji: "🧘‍♂️" },
-    { time: "08:00", title: "Завтрак", emoji: "🥣" },
-    { time: "12:30", title: "Обед", emoji: "🍲" },
-    { time: "17:00", title: "Супервизия", emoji: "🧑‍⚕️" },
+    { time: "07:00", title: "Медитация" },
+    { time: "08:00", title: "Завтрак" },
+    { time: "12:30", title: "Обед" },
+    { time: "17:00", title: "Супервизия" },
   ],
   [
-    { time: "07:30", title: "Пробежка", emoji: "🏃" },
-    { time: "08:30", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "18:00", title: "Прогулка с ребёнком", emoji: "🚶" },
+    { time: "07:30", title: "Пробежка" },
+    { time: "08:30", title: "Завтрак" },
+    { time: "13:00", title: "Обед" },
+    { time: "18:00", title: "Прогулка с ребёнком" },
   ],
   [
-    { time: "07:00", title: "Йога", emoji: "🧘" },
-    { time: "08:00", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "20:00", title: "Кино с женой", emoji: "🎬" },
+    { time: "07:00", title: "Йога" },
+    { time: "08:00", title: "Завтрак" },
+    { time: "13:00", title: "Обед" },
+    { time: "20:00", title: "Кино с женой" },
   ],
   [
-    { time: "09:00", title: "Врач", emoji: "🩺" },
-    { time: "10:00", title: "Завтрак поздний", emoji: "🥐" },
-    { time: "14:00", title: "Обед", emoji: "🍲" },
+    { time: "09:00", title: "Врач" },
+    { time: "10:00", title: "Завтрак поздний" },
+    { time: "14:00", title: "Обед" },
   ],
   [
-    { time: "10:00", title: "Завтрак", emoji: "🥞" },
-    { time: "12:00", title: "Время с семьёй", emoji: "👨‍👩‍👧" },
-    { time: "19:00", title: "Настольные игры", emoji: "🎲" },
+    { time: "10:00", title: "Завтрак" },
+    { time: "12:00", title: "Время с семьёй" },
+    { time: "19:00", title: "Настольные игры" },
   ],
 ];
 const SKIP_OFFSETS = new Set<number>([5, 12, 19, 26]);
@@ -88,7 +88,7 @@ function buildSeedEvents(): PersonalEvent[] {
     const template = DAILY_TEMPLATES[((offset % DAILY_TEMPLATES.length) + DAILY_TEMPLATES.length) % DAILY_TEMPLATES.length];
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
     template.forEach((evt, i) => {
-      events.push({ id: `seed-${offset}-${i}`, date: toDateStr(d), time: evt.time, title: evt.title, emoji: evt.emoji });
+      events.push({ id: `seed-${offset}-${i}`, date: toDateStr(d), time: evt.time, title: evt.title });
     });
   }
   return events;
@@ -139,8 +139,12 @@ export function PersonalEventsProvider({ children }: { children: ReactNode }) {
     setEvents(prev => prev.filter(e => e.id !== id));
   }, []);
 
+  const updateEventTime = useCallback((id: string, time: string) => {
+    setEvents(prev => prev.map(e => (e.id === id ? { ...e, time } : e)));
+  }, []);
+
   return (
-    <PersonalEventsContext.Provider value={{ events, addEvent, removeEvent }}>
+    <PersonalEventsContext.Provider value={{ events, addEvent, removeEvent, updateEventTime }}>
       {children}
     </PersonalEventsContext.Provider>
   );
