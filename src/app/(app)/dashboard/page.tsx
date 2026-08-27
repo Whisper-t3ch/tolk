@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { usePersonalEvents } from "@/lib/PersonalEventsContext";
+import { findNearestFreeSlot } from "@/lib/calendarSlots";
 import { getScoreColor, getScoreBg } from "@/lib/utils";
 import { Users, Video, UserPlus, AlertCircle, ArrowRight, Clock, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -91,6 +92,19 @@ export default function DashboardPage() {
 
   const selectedDateObj = new Date(selectedDateStr + "T00:00:00");
   const dayLabel = selectedDateObj.toLocaleDateString("ru", { day: "numeric", month: "long", weekday: "long" });
+
+  // Занятые времена выбранного дня — для автосдвига при редактировании времени личного дела.
+  const occupiedTimesOnDate = useMemo(
+    () => [
+      ...sessionsOnDate.map(s => ({ time: s.time })),
+      ...personalEventsOnDate.map(e => ({ time: e.time, id: e.id })),
+    ],
+    [sessionsOnDate, personalEventsOnDate]
+  );
+  const handleUpdateEventTime = (id: string, requestedTime: string) => {
+    const freeTime = findNearestFreeSlot(requestedTime, occupiedTimesOnDate, id);
+    updateEventTime(id, freeTime);
+  };
 
   const newClients = useMemo(() => {
     const cutoff = new Date(TODAY + "T00:00:00");
@@ -359,7 +373,7 @@ export default function DashboardPage() {
                                 <input
                                   type="time"
                                   value={evt.time}
-                                  onChange={e => updateEventTime(evt.id, e.target.value)}
+                                  onChange={e => handleUpdateEventTime(evt.id, e.target.value)}
                                   title="Изменить время"
                                   style={{
                                     minWidth: 76, fontSize: 12, fontWeight: 700, color: "#8C7355",

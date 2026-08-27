@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, X, Video, Clock, Plus, Trash2 } from "lucide-react";
 import { useSession } from "@/lib/SessionContext";
 import { usePersonalEvents } from "@/lib/PersonalEventsContext";
+import { findNearestFreeSlot } from "@/lib/calendarSlots";
 import { Card, CardContent, Button } from "@/components/ui";
 
 type SessionsByDay = Record<number, Array<{ clientId: string; clientName: string; time: string }>>;
@@ -129,16 +130,29 @@ export default function CalendarPage() {
       ? new Date(currentMonth.getFullYear(), currentMonth.getMonth(), selectedDay)
       : null;
 
+  // Занятые времена выбранного дня (сессии + личные дела) — используются
+  // для автосдвига на ближайший свободный слот при добавлении/редактировании.
+  const occupiedTimesForSelectedDay = useMemo(() => {
+    if (selectedDay === null) return [];
+    return selectedDayEntries.map(e => ({ time: e.time, id: e.id }));
+  }, [selectedDay, selectedDayEntries]);
+
   const handleAddEvent = () => {
     if (selectedDay === null || !newTitle.trim()) return;
+    const freeTime = findNearestFreeSlot(newTime, occupiedTimesForSelectedDay);
     addEvent({
       date: toDateStr(currentMonth.getFullYear(), currentMonth.getMonth(), selectedDay),
-      time: newTime,
+      time: freeTime,
       title: newTitle.trim(),
     });
     setNewTitle("");
     setNewTime("09:00");
     setShowAddForm(false);
+  };
+
+  const handleUpdateEventTime = (id: string, requestedTime: string) => {
+    const freeTime = findNearestFreeSlot(requestedTime, occupiedTimesForSelectedDay, id);
+    updateEventTime(id, freeTime);
   };
 
   return (
@@ -411,7 +425,7 @@ export default function CalendarPage() {
                               type="time"
                               value={entry.time}
                               onClick={e => { e.preventDefault(); e.stopPropagation(); }}
-                              onChange={e => updateEventTime(entry.id!, e.target.value)}
+                              onChange={e => handleUpdateEventTime(entry.id!, e.target.value)}
                               title="Изменить время"
                               style={{
                                 flexShrink: 0,
