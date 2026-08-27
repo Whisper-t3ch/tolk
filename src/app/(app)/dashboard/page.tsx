@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
+import { usePersonalEvents } from "@/lib/PersonalEventsContext";
 import { getScoreColor, getScoreBg } from "@/lib/utils";
 import { Users, Video, UserPlus, AlertCircle, ArrowRight, Clock, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -21,6 +22,7 @@ export default function DashboardPage() {
   const [hoveredClient, setHoveredClient] = useState<string | null>(null);
   const { sessions } = useSession();
   const { clients } = useClients();
+  const { events: personalEvents } = usePersonalEvents();
 
   function clientIndex(clientId: string) {
     const idx = clients.findIndex(c => c.id === clientId);
@@ -53,6 +55,18 @@ export default function DashboardPage() {
     return map;
   }, [sessions, viewMonth]);
 
+  const personalEventsByDay = useMemo(() => {
+    const map: Record<number, typeof personalEvents> = {};
+    personalEvents.forEach(evt => {
+      const [y, m, d] = evt.date.split("-").map(Number);
+      if (y === viewMonth.getFullYear() && m === viewMonth.getMonth() + 1) {
+        if (!map[d]) map[d] = [];
+        map[d].push(evt);
+      }
+    });
+    return map;
+  }, [personalEvents, viewMonth]);
+
   const daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
   const firstDayRaw = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1).getDay();
   const firstDay = firstDayRaw === 0 ? 6 : firstDayRaw - 1; // понедельник = 0
@@ -69,6 +83,10 @@ export default function DashboardPage() {
   const sessionsOnDate = useMemo(
     () => sessions.filter(s => s.date === selectedDateStr).sort((a, b) => a.time.localeCompare(b.time)),
     [sessions, selectedDateStr]
+  );
+  const personalEventsOnDate = useMemo(
+    () => personalEvents.filter(e => e.date === selectedDateStr).sort((a, b) => a.time.localeCompare(b.time)),
+    [personalEvents, selectedDateStr]
   );
 
   const selectedDateObj = new Date(selectedDateStr + "T00:00:00");
@@ -209,7 +227,9 @@ export default function DashboardPage() {
                     if (!day) return <div key={idx} />;
                     const dateStr = toDateStr(viewMonth.getFullYear(), viewMonth.getMonth(), day);
                     const daySessions = sessionsByDay[day] ?? [];
+                    const dayPersonal = personalEventsByDay[day] ?? [];
                     const hasSessions = daySessions.length > 0;
+                    const hasPersonal = dayPersonal.length > 0;
                     const isSelected = dateStr === selectedDateStr;
                     const isTodayCell = dateStr === TODAY;
 
@@ -234,11 +254,21 @@ export default function DashboardPage() {
                         }}>
                           {day}
                         </span>
-                        {hasSessions && (
-                          <div style={{
-                            width: 4, height: 4, borderRadius: "50%", marginTop: 2,
-                            background: isSelected ? "#FFFFFF" : "#2D6A5C",
-                          }} />
+                        {(hasSessions || hasPersonal) && (
+                          <div style={{ display: "flex", gap: 3, marginTop: 2 }}>
+                            {hasSessions && (
+                              <div style={{
+                                width: 4, height: 4, borderRadius: "50%",
+                                background: isSelected ? "#FFFFFF" : "#2D6A5C",
+                              }} />
+                            )}
+                            {hasPersonal && (
+                              <div style={{
+                                width: 4, height: 4, borderRadius: "50%",
+                                background: isSelected ? "#FFFFFF" : "#F59E0B",
+                              }} />
+                            )}
+                          </div>
                         )}
                       </button>
                     );
@@ -262,57 +292,90 @@ export default function DashboardPage() {
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -8 }}
                     transition={{ duration: 0.15 }}
+                    style={{ maxHeight: 340, overflowY: "auto", paddingRight: 4 }}
                   >
-                    {sessionsOnDate.length === 0 ? (
+                    {sessionsOnDate.length === 0 && personalEventsOnDate.length === 0 ? (
                       <div style={{ textAlign: "center", padding: "24px 0", color: "#8C7355", fontSize: 13 }}>
-                        Нет сессий на эту дату
+                        Событий нет
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {sessionsOnDate.map(session => {
-                          const idx = clientIndex(session.clientId);
-                          const client = clients[idx];
-                          return (
-                            <div
-                              key={session.id}
-                              style={{
-                                display: "flex", alignItems: "center", gap: 14,
-                                padding: "10px 12px", background: "#F5F3EF", borderRadius: 10,
-                              }}
-                            >
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 56 }}>
-                                <Clock size={13} style={{ color: "#2D6A5C" }} />
-                                <span style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E" }}>{session.time}</span>
-                              </div>
-                              <Link href={`/clients/${session.clientId}`} style={{ textDecoration: "none", flex: 1 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                                  <div style={{
-                                    width: 32, height: 32, background: avatarColors[idx % avatarColors.length],
-                                    borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                                    fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0,
-                                  }}>
-                                    {client?.initials ?? "?"}
+                        {[
+                          ...sessionsOnDate.map(s => ({ kind: "session" as const, time: s.time, session: s })),
+                          ...personalEventsOnDate.map(e => ({ kind: "personal" as const, time: e.time, event: e })),
+                        ]
+                          .sort((a, b) => a.time.localeCompare(b.time))
+                          .map((item, i) => {
+                            if (item.kind === "session") {
+                              const session = item.session;
+                              const idx = clientIndex(session.clientId);
+                              const client = clients[idx];
+                              return (
+                                <div
+                                  key={session.id}
+                                  style={{
+                                    display: "flex", alignItems: "center", gap: 14,
+                                    padding: "10px 12px", background: "#F5F3EF", borderRadius: 10,
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 56 }}>
+                                    <Clock size={13} style={{ color: "#2D6A5C" }} />
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E" }}>{session.time}</span>
                                   </div>
-                                  <div>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{session.clientName}</div>
-                                    {client && <div style={{ fontSize: 11, color: "#8C7355" }}>{client.request}</div>}
-                                  </div>
+                                  <Link href={`/clients/${session.clientId}`} style={{ textDecoration: "none", flex: 1 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                                      <div style={{
+                                        width: 32, height: 32, background: avatarColors[idx % avatarColors.length],
+                                        borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                                        fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0,
+                                      }}>
+                                        {client?.initials ?? "?"}
+                                      </div>
+                                      <div>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{session.clientName}</div>
+                                        {client && <div style={{ fontSize: 11, color: "#8C7355" }}>{client.request}</div>}
+                                      </div>
+                                    </div>
+                                  </Link>
+                                  {isToday && (
+                                    <Link href={`/session/${session.clientId}`} style={{ textDecoration: "none" }}>
+                                      <Button size="sm">
+                                        Начать <ArrowRight size={13} style={{ marginLeft: 6 }} />
+                                      </Button>
+                                    </Link>
+                                  )}
                                 </div>
-                              </Link>
-                              {isToday && (
-                                <Link href={`/session/${session.clientId}`} style={{ textDecoration: "none" }}>
-                                  <Button size="sm">
-                                    Начать <ArrowRight size={13} style={{ marginLeft: 6 }} />
-                                  </Button>
-                                </Link>
-                              )}
-                            </div>
-                          );
-                        })}
+                              );
+                            }
+                            const evt = item.event;
+                            return (
+                              <div
+                                key={evt.id}
+                                style={{
+                                  display: "flex", alignItems: "center", gap: 14,
+                                  padding: "10px 12px", background: "#FFFFFF", border: "1px dashed #D8CFC0", borderRadius: 10,
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 56 }}>
+                                  <Clock size={13} style={{ color: "#8C7355" }} />
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: "#8C7355" }}>{evt.time}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 16 }}>{evt.emoji}</span>
+                                  <span style={{ fontSize: 13, fontWeight: 500, color: "#6B6058" }}>{evt.title}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
                       </div>
                     )}
                   </motion.div>
                 </AnimatePresence>
+                <Link href="/calendar" style={{ textDecoration: "none" }}>
+                  <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: "#2D6A5C", textAlign: "center" }}>
+                    Открыть полный календарь, чтобы добавить своё событие →
+                  </div>
+                </Link>
               </div>
             </div>
           </CardContent>

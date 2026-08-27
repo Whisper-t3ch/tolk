@@ -3,6 +3,7 @@ import { Manrope, Inter } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/lib/SessionContext";
 import { ClientsProvider } from "@/lib/ClientsContext";
+import { PersonalEventsProvider } from "@/lib/PersonalEventsContext";
 
 const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
@@ -30,7 +31,9 @@ export default function RootLayout({
     <html lang="ru" className={`${manrope.variable} ${inter.variable}`}>
       <body>
         <ClientsProvider>
-          <SessionProvider>{children}</SessionProvider>
+          <SessionProvider>
+            <PersonalEventsProvider>{children}</PersonalEventsProvider>
+          </SessionProvider>
         </ClientsProvider>
       </body>
     </html>

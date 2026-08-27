@@ -2,97 +2,10 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, X, Video, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Video, Clock, Plus, Trash2 } from "lucide-react";
 import { useSession } from "@/lib/SessionContext";
+import { usePersonalEvents } from "@/lib/PersonalEventsContext";
 import { Card, CardContent, Button } from "@/components/ui";
-
-// ------------------------------------------------------------
-// Личные дела — демонстрационная заглушка (для показа на созвоне).
-// Пока не хранятся в Supabase: отдельная предметная область "личный
-// календарь психолога", ещё не спроектирована как таблица. День
-// считается от текущей даты, чтобы всегда попадать в открытый месяц.
-// Расписание сделано плотным (почти каждый день) — утренний ритуал,
-// приёмы пищи, активности между сессиями — чтобы день выглядел как
-// реальный рабочий день психолога, а не пустая сетка с парой пунктов.
-// ------------------------------------------------------------
-interface PersonalEvent {
-  dayOffset: number; // относительно today, может уйти в соседний месяц
-  time: string;
-  title: string;
-  emoji: string;
-}
-
-const DAILY_TEMPLATES: Omit<PersonalEvent, "dayOffset">[][] = [
-  [
-    { time: "07:00", title: "Йога", emoji: "🧘" },
-    { time: "08:00", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "18:30", title: "Прогулка в парке", emoji: "🌳" },
-  ],
-  [
-    { time: "07:30", title: "Зал", emoji: "🏋️" },
-    { time: "08:30", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "19:00", title: "Ужин с семьёй", emoji: "🍽️" },
-  ],
-  [
-    { time: "07:00", title: "Медитация", emoji: "🧘‍♂️" },
-    { time: "08:00", title: "Завтрак", emoji: "🥣" },
-    { time: "12:30", title: "Обед", emoji: "🍲" },
-    { time: "17:00", title: "Супервизия", emoji: "🧑‍⚕️" },
-  ],
-  [
-    { time: "07:30", title: "Пробежка", emoji: "🏃" },
-    { time: "08:30", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "18:00", title: "Прогулка с ребёнком", emoji: "🚶" },
-  ],
-  [
-    { time: "07:00", title: "Йога", emoji: "🧘" },
-    { time: "08:00", title: "Завтрак", emoji: "🥣" },
-    { time: "13:00", title: "Обед", emoji: "🍲" },
-    { time: "20:00", title: "Кино с женой", emoji: "🎬" },
-  ],
-  [
-    { time: "09:00", title: "Врач", emoji: "🩺" },
-    { time: "10:00", title: "Завтрак поздний", emoji: "🥐" },
-    { time: "14:00", title: "Обед", emoji: "🍲" },
-  ],
-  [
-    { time: "10:00", title: "Завтрак", emoji: "🥞" },
-    { time: "12:00", title: "Время с семьёй", emoji: "👨‍👩‍👧" },
-    { time: "19:00", title: "Настольные игры", emoji: "🎲" },
-  ],
-];
-
-// Дни без личных дел вообще (0 = сегодня) — чтобы не выглядело неестественно идеально.
-const SKIP_OFFSETS = new Set<number>([5, 12, 19, 26]);
-
-function buildPersonalEvents(): PersonalEvent[] {
-  const events: PersonalEvent[] = [];
-  for (let offset = -3; offset <= 35; offset++) {
-    if (SKIP_OFFSETS.has(((offset % 7) + 7) % 7)) continue;
-    const template = DAILY_TEMPLATES[((offset % DAILY_TEMPLATES.length) + DAILY_TEMPLATES.length) % DAILY_TEMPLATES.length];
-    template.forEach(evt => events.push({ ...evt, dayOffset: offset }));
-  }
-  return events;
-}
-
-const PERSONAL_EVENTS: PersonalEvent[] = buildPersonalEvents();
-
-function getPersonalEventsByDay(month: number, year: number): Record<number, PersonalEvent[]> {
-  const today = new Date();
-  const result: Record<number, PersonalEvent[]> = {};
-  PERSONAL_EVENTS.forEach(evt => {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + evt.dayOffset);
-    if (d.getMonth() === month && d.getFullYear() === year) {
-      const day = d.getDate();
-      if (!result[day]) result[day] = [];
-      result[day].push(evt);
-    }
-  });
-  return result;
-}
 
 type SessionsByDay = Record<number, Array<{ clientId: string; clientName: string; time: string }>>;
 
@@ -114,6 +27,8 @@ function getSessionsByDay(sessions: any[], month: number, year: number): Session
   return result;
 }
 
+const EVENT_EMOJIS = ["📌", "🧘", "🏋️", "🥣", "🍲", "🍽️", "🌳", "🚶", "🩺", "🎬", "👨‍👩‍👧", "🎲", "🧑‍⚕️", "📚"];
+
 const clientColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"];
 function colorForClient(clientId: string): string {
   let hash = 0;
@@ -124,6 +39,7 @@ function colorForClient(clientId: string): string {
 // Унифицированная запись дня для боковой панели — сессии и личные дела
 // вместе, отсортированные по времени, со скроллом если их много.
 interface DayEntry {
+  id?: string;
   time: string;
   kind: "session" | "personal";
   title: string;
@@ -135,13 +51,33 @@ interface DayEntry {
 
 const MAX_PREVIEW_ITEMS = 3;
 
+function toDateStr(year: number, month: number, day: number): string {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 export default function CalendarPage() {
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(today);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newTime, setNewTime] = useState("09:00");
+  const [newEmoji, setNewEmoji] = useState(EVENT_EMOJIS[0]);
   const { sessions } = useSession();
+  const { events: personalEvents, addEvent, removeEvent } = usePersonalEvents();
   const sessionsByDay = getSessionsByDay(sessions, currentMonth.getMonth(), currentMonth.getFullYear());
-  const personalEventsByDay = getPersonalEventsByDay(currentMonth.getMonth(), currentMonth.getFullYear());
+
+  const personalEventsByDay = useMemo(() => {
+    const result: Record<number, typeof personalEvents> = {};
+    personalEvents.forEach(evt => {
+      const [y, m, d] = evt.date.split("-").map(Number);
+      if (y === currentMonth.getFullYear() && m === currentMonth.getMonth() + 1) {
+        if (!result[d]) result[d] = [];
+        result[d].push(evt);
+      }
+    });
+    return result;
+  }, [personalEvents, currentMonth]);
 
   const monthNames = [
     "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -164,11 +100,13 @@ export default function CalendarPage() {
   const prevMonth = () => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
     setSelectedDay(null);
+    setShowAddForm(false);
   };
 
   const nextMonth = () => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
     setSelectedDay(null);
+    setShowAddForm(false);
   };
 
   const selectedDayEntries: DayEntry[] = useMemo(() => {
@@ -185,7 +123,7 @@ export default function CalendarPage() {
       });
     });
     (personalEventsByDay[selectedDay] ?? []).forEach(evt => {
-      entries.push({ time: evt.time, kind: "personal", title: evt.title, emoji: evt.emoji });
+      entries.push({ id: evt.id, time: evt.time, kind: "personal", title: evt.title, emoji: evt.emoji });
     });
     return entries.sort((a, b) => a.time.localeCompare(b.time));
   }, [selectedDay, sessionsByDay, personalEventsByDay]);
@@ -194,6 +132,19 @@ export default function CalendarPage() {
     selectedDay !== null
       ? new Date(currentMonth.getFullYear(), currentMonth.getMonth(), selectedDay)
       : null;
+
+  const handleAddEvent = () => {
+    if (selectedDay === null || !newTitle.trim()) return;
+    addEvent({
+      date: toDateStr(currentMonth.getFullYear(), currentMonth.getMonth(), selectedDay),
+      time: newTime,
+      title: newTitle.trim(),
+      emoji: newEmoji,
+    });
+    setNewTitle("");
+    setNewTime("09:00");
+    setShowAddForm(false);
+  };
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", position: "relative" }}>
@@ -277,7 +228,7 @@ export default function CalendarPage() {
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: idx * 0.01 }}
-                      onClick={() => day && setSelectedDay(day)}
+                      onClick={() => day && (setSelectedDay(day), setShowAddForm(false))}
                       style={{
                         minHeight: 104,
                         padding: 8,
@@ -353,7 +304,7 @@ export default function CalendarPage() {
                 📌 Информация
               </h3>
               <p style={{ fontSize: 13, color: "#6B6058", margin: 0 }}>
-                Кликните на число, чтобы открыть все события дня. Сплошная граница — текущий день. Пунктирные карточки — личные дела (зал, семья, врач и т.д.).
+                Кликните на число, чтобы открыть все события дня и добавить своё. Сплошная граница — текущий день. Пунктирные карточки — личные дела (зал, семья, врач и т.д.).
               </p>
             </CardContent>
           </Card>
@@ -366,7 +317,7 @@ export default function CalendarPage() {
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 24 }}
-              style={{ width: 300, flexShrink: 0 }}
+              style={{ width: 320, flexShrink: 0 }}
             >
               <Card style={{ position: "sticky", top: 16 }}>
                 <CardContent className="pt-6" style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 140px)" }}>
@@ -381,7 +332,7 @@ export default function CalendarPage() {
                       <X size={16} />
                     </button>
                   </div>
-                  <p style={{ fontSize: 12, color: "#8C7355", margin: "0 0 16px 0" }}>
+                  <p style={{ fontSize: 12, color: "#8C7355", margin: "0 0 12px 0" }}>
                     {selectedDayEntries.length === 0
                       ? "Событий нет"
                       : `${selectedDayEntries.length} ${selectedDayEntries.length === 1 ? "событие" : "событий"}`}
@@ -393,6 +344,7 @@ export default function CalendarPage() {
                     gap: 8,
                     overflowY: "auto",
                     paddingRight: 4,
+                    marginBottom: 12,
                   }}>
                     {selectedDayEntries.map((entry, i) => {
                       const content = (
@@ -429,6 +381,15 @@ export default function CalendarPage() {
                               <div style={{ fontSize: 11, color: "#8C7355", marginTop: 2 }}>{entry.subtitle}</div>
                             )}
                           </div>
+                          {entry.kind === "personal" && entry.id && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeEvent(entry.id!); }}
+                              title="Удалить"
+                              style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 2, flexShrink: 0 }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
                       );
                       return entry.kind === "session" && entry.clientId ? (
@@ -440,6 +401,64 @@ export default function CalendarPage() {
                       );
                     })}
                   </div>
+
+                  {showAddForm ? (
+                    <div style={{ borderTop: "1px solid #E5DFD5", paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input
+                          type="time"
+                          value={newTime}
+                          onChange={e => setNewTime(e.target.value)}
+                          style={{
+                            width: 90, padding: "8px 8px", border: "1px solid #E5DFD5", borderRadius: 6,
+                            fontSize: 12, color: "#1C1C1E", background: "#FFFFFF",
+                          }}
+                        />
+                        <select
+                          value={newEmoji}
+                          onChange={e => setNewEmoji(e.target.value)}
+                          style={{
+                            padding: "8px 6px", border: "1px solid #E5DFD5", borderRadius: 6,
+                            fontSize: 14, color: "#1C1C1E", background: "#FFFFFF",
+                          }}
+                        >
+                          {EVENT_EMOJIS.map(em => <option key={em} value={em}>{em}</option>)}
+                        </select>
+                      </div>
+                      <input
+                        type="text"
+                        value={newTitle}
+                        onChange={e => setNewTitle(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleAddEvent(); }}
+                        placeholder="Название дела (например, Зал)"
+                        autoFocus
+                        style={{
+                          padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6,
+                          fontSize: 12.5, color: "#1C1C1E", background: "#FFFFFF",
+                        }}
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Button onClick={handleAddEvent} size="sm" style={{ flex: 1 }}>
+                          Добавить
+                        </Button>
+                        <Button onClick={() => setShowAddForm(false)} variant="secondary" size="sm">
+                          Отмена
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowAddForm(true)}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        padding: "10px 12px", background: "#F5F3EF", border: "1px dashed #D8CFC0",
+                        borderRadius: 8, cursor: "pointer", color: "#2D6A5C", fontSize: 13, fontWeight: 600,
+                        marginTop: "auto",
+                      }}
+                    >
+                      <Plus size={14} /> Добавить событие
+                    </button>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
