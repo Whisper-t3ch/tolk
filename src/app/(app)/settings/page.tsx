@@ -309,10 +309,65 @@ export default function SettingsPage() {
 
                           {showTelegramForm && telegramIntegration?.status !== "connected" && (
                             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5DFD5" }}>
-                              <p style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.6, marginBottom: 10 }}>
-                                1. Откройте <strong>@BotFather</strong> в Telegram и создайте бота командой <code>/newbot</code>.<br />
-                                2. Скопируйте выданный токен и вставьте его сюда.
-                              </p>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
+                                <div style={{ display: "flex", gap: 10 }}>
+                                  <div style={{
+                                    width: 22, height: 22, borderRadius: "50%", background: "#2D6A5C", color: "#fff",
+                                    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1,
+                                  }}>1</div>
+                                  <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6 }}>
+                                    Откройте бота <strong>@BotFather</strong> в Telegram — это официальный сервис Telegram для создания ботов.
+                                    <div style={{ marginTop: 6 }}>
+                                      <a
+                                        href="https://t.me/BotFather"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{
+                                          display: "inline-flex", alignItems: "center", gap: 6,
+                                          fontSize: 12.5, fontWeight: 600, color: "#2D6A5C", textDecoration: "none",
+                                          background: "#E8F2EF", padding: "6px 12px", borderRadius: 8,
+                                        }}
+                                      >
+                                        Открыть @BotFather <ExternalLink size={12} />
+                                      </a>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div style={{ display: "flex", gap: 10 }}>
+                                  <div style={{
+                                    width: 22, height: 22, borderRadius: "50%", background: "#2D6A5C", color: "#fff",
+                                    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1,
+                                  }}>2</div>
+                                  <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6 }}>
+                                    Отправьте команде <code style={{ background: "#F5F3EF", padding: "1px 5px", borderRadius: 4 }}>/newbot</code> и ответьте на два вопроса:
+                                    <div style={{ marginTop: 6, background: "#F5F3EF", borderRadius: 8, padding: "8px 12px" }}>
+                                      <div style={{ marginBottom: 4 }}>
+                                        <span style={{ color: "#6B6058" }}>Имя бота (любое, видно клиентам): </span>
+                                        <span style={{ fontFamily: "monospace" }}>Кабинет Марины Ивановой</span>
+                                      </div>
+                                      <div>
+                                        <span style={{ color: "#6B6058" }}>Username (обязательно на bot): </span>
+                                        <span style={{ fontFamily: "monospace" }}>marina_psy_bot</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div style={{ display: "flex", gap: 10 }}>
+                                  <div style={{
+                                    width: 22, height: 22, borderRadius: "50%", background: "#2D6A5C", color: "#fff",
+                                    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1,
+                                  }}>3</div>
+                                  <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6 }}>
+                                    BotFather пришлёт длинный токен вида <span style={{ fontFamily: "monospace", color: "#6B6058" }}>123456:ABC-DEF...</span> — скопируйте его и вставьте ниже.
+                                  </div>
+                                </div>
+                              </div>
+
                               <input
                                 value={telegramTokenInput}
                                 onChange={e => setTelegramTokenInput(e.target.value)}
@@ -359,11 +414,51 @@ export default function SettingsPage() {
 
                           {showVkForm && vkIntegration?.status !== "connected" && (
                             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5DFD5" }}>
-                              <p style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.6, marginBottom: 10 }}>
-                                1. В настройках сообщества откройте <strong>Управление → Работа с API → Ключи доступа</strong> — создайте ключ сообщества.<br />
-                                2. Там же включите <strong>Callback API</strong> — скопируйте код подтверждения (появится после включения).<br />
-                                3. ID сообщества — число из ссылки на сообщество или из раздела «Управление».
+                              <p style={{ fontSize: 12, color: "#8C7355", lineHeight: 1.6, marginBottom: 12 }}>
+                                Нужно собственное сообщество ВКонтакте (если ещё нет — создайте на vk.com/groups → «Создать сообщество»).
                               </p>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
+                                <div style={{ display: "flex", gap: 10 }}>
+                                  <div style={{
+                                    width: 22, height: 22, borderRadius: "50%", background: "#2D6A5C", color: "#fff",
+                                    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1,
+                                  }}>1</div>
+                                  <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6 }}>
+                                    В настройках сообщества откройте <strong>Управление → Работа с API → Ключи доступа</strong> и создайте ключ сообщества — это и есть «Ключ доступа сообщества» ниже.
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 10 }}>
+                                  <div style={{
+                                    width: 22, height: 22, borderRadius: "50%", background: "#2D6A5C", color: "#fff",
+                                    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1,
+                                  }}>2</div>
+                                  <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6 }}>
+                                    Там же, в разделе <strong>Callback API</strong>, нажмите «Включить» — появится код подтверждения, скопируйте его.
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 10 }}>
+                                  <div style={{
+                                    width: 22, height: 22, borderRadius: "50%", background: "#2D6A5C", color: "#fff",
+                                    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1,
+                                  }}>3</div>
+                                  <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6 }}>
+                                    ID сообщества — число из ссылки на сообщество (например, <span style={{ fontFamily: "monospace" }}>vk.com/club<strong>123456</strong></span>) или из раздела «Управление».
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 10 }}>
+                                  <div style={{
+                                    width: 22, height: 22, borderRadius: "50%", background: "#2D6A5C", color: "#fff",
+                                    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1,
+                                  }}>4</div>
+                                  <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6 }}>
+                                    Заполните все три поля ниже и нажмите «Сохранить и подключить» — после этого мы покажем URL и секретный ключ для последнего шага в настройках Callback API.
+                                  </div>
+                                </div>
+                              </div>
                               <input
                                 value={vkTokenInput}
                                 onChange={e => setVkTokenInput(e.target.value)}
