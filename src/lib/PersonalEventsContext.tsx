@@ -24,8 +24,8 @@ interface PersonalEventsContextType {
   updateEventTime: (id: string, time: string) => void;
 }
 
-const STORAGE_KEY = "tolk_personal_events_v3";
-const SEEDED_FLAG_KEY = "tolk_personal_events_seeded_v3";
+const STORAGE_KEY = "tolk_personal_events_v4";
+const SEEDED_FLAG_KEY = "tolk_personal_events_seeded_v4";
 
 const PersonalEventsContext = createContext<PersonalEventsContextType | undefined>(undefined);
 
@@ -82,6 +82,9 @@ const DAILY_TEMPLATES: Array<Array<{ time: string; title: string }>> = [
 // сессиями клиентов не оставались "голыми" (раньше некоторые дни недели
 // пропускались, из-за чего в дне с сессиями иногда не было ни одного
 // бытового события и календарь выглядел неровно).
+// Диапазон генерации — с 1 числа текущего месяца (а не "-3 дня от сегодня")
+// до конца следующего месяца, чтобы весь текущий месяц был заполнен
+// целиком при пролистывании назад, а не обрывался на дне запуска сида.
 // ПРИМЕЧАНИЕ: сид генерируется независимо от реальных сессий из Supabase
 // (они подгружаются асинхронно в SessionContext), поэтому теоретическое
 // наложение бытового события и сессии клиента на одно время здесь не
@@ -90,10 +93,14 @@ const DAILY_TEMPLATES: Array<Array<{ time: string; title: string }>> = [
 // редактировании события через интерфейс.
 function buildSeedEvents(): PersonalEvent[] {
   const today = new Date();
+  const rangeStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const rangeEnd = new Date(today.getFullYear(), today.getMonth() + 2, 0); // конец следующего месяца
+  const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000);
+
   const events: PersonalEvent[] = [];
-  for (let offset = -3; offset <= 35; offset++) {
-    const template = DAILY_TEMPLATES[((offset % DAILY_TEMPLATES.length) + DAILY_TEMPLATES.length) % DAILY_TEMPLATES.length];
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
+  for (let offset = 0; offset <= totalDays; offset++) {
+    const template = DAILY_TEMPLATES[offset % DAILY_TEMPLATES.length];
+    const d = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate() + offset);
     template.forEach((evt, i) => {
       events.push({ id: `seed-${offset}-${i}`, date: toDateStr(d), time: evt.time, title: evt.title });
     });
