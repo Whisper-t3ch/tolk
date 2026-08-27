@@ -8,6 +8,46 @@ import { Card, CardContent, Button } from "@/components/ui";
 
 type SessionsByDay = Record<number, Array<{ clientId: string; clientName: string; time: string }>>;
 
+// ------------------------------------------------------------
+// Личные дела — демонстрационная заглушка (для показа на созвоне).
+// Пока не хранятся в Supabase: отдельная предметная область "личный
+// календарь психолога", ещё не спроектирована как таблица. День
+// считается от текущей даты, чтобы всегда попадать в открытый месяц.
+// ------------------------------------------------------------
+interface PersonalEvent {
+  dayOffset: number; // относительно today, может уйти в соседний месяц
+  time: string;
+  title: string;
+  emoji: string;
+}
+
+const PERSONAL_EVENTS: PersonalEvent[] = [
+  { dayOffset: 0, time: "07:30", title: "Зал", emoji: "🏋️" },
+  { dayOffset: 1, time: "19:00", title: "Ужин с семьёй", emoji: "🍽️" },
+  { dayOffset: 2, time: "08:00", title: "Зал", emoji: "🏋️" },
+  { dayOffset: 3, time: "12:00", title: "Супервизия", emoji: "🧑‍⚕️" },
+  { dayOffset: 4, time: "18:30", title: "Прогулка с ребёнком", emoji: "🚶" },
+  { dayOffset: 6, time: "10:00", title: "Зал", emoji: "🏋️" },
+  { dayOffset: 6, time: "20:00", title: "Кино с женой", emoji: "🎬" },
+  { dayOffset: 8, time: "09:00", title: "Врач", emoji: "🩺" },
+  { dayOffset: 10, time: "07:30", title: "Зал", emoji: "🏋️" },
+  { dayOffset: 13, time: "15:00", title: "Родительское собрание", emoji: "🏫" },
+];
+
+function getPersonalEventsByDay(month: number, year: number): Record<number, PersonalEvent[]> {
+  const today = new Date();
+  const result: Record<number, PersonalEvent[]> = {};
+  PERSONAL_EVENTS.forEach(evt => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + evt.dayOffset);
+    if (d.getMonth() === month && d.getFullYear() === year) {
+      const day = d.getDate();
+      if (!result[day]) result[day] = [];
+      result[day].push(evt);
+    }
+  });
+  return result;
+}
+
 function getSessionsByDay(sessions: any[], month: number, year: number): SessionsByDay {
   const result: SessionsByDay = {};
 
@@ -37,6 +77,7 @@ export default function CalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(today);
   const { sessions } = useSession();
   const sessionsByDay = getSessionsByDay(sessions, currentMonth.getMonth(), currentMonth.getFullYear());
+  const personalEventsByDay = getPersonalEventsByDay(currentMonth.getMonth(), currentMonth.getFullYear());
 
   const monthNames = [
     "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -127,6 +168,7 @@ export default function CalendarPage() {
           }}>
             {days.map((day, idx) => {
               const hasSessions = day && sessionsByDay[day];
+              const personalEvents = day ? personalEventsByDay[day] : undefined;
               const isToday = day === today.getDate() && currentMonth.getMonth() === today.getMonth();
 
               return (
@@ -207,6 +249,37 @@ export default function CalendarPage() {
                           ))}
                         </div>
                       )}
+
+                      {personalEvents && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: hasSessions ? 4 : 0 }}>
+                          {personalEvents.map((evt, i) => (
+                            <div
+                              key={i}
+                              title={`${evt.time} · ${evt.title}`}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                padding: "3px 6px",
+                                background: "#F5F3EF",
+                                border: "1px dashed #D8CFC0",
+                                borderRadius: 4,
+                              }}
+                            >
+                              <span style={{ fontSize: 10 }}>{evt.emoji}</span>
+                              <div style={{
+                                fontSize: 9.5,
+                                color: "#8C7355",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}>
+                                {evt.title}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </>
                   )}
                 </motion.div>
@@ -223,7 +296,7 @@ export default function CalendarPage() {
             📌 Информация
           </h3>
           <p style={{ fontSize: 13, color: "#6B6058", margin: 0 }}>
-            Кликните на день с сессией чтобы перейти на страницу клиента. Синяя граница показывает текущий день.
+            Кликните на день с сессией чтобы перейти на страницу клиента. Синяя граница показывает текущий день. Пунктирные карточки — личные дела (зал, семья, врач и т.д.).
           </p>
         </CardContent>
       </Card>

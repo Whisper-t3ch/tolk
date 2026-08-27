@@ -43,16 +43,17 @@ export interface AssistantChatProps {
   compact?: boolean;
 }
 
+const WELCOME_MESSAGE: ChatMessage = {
+  id: "welcome",
+  role: "assistant",
+  text: "Привет! Я твой помощник. Помогу с клиентами, расписанием и подготовкой к сессии — спроси что-нибудь или попроси что-то сделать.",
+};
+
 export default function AssistantChat({ clientId, placeholder = "Спроси меня...", compact = true }: AssistantChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Привет! Я твой помощник. Помогу с клиентами, расписанием и подготовкой к сессии — спроси что-нибудь или попроси что-то сделать.",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -60,6 +61,40 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   const [agentSessionId, setAgentSessionId] = useState<string | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  // При открытии — подтягиваем последнюю сохранённую переписку с ассистентом
+  // (если она есть), чтобы на созвоне/при возврате в чат была видна история,
+  // а не только приветствие.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/assistant/history${clientId ? `?client_id=${clientId}` : ""}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data?.agentSessionId) setAgentSessionId(data.agentSessionId);
+        if (Array.isArray(data?.messages) && data.messages.length > 0) {
+          setMessages([
+            WELCOME_MESSAGE,
+            ...data.messages.map((m: { role: "user" | "assistant"; text: string }, i: number) => ({
+              id: `h-${i}`,
+              role: m.role,
+              text: m.text,
+            })),
+          ]);
+        }
+      } catch {
+        // Тихо игнорируем — чат просто останется с приветствием.
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
 
   const fontSize = compact ? 12 : 13;
 

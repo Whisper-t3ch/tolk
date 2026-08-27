@@ -8,6 +8,7 @@ import {
   Sparkles, X, Link2, Copy, Check,
 } from "lucide-react";
 import { testHistory as testHistoryByClient } from "@/lib/mock-data";
+import { demoClientExtrasByName } from "@/lib/demo-client-extras";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -124,13 +125,24 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const pastSessions = clientSessions.filter(s => s.date < today).reverse();
 
   const progress = client?.progress ?? EMPTY_PROGRESS;
+  // Тренд считаем по истории теста (score ниже = лучше для GAD-7/PHQ-9/MBI,
+  // поэтому направление здесь условное — просто "снизился/вырос за 2 замера").
+  // Пока в БД нет флага "меньше = лучше" по методике, это грубое приближение
+  // для демонстрации, не клиническая оценка.
+  const clientTestHistoryForTrend = testHistoryByClient[client?.id ?? ""] ?? demoClientExtrasByName[client?.name ?? ""]?.testHistory ?? [];
   const trend = useMemo(() => {
+    if (clientTestHistoryForTrend.length >= 2) {
+      const recent = clientTestHistoryForTrend.slice(-2);
+      if (recent[1].score < recent[0].score) return "improving";
+      if (recent[1].score > recent[0].score) return "degrading";
+      return "stable";
+    }
     if (progress.history.length < 2) return "stable";
     const recent = progress.history.slice(-2);
     if (recent[1].aiScore > recent[0].aiScore) return "improving";
     if (recent[1].aiScore < recent[0].aiScore) return "degrading";
     return "stable";
-  }, [progress]);
+  }, [progress, clientTestHistoryForTrend]);
   const trendColor = trend === "improving" ? "#1BAF7A" : trend === "degrading" ? "#EF4444" : "#F59E0B";
   const TrendIcon = trend === "improving" ? TrendingUp : trend === "degrading" ? TrendingDown : Minus;
 
@@ -203,10 +215,14 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
 
   const clientIdx = clients.indexOf(client);
   const avatarColor = avatarColors[clientIdx % avatarColors.length];
-  const clientTestHistory = testHistoryByClient[client.id] ?? [];
-  const triggers = client.triggers ?? EMPTY_TRIGGERS;
-  const hwTotal = client.hwTotal ?? 0;
-  const hwCompleted = client.hwCompleted ?? 0;
+  // Демо-заглушка для теста/прогресса/триггеров — подбирается по имени клиента,
+  // пока эта предметная область не переехала в БД (см. lib/demo-client-extras.ts).
+  const demoExtras = demoClientExtrasByName[client.name];
+  const clientTestHistory = testHistoryByClient[client.id] ?? demoExtras?.testHistory ?? [];
+  const triggers = client.triggers ?? demoExtras?.triggers ?? EMPTY_TRIGGERS;
+  const lastTest = client.lastTest ?? demoExtras?.lastTest;
+  const hwTotal = client.hwTotal || demoExtras?.hwTotal || 0;
+  const hwCompleted = client.hwCompleted || demoExtras?.hwCompleted || 0;
   const hwPct = hwTotal > 0 ? Math.round((hwCompleted / hwTotal) * 100) : 0;
 
   const handleExportAllTranscripts = async () => {
@@ -639,7 +655,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             <CardContent className="pt-6">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
-                  Динамика теста {client.lastTest?.name ?? "—"}
+                  Динамика теста {lastTest?.name ?? "—"}
                 </h3>
                 <div style={{
                   display: "flex", alignItems: "center", gap: 6,
@@ -666,8 +682,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               )}
               <div style={{ marginTop: 12 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
-                  {client.lastTest
-                    ? `Последний результат: ${client.lastTest.name} ${client.lastTest.score}/${client.lastTest.maxScore} (${client.lastTest.date})`
+                  {lastTest
+                    ? `Последний результат: ${lastTest.name} ${lastTest.score}/${lastTest.maxScore} (${lastTest.date})`
                     : "Тесты ещё не проводились"}
                 </span>
               </div>
