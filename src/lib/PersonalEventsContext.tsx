@@ -24,8 +24,8 @@ interface PersonalEventsContextType {
   updateEventTime: (id: string, time: string) => void;
 }
 
-const STORAGE_KEY = "tolk_personal_events_v2";
-const SEEDED_FLAG_KEY = "tolk_personal_events_seeded_v2";
+const STORAGE_KEY = "tolk_personal_events_v3";
+const SEEDED_FLAG_KEY = "tolk_personal_events_seeded_v3";
 
 const PersonalEventsContext = createContext<PersonalEventsContextType | undefined>(undefined);
 
@@ -78,13 +78,20 @@ const DAILY_TEMPLATES: Array<Array<{ time: string; title: string }>> = [
     { time: "19:00", title: "Настольные игры" },
   ],
 ];
-const SKIP_OFFSETS = new Set<number>([5, 12, 19, 26]);
-
+// Бытовые события теперь на каждый день без исключений — чтобы дни с
+// сессиями клиентов не оставались "голыми" (раньше некоторые дни недели
+// пропускались, из-за чего в дне с сессиями иногда не было ни одного
+// бытового события и календарь выглядел неровно).
+// ПРИМЕЧАНИЕ: сид генерируется независимо от реальных сессий из Supabase
+// (они подгружаются асинхронно в SessionContext), поэтому теоретическое
+// наложение бытового события и сессии клиента на одно время здесь не
+// проверяется — это не страшно для демо-данных. Автосдвиг на свободный
+// слот (см. lib/calendarSlots.ts) работает только при добавлении/
+// редактировании события через интерфейс.
 function buildSeedEvents(): PersonalEvent[] {
   const today = new Date();
   const events: PersonalEvent[] = [];
   for (let offset = -3; offset <= 35; offset++) {
-    if (SKIP_OFFSETS.has(((offset % 7) + 7) % 7)) continue;
     const template = DAILY_TEMPLATES[((offset % DAILY_TEMPLATES.length) + DAILY_TEMPLATES.length) % DAILY_TEMPLATES.length];
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
     template.forEach((evt, i) => {
