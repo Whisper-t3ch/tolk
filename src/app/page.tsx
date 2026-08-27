@@ -3096,7 +3096,7 @@ export default function LandingPage() {
               Партнёры
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 40, flexWrap: "wrap", flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 40, flexWrap: "wrap", flex: 1 }}>
               {[
                 {
                   name: "NEWPSY",
