@@ -1,12 +1,11 @@
 "use client";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { LogoMark } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/client";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initialMode = searchParams.get("mode") === "register" ? "register" : "login";
 
@@ -62,8 +61,11 @@ function LoginForm() {
       }
     }
 
-    router.push("/dashboard");
-    router.refresh();
+    // Полная перезагрузка (а не router.push) — иначе ClientsProvider в layout
+    // может успеть запросить /clients раньше, чем cookie с сессией долетит
+    // до Supabase-клиента, и RLS молча вернёт пустой список без ошибки
+    // (список клиентов тогда появляется только после ручного обновления).
+    window.location.href = "/dashboard";
   }
 
   function translateAuthError(message: string): string {

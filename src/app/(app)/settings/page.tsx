@@ -297,7 +297,7 @@ export default function SettingsPage() {
                                 style={{
                                   width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
                                   borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8,
-                                  fontFamily: "monospace",
+                                  fontFamily: "monospace", color: "#1C1C1E", background: "#FFFFFF",
                                 }}
                               />
                               {integrationError && <div style={{ fontSize: 12, color: "#B91C1C", marginBottom: 8 }}>{integrationError}</div>}
@@ -345,19 +345,19 @@ export default function SettingsPage() {
                                 value={vkTokenInput}
                                 onChange={e => setVkTokenInput(e.target.value)}
                                 placeholder="Ключ доступа сообщества"
-                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8, fontFamily: "monospace" }}
+                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8, fontFamily: "monospace", color: "#1C1C1E", background: "#FFFFFF" }}
                               />
                               <input
                                 value={vkGroupIdInput}
                                 onChange={e => setVkGroupIdInput(e.target.value)}
                                 placeholder="ID сообщества"
-                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8 }}
+                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8, color: "#1C1C1E", background: "#FFFFFF" }}
                               />
                               <input
                                 value={vkConfirmationInput}
                                 onChange={e => setVkConfirmationInput(e.target.value)}
                                 placeholder="Код подтверждения Callback API"
-                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8, fontFamily: "monospace" }}
+                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, boxSizing: "border-box", marginBottom: 8, fontFamily: "monospace", color: "#1C1C1E", background: "#FFFFFF" }}
                               />
                               {integrationError && <div style={{ fontSize: 12, color: "#B91C1C", marginBottom: 8 }}>{integrationError}</div>}
                               <Button
