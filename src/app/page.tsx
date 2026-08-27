@@ -3102,7 +3102,7 @@ export default function LandingPage() {
                   name: "NEWPSY",
                   url: "https://newpsy.org",
                   avatar: "/images/newpsy-avatar.png",
-                  description: "Курсы PsychotherapyNet и нейропсихоанализ Марка Солмса на русском",
+                  description: "Эксклюзивный дистрибьютор на русском языке одной из самых больших коллекций курсов с сессиями великих мастеров психотерапии PsychotherapyNet (California, United States) и провайдер на русском языке программ по нейропсихоанализу автора подхода профессора Марка Солмса",
                 },
                 // Новые партнёры добавляются сюда — полоса заполняется по мере роста.
               ].map((partner, i) => (
@@ -3121,7 +3121,7 @@ export default function LandingPage() {
                     flexDirection: "column",
                     gap: 8,
                     textDecoration: "none",
-                    maxWidth: 260,
+                    maxWidth: 420,
                   }}
                 >
                   <img
@@ -3129,7 +3129,7 @@ export default function LandingPage() {
                     alt={partner.name}
                     style={{ height: 64, width: "auto", objectFit: "contain" }}
                   />
-                  <span style={{ fontSize: 14, color: "#6B6058", lineHeight: 1.45 }}>
+                  <span style={{ fontSize: 12.5, color: "#6B6058", lineHeight: 1.5 }}>
                     {partner.description}
                   </span>
                 </motion.a>
