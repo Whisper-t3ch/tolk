@@ -5,9 +5,15 @@ import Link from "next/link";
 import { LogoMark } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/client";
 
+// Регистрация новых аккаунтов временно закрыта (беста-набор завершён).
+// Настоящая блокировка — на уровне Supabase Auth (Dashboard → Authentication →
+// Settings → Allow new users to sign up: выключено). Этот флаг в UI —
+// дополнительный барьер, чтобы форма даже не пыталась вызвать signUp.
+const REGISTRATION_OPEN = false;
+
 function LoginForm() {
   const searchParams = useSearchParams();
-  const initialMode = searchParams.get("mode") === "register" ? "register" : "login";
+  const initialMode = REGISTRATION_OPEN && searchParams.get("mode") === "register" ? "register" : "login";
 
   const [mode, setMode] = useState<"login" | "register">(initialMode);
   const [loading, setLoading] = useState(false);
@@ -37,6 +43,11 @@ function LoginForm() {
     const supabase = createClient();
 
     if (mode === "register") {
+      if (!REGISTRATION_OPEN) {
+        setError("Регистрация новых аккаунтов сейчас закрыта");
+        setLoading(false);
+        return;
+      }
       const { error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -107,40 +118,42 @@ function LoginForm() {
           }}>среда для психологов</p>
         </Link>
 
-        {/* Переключатель Вход / Регистрация */}
-        <div style={{
-          display: "flex",
-          background: "#F5F3EF",
-          borderRadius: 10,
-          padding: 4,
-          marginBottom: 24,
-          gap: 4,
-        }}>
-          {([
-            { id: "login" as const, label: "Вход" },
-            { id: "register" as const, label: "Регистрация" },
-          ]).map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setMode(tab.id)}
-              style={{
-                flex: 1,
-                padding: "9px 0",
-                border: "none",
-                borderRadius: 8,
-                background: mode === tab.id ? "#FFFFFF" : "transparent",
-                color: mode === tab.id ? "#2D6A5C" : "#8C7355",
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: "pointer",
-                boxShadow: mode === tab.id ? "0 1px 4px rgba(15,22,41,0.08)" : "none",
-                transition: "all 0.2s",
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Переключатель Вход / Регистрация — регистрация скрыта, пока набор закрыт */}
+        {REGISTRATION_OPEN && (
+          <div style={{
+            display: "flex",
+            background: "#F5F3EF",
+            borderRadius: 10,
+            padding: 4,
+            marginBottom: 24,
+            gap: 4,
+          }}>
+            {([
+              { id: "login" as const, label: "Вход" },
+              { id: "register" as const, label: "Регистрация" },
+            ]).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setMode(tab.id)}
+                style={{
+                  flex: 1,
+                  padding: "9px 0",
+                  border: "none",
+                  borderRadius: 8,
+                  background: mode === tab.id ? "#FFFFFF" : "transparent",
+                  color: mode === tab.id ? "#2D6A5C" : "#8C7355",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: mode === tab.id ? "0 1px 4px rgba(15,22,41,0.08)" : "none",
+                  transition: "all 0.2s",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Форма */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
