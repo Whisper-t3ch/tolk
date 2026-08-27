@@ -3080,27 +3080,30 @@ export default function LandingPage() {
               transition={{ delay: 0.7 }}
               style={{
                 display: "flex",
-                alignItems: "center",
-                gap: 14,
-                padding: "12px 18px",
+                alignItems: "flex-start",
+                gap: 16,
+                padding: "16px 20px",
                 background: "#FFFFFF",
                 border: "1px solid #E5DFD5",
-                borderRadius: 12,
+                borderRadius: 14,
                 maxWidth: 480,
                 textDecoration: "none",
                 transition: "border-color 0.2s, box-shadow 0.2s",
               }}
               whileHover={{ borderColor: "#2D6A5C", boxShadow: "0 4px 16px rgba(45,106,92,0.12)" }}
             >
-              <span style={{ fontSize: 11, color: "#8C7355", flexShrink: 0 }}>Партнёр:</span>
               <img
-                src="/images/newpsy-logo.png"
+                src="/images/newpsy-avatar.png"
                 alt="NEWPSY"
-                style={{ height: 20, width: "auto", flexShrink: 0 }}
+                style={{ width: 56, height: 56, borderRadius: "50%", flexShrink: 0, objectFit: "cover" }}
               />
-              <span style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.4 }}>
-                эксклюзивный дистрибьютор PsychotherapyNet и программ по нейропсихоанализу Марка Солмса на русском
-              </span>
+              <div>
+                <div style={{ fontSize: 11, color: "#8C7355", marginBottom: 3 }}>Партнёр</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>NEWPSY</div>
+                <span style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.4 }}>
+                  Эксклюзивный дистрибьютор PsychotherapyNet и программ по нейропсихоанализу Марка Солмса на русском
+                </span>
+              </div>
             </motion.a>
           </motion.div>
 
