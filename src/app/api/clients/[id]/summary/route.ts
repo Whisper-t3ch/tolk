@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   // Проверяем лимит ДО дорогого вызова к LLM.
-  const limitCheck = await checkAssistantLimit(supabase, user.id, "heavy");
+  const limitCheck = await checkAssistantLimit(supabase, user.id, "periodSummary");
   if (!limitCheck.allowed) {
     return NextResponse.json(limitExceededResponse(limitCheck.limit), { status: 429 });
   }
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   // Списываем лимит только после успешного вызова LLM и сохранения.
-  await consumeAssistantLimit(supabase, user.id, "heavy");
+  await consumeAssistantLimit(supabase, user.id, "periodSummary");
 
   return NextResponse.json({
     summary: summaryText,
