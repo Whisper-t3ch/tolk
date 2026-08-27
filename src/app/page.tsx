@@ -3070,44 +3070,66 @@ export default function LandingPage() {
               ))}
             </div>
 
-            {/* Партнёр */}
-            <motion.a
-              href="https://newpsy.org"
-              target="_blank"
-              rel="noopener noreferrer"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.7 }}
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 16,
-                padding: "16px 20px",
-                background: "#FFFFFF",
-                border: "1px solid #E5DFD5",
-                borderRadius: 14,
-                maxWidth: 480,
-                textDecoration: "none",
-                transition: "border-color 0.2s, box-shadow 0.2s",
-              }}
-              whileHover={{ borderColor: "#2D6A5C", boxShadow: "0 4px 16px rgba(45,106,92,0.12)" }}
-            >
-              <img
-                src="/images/newpsy-avatar.png"
-                alt="NEWPSY"
-                style={{ width: 56, height: 56, borderRadius: "50%", flexShrink: 0, objectFit: "cover" }}
-              />
-              <div>
-                <div style={{ fontSize: 11, color: "#8C7355", marginBottom: 3 }}>Партнёр</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>NEWPSY</div>
-                <span style={{ fontSize: 12, color: "#6B6058", lineHeight: 1.4 }}>
-                  Эксклюзивный дистрибьютор PsychotherapyNet и программ по нейропсихоанализу Марка Солмса на русском
-                </span>
-              </div>
-            </motion.a>
           </motion.div>
 
           <HeroProductVisual />
+        </div>
+
+        {/* Партнёры — полоса на всю ширину, растёт по мере добавления новых */}
+        <div style={{ maxWidth: 1100, margin: "48px auto 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap" }}>
+            <div style={{
+              writingMode: "vertical-rl",
+              transform: "rotate(180deg)",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              color: "#8C7355",
+              textTransform: "uppercase",
+              flexShrink: 0,
+              alignSelf: "stretch",
+              display: "flex",
+              alignItems: "center",
+              borderRight: "1px solid #E5DFD5",
+              paddingRight: 20,
+            }}>
+              Партнёры
+            </div>
+
+            <div style={{ display: "flex", gap: 32, flexWrap: "wrap", flex: 1 }}>
+              {[
+                {
+                  name: "NEWPSY",
+                  url: "https://newpsy.org",
+                  avatar: "/images/newpsy-avatar.png",
+                },
+                // Новые партнёры добавляются сюда — полоса заполняется по мере роста.
+              ].map((partner, i) => (
+                <motion.a
+                  key={partner.name}
+                  href={partner.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  initial={{ opacity: 0, y: 8 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.08 }}
+                  whileHover={{ opacity: 0.7 }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    textDecoration: "none",
+                  }}
+                >
+                  <img
+                    src={partner.avatar}
+                    alt={partner.name}
+                    style={{ height: 32, width: "auto", objectFit: "contain" }}
+                  />
+                </motion.a>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
