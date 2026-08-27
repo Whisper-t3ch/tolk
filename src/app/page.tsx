@@ -3096,12 +3096,13 @@ export default function LandingPage() {
               Партнёры
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 40, flexWrap: "wrap", flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 40, flexWrap: "wrap", flex: 1 }}>
               {[
                 {
                   name: "NEWPSY",
                   url: "https://newpsy.org",
                   avatar: "/images/newpsy-avatar.png",
+                  description: "Курсы PsychotherapyNet и нейропсихоанализ Марка Солмса на русском",
                 },
                 // Новые партнёры добавляются сюда — полоса заполняется по мере роста.
               ].map((partner, i) => (
@@ -3117,15 +3118,20 @@ export default function LandingPage() {
                   whileHover={{ opacity: 0.7 }}
                   style={{
                     display: "flex",
-                    alignItems: "center",
+                    flexDirection: "column",
+                    gap: 6,
                     textDecoration: "none",
+                    maxWidth: 200,
                   }}
                 >
                   <img
                     src={partner.avatar}
                     alt={partner.name}
-                    style={{ height: 48, width: "auto", objectFit: "contain" }}
+                    style={{ height: 40, width: "auto", objectFit: "contain" }}
                   />
+                  <span style={{ fontSize: 11.5, color: "#8C7355", lineHeight: 1.4 }}>
+                    {partner.description}
+                  </span>
                 </motion.a>
               ))}
             </div>
