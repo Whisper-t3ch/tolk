@@ -143,31 +143,54 @@ export default function CalendarPage() {
 
   return (
     <div style={{ maxWidth: selectedDay !== null ? 1560 : 1200, margin: "0 auto", padding: "0 24px", position: "relative", transition: "max-width 0.2s" }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E", marginBottom: 24 }}>
+      <h1 style={{
+        fontSize: 24, fontWeight: 800, marginBottom: 24,
+        background: "linear-gradient(135deg, #1C1C1E 0%, #2D6A5C 100%)",
+        WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+        backgroundClip: "text", letterSpacing: "-0.3px",
+      }}>
         Календарь
       </h1>
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", overflowX: "auto" }}>
         <div style={{ flex: "1 1 auto", minWidth: 640 }}>
-          <Card>
+          <Card style={{ overflow: "hidden" }}>
+            <div style={{
+              background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+              padding: "18px 24px",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <button
+                onClick={prevMonth}
+                style={{
+                  width: 32, height: 32, borderRadius: 8, border: "none",
+                  background: "rgba(255,255,255,0.18)", color: "#fff", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "background 0.15s",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.32)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: "#fff", margin: 0, letterSpacing: "-0.2px" }}>
+                {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+              </h2>
+              <button
+                onClick={nextMonth}
+                style={{
+                  width: 32, height: 32, borderRadius: 8, border: "none",
+                  background: "rgba(255,255,255,0.18)", color: "#fff", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "background 0.15s",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.32)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
             <CardContent className="pt-6">
-              {/* Навигация по месяцам */}
-              <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 24,
-              }}>
-                <Button onClick={prevMonth} variant="secondary" size="sm">
-                  <ChevronLeft size={16} />
-                </Button>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
-                  {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-                </h2>
-                <Button onClick={nextMonth} variant="secondary" size="sm">
-                  <ChevronRight size={16} />
-                </Button>
-              </div>
 
               {/* Дни недели */}
               <div style={{
@@ -227,20 +250,36 @@ export default function CalendarPage() {
                       style={{
                         minHeight: 104,
                         padding: 8,
-                        background: isSelected ? "#E8F2EF" : isToday ? "#F5FAF8" : day ? "#FFFFFF" : "#F5F3EF",
-                        border: isSelected ? "2px solid #2D6A5C" : isToday ? "1.5px solid #2D6A5C" : "1px solid #E5DFD5",
-                        borderRadius: 8,
+                        position: "relative",
+                        overflow: "hidden",
+                        background: isSelected
+                          ? "linear-gradient(160deg, #E8F2EF 0%, #DCEEE8 100%)"
+                          : isToday
+                          ? "linear-gradient(160deg, #FFFFFF 0%, #F0F8F5 100%)"
+                          : day ? "#FFFFFF" : "#FAF9F6",
+                        border: isSelected ? "2px solid #2D6A5C" : isToday ? "1.5px solid #1BAF7A" : "1px solid #EDE8DF",
+                        borderRadius: 10,
                         cursor: day ? "pointer" : "default",
                         transition: "all 0.2s",
+                        boxShadow: isSelected ? "0 4px 14px rgba(45,106,92,0.18)" : "none",
                       }}
-                      whileHover={day ? { y: -2, boxShadow: "0 8px 16px rgba(45,106,92,0.12)" } : {}}
+                      whileHover={day ? { y: -3, boxShadow: "0 10px 22px rgba(45,106,92,0.16)", borderColor: "#1BAF7A" } : {}}
                     >
+                      {isToday && (
+                        <div style={{
+                          position: "absolute", top: 0, right: 0,
+                          width: 0, height: 0,
+                          borderStyle: "solid",
+                          borderWidth: "0 18px 18px 0",
+                          borderColor: "transparent #1BAF7A transparent transparent",
+                        }} />
+                      )}
                       {day && (
                         <>
                           <div style={{
                             fontSize: 14,
-                            fontWeight: 700,
-                            color: isToday ? "#2D6A5C" : "#1C1C1E",
+                            fontWeight: 800,
+                            color: isToday ? "#1BAF7A" : "#1C1C1E",
                             marginBottom: 6,
                           }}>
                             {day}
@@ -253,20 +292,16 @@ export default function CalendarPage() {
                                 style={{
                                   display: "flex",
                                   alignItems: "center",
-                                  gap: 4,
-                                  padding: "2px 5px",
-                                  borderRadius: 4,
-                                  background: entry.kind === "session" ? `${entry.color}20` : "#F5F3EF",
-                                  border: entry.kind === "personal" ? "1px dashed #D8CFC0" : "none",
+                                  gap: 5,
+                                  padding: "2px 5px 2px 4px",
+                                  borderRadius: 5,
+                                  background: entry.kind === "session" ? `${entry.color}18` : "#F5F3EF",
+                                  borderLeft: `2.5px solid ${entry.kind === "session" ? entry.color : "#C9BFAE"}`,
                                 }}
                               >
-                                <div style={{
-                                  width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-                                  background: entry.kind === "session" ? entry.color : "#8C7355",
-                                }} />
                                 <span style={{
                                   fontSize: 9.5,
-                                  fontWeight: entry.kind === "session" ? 600 : 400,
+                                  fontWeight: entry.kind === "session" ? 700 : 500,
                                   color: entry.kind === "session" ? entry.color : "#8C7355",
                                   whiteSpace: "nowrap",
                                   overflow: "hidden",
@@ -277,8 +312,12 @@ export default function CalendarPage() {
                               </div>
                             ))}
                             {hiddenCount > 0 && (
-                              <div style={{ fontSize: 9.5, color: "#8C7355", fontWeight: 600, paddingLeft: 5 }}>
-                                ещё {hiddenCount}
+                              <div style={{
+                                fontSize: 9.5, color: "#fff", fontWeight: 700,
+                                background: "#8C7355", borderRadius: 10,
+                                padding: "1px 7px", alignSelf: "flex-start", marginTop: 1,
+                              }}>
+                                +{hiddenCount}
                               </div>
                             )}
                           </div>
@@ -313,24 +352,34 @@ export default function CalendarPage() {
               exit={{ opacity: 0, x: 24 }}
               style={{ width: 320, flexShrink: 0 }}
             >
-              <Card style={{ position: "sticky", top: 16, maxWidth: 320 }}>
-                <CardContent className="pt-6" style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 140px)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
+              <Card style={{ position: "sticky", top: 16, maxWidth: 320, overflow: "hidden" }}>
+                <div style={{
+                  background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                  padding: "16px 20px",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <div>
+                    <h3 style={{ fontSize: 16, fontWeight: 800, color: "#fff", margin: 0, letterSpacing: "-0.2px" }}>
                       {selectedDate?.toLocaleDateString("ru", { day: "numeric", month: "long" })}
                     </h3>
-                    <button
-                      onClick={() => setSelectedDay(null)}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}
-                    >
-                      <X size={16} />
-                    </button>
+                    <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.8)", margin: "2px 0 0 0" }}>
+                      {selectedDayEntries.length === 0
+                        ? "Событий нет"
+                        : `${selectedDayEntries.length} ${selectedDayEntries.length === 1 ? "событие" : "событий"}`}
+                    </p>
                   </div>
-                  <p style={{ fontSize: 12, color: "#8C7355", margin: "0 0 12px 0" }}>
-                    {selectedDayEntries.length === 0
-                      ? "Событий нет"
-                      : `${selectedDayEntries.length} ${selectedDayEntries.length === 1 ? "событие" : "событий"}`}
-                  </p>
+                  <button
+                    onClick={() => setSelectedDay(null)}
+                    style={{
+                      width: 28, height: 28, borderRadius: 8, border: "none",
+                      background: "rgba(255,255,255,0.18)", cursor: "pointer", color: "#fff",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    }}
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                <CardContent className="pt-6" style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 200px)" }}>
 
                   <div style={{
                     display: "flex",
@@ -349,10 +398,12 @@ export default function CalendarPage() {
                             alignItems: "flex-start",
                             gap: 10,
                             padding: "10px 12px",
-                            borderRadius: 8,
-                            background: entry.kind === "session" ? `${entry.color}14` : "#F5F3EF",
-                            border: entry.kind === "session" ? `1px solid ${entry.color}40` : "1px dashed #D8CFC0",
+                            borderRadius: 10,
+                            background: entry.kind === "session" ? `${entry.color}12` : "#FAF9F6",
+                            borderLeft: `3px solid ${entry.kind === "session" ? entry.color : "#C9BFAE"}`,
+                            boxShadow: entry.kind === "session" ? `0 2px 8px ${entry.color}22` : "none",
                             cursor: entry.kind === "session" ? "pointer" : "default",
+                            transition: "transform 0.15s",
                           }}
                         >
                           {isPersonal ? (
@@ -455,10 +506,16 @@ export default function CalendarPage() {
                       onClick={() => setShowAddForm(true)}
                       style={{
                         display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                        padding: "10px 12px", background: "#F5F3EF", border: "1px dashed #D8CFC0",
-                        borderRadius: 8, cursor: "pointer", color: "#2D6A5C", fontSize: 13, fontWeight: 600,
+                        padding: "11px 12px",
+                        background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                        border: "none",
+                        borderRadius: 10, cursor: "pointer", color: "#fff", fontSize: 13, fontWeight: 700,
                         marginTop: "auto",
+                        boxShadow: "0 4px 12px rgba(45,106,92,0.28)",
+                        transition: "transform 0.15s",
                       }}
+                      onMouseEnter={e => (e.currentTarget.style.transform = "translateY(-1px)")}
+                      onMouseLeave={e => (e.currentTarget.style.transform = "translateY(0)")}
                     >
                       <Plus size={14} /> Добавить событие
                     </button>
