@@ -3127,7 +3127,7 @@ export default function LandingPage() {
                   <img
                     src={partner.avatar}
                     alt={partner.name}
-                    style={{ height: 64, width: "auto", objectFit: "contain" }}
+                    style={{ height: 96, width: "auto", objectFit: "contain" }}
                   />
                   <span style={{ fontSize: 12.5, color: "#6B6058", lineHeight: 1.5 }}>
                     {partner.description}
