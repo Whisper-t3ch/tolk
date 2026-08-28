@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Copy, Check } from "lucide-react";
-import { mockGeneratedPost } from "@/lib/mock-data";
+import { useSession } from "@/lib/SessionContext";
+import { useClients } from "@/lib/ClientsContext";
 import { Button, Card, CardContent } from "@/components/ui";
 
 const FORMATS = [
@@ -13,20 +14,52 @@ const FORMATS = [
 ];
 
 export default function ContentPage() {
+  const { sessions } = useSession();
+  const { clients } = useClients();
   const [format, setFormat] = useState("telegram");
+  const [sessionId, setSessionId] = useState<string>("");
+  const [topic, setTopic] = useState("");
   const [loading, setLoading] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [copied, setCopied] = useState(false);
   const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  function generate() {
+  // Прошедшие сессии — только по ним могли уже появиться SOAP-протоколы
+  // с реальным материалом для контента.
+  const pastSessions = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return [...sessions]
+      .filter(s => s.date < today)
+      .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  }, [sessions]);
+
+  async function generate() {
     setLoading(true);
     setGenerated(false);
-    setTimeout(() => {
+    setError(null);
+    try {
+      const res = await fetch("/api/content/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format,
+          session_id: sessionId || undefined,
+          topic: sessionId ? undefined : topic || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setText(data.text);
+        setGenerated(true);
+      } else {
+        setError(data.error ?? "Не удалось сгенерировать контент");
+      }
+    } catch {
+      setError("Не удалось связаться с сервером");
+    } finally {
       setLoading(false);
-      setGenerated(true);
-      setText((mockGeneratedPost as any)[format] || mockGeneratedPost.telegram);
-    }, 2200);
+    }
   }
 
   function copy() {
@@ -49,22 +82,56 @@ export default function ContentPage() {
           {/* Выбор сессии */}
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Сессия
+              Сессия (необязательно)
             </label>
-            <select style={{
-              display: "block", marginTop: 6,
-              width: "100%", padding: "10px 14px",
-              border: "1px solid #E5DFD5",
-              borderRadius: 9, fontSize: 14,
-              background: "#FFFFFF",
-              fontFamily: "var(--font-sans)",
-              color: "#1C1C1E",
-            }}>
-              <option>Анна Иванова — 12 августа, сессия #8</option>
-              <option>Дмитрий Орлов — 10 августа, сессия #4</option>
-              <option>Светлана Морозова — 8 августа, сессия #12</option>
+            <select
+              value={sessionId}
+              onChange={e => setSessionId(e.target.value)}
+              style={{
+                display: "block", marginTop: 6,
+                width: "100%", padding: "10px 14px",
+                border: "1px solid #E5DFD5",
+                borderRadius: 9, fontSize: 14,
+                background: "#FFFFFF",
+                fontFamily: "var(--font-sans)",
+                color: "#1C1C1E",
+              }}
+            >
+              <option value="">Без привязки к сессии — своя тема</option>
+              {pastSessions.map(s => {
+                const client = clients.find(c => c.id === s.clientId);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.clientName || client?.name || "Клиент"} — {new Date(s.date).toLocaleDateString("ru", { day: "numeric", month: "long" })}
+                  </option>
+                );
+              })}
             </select>
           </div>
+
+          {!sessionId && (
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Тема (необязательно)
+              </label>
+              <input
+                type="text"
+                value={topic}
+                onChange={e => setTopic(e.target.value)}
+                placeholder="Например: как справляться с тревогой перед важным событием"
+                style={{
+                  display: "block", marginTop: 6,
+                  width: "100%", padding: "10px 14px",
+                  border: "1px solid #E5DFD5",
+                  borderRadius: 9, fontSize: 14,
+                  background: "#FFFFFF",
+                  fontFamily: "var(--font-sans)",
+                  color: "#1C1C1E",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          )}
 
           {/* Формат */}
           <div style={{ marginBottom: 24 }}>
@@ -95,6 +162,10 @@ export default function ContentPage() {
               ))}
             </div>
           </div>
+
+          {error && (
+            <p style={{ fontSize: 12.5, color: "#EF4444", marginBottom: 12 }}>{error}</p>
+          )}
 
           {/* Кнопка генерации */}
           <Button onClick={generate} disabled={loading} size="lg" className="w-full mb-6">

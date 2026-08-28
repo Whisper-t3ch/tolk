@@ -1,0 +1,106 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { checkYandexGptEnv, yandexGptComplete, YandexGptError } from "@/lib/yandexgpt";
+import { buildApproachContextBlock } from "@/lib/approaches";
+import { checkAssistantLimit, consumeAssistantLimit, limitExceededResponse } from "@/lib/assistantLimits";
+
+// POST /api/content/generate
+// Body: { format: "telegram"|"vk"|"reels"|"pdf", session_id?: string, topic?: string }
+//
+// Генерирует пост для соцсетей на основе (опционально) содержания
+// конкретной сессии — берём SOAP-протокол этой сессии (обезличенный:
+// без имени клиента), либо просто тему, если сессия не выбрана.
+// Использует реальный YandexGPT, учитывает подход психолога (см.
+// lib/approaches.ts), расходует лимит ассистента как обычный запрос.
+const FORMAT_INSTRUCTIONS: Record<string, string> = {
+  telegram: "Формат: пост для Telegram-канала психолога. Длина 500-900 знаков, разговорный тон, без хэштегов, с одним хуком в начале и мягким призывом к действию в конце (например, пригласить написать в личку).",
+  vk: "Формат: пост для ВКонтакте. Длина 400-700 знаков, можно 1-2 эмодзи по смыслу, структурировано (короткие абзацы), в конце — приглашение записаться на консультацию.",
+  reels: "Формат: сценарий короткого видео (Reels/Shorts) на 30-45 секунд. Структура: Хук (первые 3 секунды) / Основная мысль (3-4 тезиса) / Призыв к действию. Пиши как список реплик на камеру, не как пост.",
+  pdf: "Формат: короткий гайд для скачивания (PDF), 3-5 практических пунктов по теме с заголовком и коротким вступлением. Пиши структурированно, с подзаголовками для каждого пункта.",
+};
+
+export async function POST(request: NextRequest) {
+  const envStatus = checkYandexGptEnv();
+  if (!envStatus.configured) {
+    return NextResponse.json(
+      { error: `YandexGPT не настроен. Добавьте ключи в .env: ${envStatus.missing.join(", ")}` },
+      { status: 503 }
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  }
+
+  let body: { format?: string; session_id?: string; topic?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Некорректное тело запроса" }, { status: 400 });
+  }
+
+  const format = body.format;
+  if (!format || !(format in FORMAT_INSTRUCTIONS)) {
+    return NextResponse.json({ error: `format должен быть одним из: ${Object.keys(FORMAT_INSTRUCTIONS).join(", ")}` }, { status: 400 });
+  }
+
+  const limitCheck = await checkAssistantLimit(supabase, user.id, "normal");
+  if (!limitCheck.allowed) {
+    return NextResponse.json(limitExceededResponse(limitCheck.limit), { status: 429 });
+  }
+
+  // Источник темы: либо SOAP-протокол выбранной сессии (обезличенно —
+  // без имени клиента и без прямых цитат, только тема/динамика), либо
+  // произвольная тема текстом, либо просто "интересный кейс из практики".
+  let sourceContext = "Тема не уточнена — предложи универсальную, но конкретную тему из практики психолога, избегая клише.";
+  if (body.session_id) {
+    const { data: soapNote } = await supabase
+      .from("soap_notes")
+      .select("a_assessment, p_plan")
+      .eq("session_id", body.session_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (soapNote) {
+      sourceContext = `Обезличенный материал из практики (без имён и деталей, позволяющих идентифицировать клиента):\nОценка/динамика: ${soapNote.a_assessment ?? "—"}\nПлан работы: ${soapNote.p_plan ?? "—"}`;
+    }
+  } else if (body.topic?.trim()) {
+    sourceContext = `Тема поста: ${body.topic.trim()}`;
+  }
+
+  const { data: psychologistProfile } = await supabase
+    .from("psychologists")
+    .select("approach, specialty, typical_client_request")
+    .eq("id", user.id)
+    .maybeSingle();
+  const approachBlock = psychologistProfile ? buildApproachContextBlock(psychologistProfile) : "";
+
+  const systemPrompt = `Ты помогаешь практикующему психологу писать контент для соцсетей на основе инсайтов из его практики.
+КРИТИЧЕСКИ ВАЖНО: результат должен быть полностью обезличен — никаких имён клиентов, узнаваемых деталей, дат или подробностей, по которым можно опознать реального человека. Пиши обобщённо, как о типичной ситуации из практики.
+${approachBlock}
+
+${FORMAT_INSTRUCTIONS[format]}
+
+Пиши на русском языке. Не используй markdown-разметку (никаких ** или #). Верни только готовый текст поста/сценария, без вступительных фраз вроде "Вот пост:".`;
+
+  try {
+    const text = await yandexGptComplete(
+      [
+        { role: "system", text: systemPrompt },
+        { role: "user", text: sourceContext },
+      ],
+      { model: "pro", temperature: 0.6 }
+    );
+
+    await consumeAssistantLimit(supabase, user.id, "normal");
+
+    return NextResponse.json({ text: text.trim() });
+  } catch (e) {
+    const message = e instanceof YandexGptError ? e.message : "Не удалось сгенерировать контент";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
+}
