@@ -7,8 +7,8 @@ import {
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
   Sparkles, X, Link2, Copy, Check,
 } from "lucide-react";
-import { testHistory as testHistoryByClient } from "@/lib/mock-data";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
+import { TEST_SCALES, type TestType } from "@/lib/testScales";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -33,6 +33,16 @@ interface MessengerLink {
   platform: "telegram" | "vk";
   external_username: string | null;
   linked_at: string;
+}
+
+interface TestResult {
+  id: string;
+  test_type: TestType;
+  score: number;
+  max_score: number;
+  interpretation: string | null;
+  status: "pending" | "completed";
+  created_at: string;
 }
 
 // Приводит запись из таблицы messages (API-формат) к формату чата на экране.
@@ -89,6 +99,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [periodSummaryResult, setPeriodSummaryResult] = useState<string | null>(null);
   const [periodSummaryError, setPeriodSummaryError] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<TestResult[]>([]);
+  const [testsLoading, setTestsLoading] = useState(true);
+  const [showSendTestForm, setShowSendTestForm] = useState(false);
+  const [newTestType, setNewTestType] = useState<TestType>("GAD7");
+  const [newTestScore, setNewTestScore] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -116,6 +132,49 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     return () => { cancelled = true; };
   }, [id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTests() {
+      setTestsLoading(true);
+      try {
+        const res = await fetch(`/api/clients/${id}/tests`);
+        const data = await res.json();
+        if (!cancelled && res.ok) {
+          setTestResults(data.tests ?? []);
+        }
+      } finally {
+        if (!cancelled) setTestsLoading(false);
+      }
+    }
+    loadTests();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  const handleAddTestResult = async () => {
+    const score = Number(newTestScore);
+    if (Number.isNaN(score) || score < 0) return;
+    setSendingTest(true);
+    try {
+      const res = await fetch("/api/tests/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: id, test_type: newTestType, score }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTestResults(prev => [...prev, data.test]);
+        setNewTestScore("");
+        setShowSendTestForm(false);
+      } else {
+        alert(data.error ?? "Не удалось сохранить результат теста");
+      }
+    } catch {
+      alert("Не удалось связаться с сервером");
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
   const clientSessions = useMemo(
     () => sessions.filter(s => s.clientId === id).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)),
     [sessions, id]
@@ -125,11 +184,19 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const pastSessions = clientSessions.filter(s => s.date < today).reverse();
 
   const progress = client?.progress ?? EMPTY_PROGRESS;
+  // Реальная история теста — из test_results (Supabase). Пока психолог
+  // ничего не внёс — используем demo-extras как наглядную заглушку
+  // (только для показа UI, не смешивается с реальными данными после
+  // первого сохранённого результата).
+  const demoExtrasForTrend = demoClientExtrasByName[client?.name ?? ""];
+  const completedTests = useMemo(() => testResults.filter(t => t.status === "completed"), [testResults]);
+  const clientTestHistoryForTrend = completedTests.length > 0
+    ? completedTests.map(t => ({ date: new Date(t.created_at).toLocaleDateString("ru", { day: "numeric", month: "short" }), score: t.score }))
+    : demoExtrasForTrend?.testHistory ?? [];
   // Тренд считаем по истории теста (score ниже = лучше для GAD-7/PHQ-9/MBI,
   // поэтому направление здесь условное — просто "снизился/вырос за 2 замера").
   // Пока в БД нет флага "меньше = лучше" по методике, это грубое приближение
   // для демонстрации, не клиническая оценка.
-  const clientTestHistoryForTrend = testHistoryByClient[client?.id ?? ""] ?? demoClientExtrasByName[client?.name ?? ""]?.testHistory ?? [];
   const trend = useMemo(() => {
     if (clientTestHistoryForTrend.length >= 2) {
       const recent = clientTestHistoryForTrend.slice(-2);
@@ -215,12 +282,20 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
 
   const clientIdx = clients.indexOf(client);
   const avatarColor = avatarColors[clientIdx % avatarColors.length];
-  // Демо-заглушка для теста/прогресса/триггеров — подбирается по имени клиента,
-  // пока эта предметная область не переехала в БД (см. lib/demo-client-extras.ts).
+  // triggers/ДЗ пока остаются демо-заглушкой (см. lib/demo-client-extras.ts) —
+  // тесты и прогресс теперь реальные (test_results в Supabase, см. выше).
   const demoExtras = demoClientExtrasByName[client.name];
-  const clientTestHistory = testHistoryByClient[client.id] ?? demoExtras?.testHistory ?? [];
+  const clientTestHistory = clientTestHistoryForTrend;
   const triggers = client.triggers ?? demoExtras?.triggers ?? EMPTY_TRIGGERS;
-  const lastTest = client.lastTest ?? demoExtras?.lastTest;
+  const latestCompletedTest = completedTests.length > 0 ? completedTests[completedTests.length - 1] : null;
+  const lastTest = latestCompletedTest
+    ? {
+        name: TEST_SCALES[latestCompletedTest.test_type].label,
+        score: latestCompletedTest.score,
+        maxScore: latestCompletedTest.max_score,
+        date: new Date(latestCompletedTest.created_at).toLocaleDateString("ru", { day: "numeric", month: "short" }),
+      }
+    : client.lastTest ?? demoExtras?.lastTest;
   const hwTotal = client.hwTotal || demoExtras?.hwTotal || 0;
   const hwCompleted = client.hwCompleted || demoExtras?.hwCompleted || 0;
   const hwPct = hwTotal > 0 ? Math.round((hwCompleted / hwTotal) * 100) : 0;
@@ -653,21 +728,67 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <Card>
             <CardContent className="pt-6">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
                   Динамика теста {lastTest?.name ?? "—"}
                 </h3>
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "5px 10px", background: `${trendColor}20`, borderRadius: 20,
-                }}>
-                  <TrendIcon size={14} style={{ color: trendColor }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: trendColor }}>
-                    {trend === "improving" ? "Улучшение" : trend === "degrading" ? "Ухудшение" : "Стабильно"}
-                  </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "5px 10px", background: `${trendColor}20`, borderRadius: 20,
+                  }}>
+                    <TrendIcon size={14} style={{ color: trendColor }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: trendColor }}>
+                      {trend === "improving" ? "Улучшение" : trend === "degrading" ? "Ухудшение" : "Стабильно"}
+                    </span>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => setShowSendTestForm(v => !v)}>
+                    + Внести результат теста
+                  </Button>
                 </div>
               </div>
-              {clientTestHistory.length > 0 ? (
+
+              {showSendTestForm && (
+                <div style={{
+                  display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+                  padding: 12, background: "#F5F3EF", borderRadius: 8, marginBottom: 16,
+                }}>
+                  <select
+                    value={newTestType}
+                    onChange={e => setNewTestType(e.target.value as TestType)}
+                    style={{
+                      padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6,
+                      fontSize: 12.5, color: "#1C1C1E", background: "#FFFFFF",
+                    }}
+                  >
+                    {Object.entries(TEST_SCALES).map(([key, scale]) => (
+                      <option key={key} value={key}>{scale.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    max={TEST_SCALES[newTestType].maxScore}
+                    value={newTestScore}
+                    onChange={e => setNewTestScore(e.target.value)}
+                    placeholder={`Балл (0–${TEST_SCALES[newTestType].maxScore})`}
+                    style={{
+                      width: 140, padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6,
+                      fontSize: 12.5, color: "#1C1C1E", background: "#FFFFFF",
+                    }}
+                  />
+                  <Button size="sm" onClick={handleAddTestResult} disabled={sendingTest || !newTestScore}>
+                    {sendingTest ? "Сохранение…" : "Сохранить"}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setShowSendTestForm(false)}>
+                    Отмена
+                  </Button>
+                </div>
+              )}
+
+              {testsLoading ? (
+                <p style={{ fontSize: 12, color: "#8C7355" }}>Загрузка истории тестов…</p>
+              ) : clientTestHistory.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={clientTestHistory}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
