@@ -13,6 +13,7 @@ import {
 } from "@/lib/assistantLimits";
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
+import { buildApproachContextBlock } from "@/lib/approaches";
 
 // POST /api/assistant
 // Body: { message: string, client_id?: string, session_id?: string, agent_session_id?: string }
@@ -76,8 +77,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Подмешиваем в системный промпт стиль ответов под подход психолога
+  // (заполняется на онбординге, см. /api/onboarding). Если профиль ещё
+  // не заполнен — блок просто пустой, поведение как раньше.
+  const { data: psychologistProfile } = await supabase
+    .from("psychologists")
+    .select("approach, specialty, typical_client_request")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const approachBlock = psychologistProfile ? buildApproachContextBlock(psychologistProfile) : "";
+  const systemPrompt = approachBlock ? `${approachBlock}\n\n${AGENT_SYSTEM_PROMPT}` : AGENT_SYSTEM_PROMPT;
+
   const messages: YandexGptAnyMessage[] = [
-    { role: "system", text: AGENT_SYSTEM_PROMPT },
+    { role: "system", text: systemPrompt },
     { role: "user", text: contextPrefix + userMessage },
   ];
 

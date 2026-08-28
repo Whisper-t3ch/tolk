@@ -1,6 +1,7 @@
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import AIAssistant from "@/components/layout/AIAssistant";
+import OnboardingGate from "@/components/OnboardingGate";
 
 export default function AppLayout({
   children,
@@ -34,6 +35,7 @@ export default function AppLayout({
         </main>
       </div>
       <AIAssistant />
+      <OnboardingGate />
     </>
   );
 }
