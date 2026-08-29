@@ -16,6 +16,7 @@ import {
   formatPeriodSummaryAsText,
   type PeriodSummaryResult,
 } from "@/lib/prompts/periodSummary";
+import { anonymizeTranscript } from "@/lib/anonymize";
 import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
 import type { AgentToolName } from "./tools";
 
@@ -127,7 +128,25 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
     );
   }
 
-  return { results: data ?? [] };
+  // Результаты попадают обратно в контекст модели как результат tool
+  // call — анонимизируем raw_text каждого найденного фрагмента перед
+  // возвратом (имя клиента сохраняется).
+  const rows = (data ?? []) as Array<{ session_id: string; raw_text: string; similarity: number; scheduled_at: string }>;
+  if (rows.length === 0) {
+    return { results: [] };
+  }
+
+  const { data: client } = await ctx.supabase.from("clients").select("name").eq("id", args.client_id).maybeSingle();
+  const clientName = client?.name ?? "";
+
+  const anonymizedRows = await Promise.all(
+    rows.map(async row => ({
+      ...row,
+      raw_text: await anonymizeTranscript(row.raw_text, clientName),
+    }))
+  );
+
+  return { results: anonymizedRows };
 }
 
 async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string; date_from: string; date_to: string }) {
@@ -143,6 +162,9 @@ async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string;
     throw new AgentToolError("В указанном периоде нет сессий с этим клиентом", "get_period_summary");
   }
 
+  const { data: client } = await ctx.supabase.from("clients").select("name").eq("id", args.client_id).maybeSingle();
+  const clientName = client?.name ?? "";
+
   const sessionIds = sessions.map(s => s.id as string);
   const { data: transcripts, error: transcriptsError } = await ctx.supabase
     .from("session_transcripts")
@@ -157,12 +179,16 @@ async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string;
     if (!latestBySession.has(sid) && t.raw_text) latestBySession.set(sid, t.raw_text as string);
   }
 
+  // Анонимизируем каждый транскрипт перед сборкой контекста для LLM —
+  // имя клиента остаётся, персональные данные третьих лиц заменяются
+  // на роли (см. lib/anonymize.ts).
   const sections: string[] = [];
   let n = 0;
   for (const session of sessions) {
     n += 1;
-    const text = latestBySession.get(session.id as string);
-    if (!text) continue;
+    const rawText = latestBySession.get(session.id as string);
+    if (!rawText) continue;
+    const text = await anonymizeTranscript(rawText, clientName);
     const date = new Date(session.scheduled_at as string).toISOString().slice(0, 10);
     sections.push(`=== Сессия №${n} от ${date} ===\n${text}`);
   }

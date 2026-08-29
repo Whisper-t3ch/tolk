@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkYandexGptEnv, yandexGptCompleteJson, YandexGptError } from "@/lib/yandexgpt";
 import { checkAssistantLimit, consumeAssistantLimit, limitExceededResponse } from "@/lib/assistantLimits";
+import { anonymizeTranscript } from "@/lib/anonymize";
 import {
   PERIOD_SUMMARY_SYSTEM_PROMPT,
   buildPeriodSummaryUserMessage,
@@ -92,12 +93,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
   }
 
+  // Анонимизируем каждый транскрипт перед сборкой контекста для LLM —
+  // имя клиента остаётся, персональные данные третьих лиц заменяются
+  // на роли (см. lib/anonymize.ts).
   const sections: string[] = [];
   let sessionNumber = 0;
   for (const session of sessions) {
     sessionNumber += 1;
-    const text = latestBySession.get(session.id as string);
-    if (!text) continue;
+    const rawText = latestBySession.get(session.id as string);
+    if (!rawText) continue;
+    const text = await anonymizeTranscript(rawText, client.name);
     const date = new Date(session.scheduled_at as string).toISOString().slice(0, 10);
     sections.push(`=== Сессия №${sessionNumber} от ${date} ===\n${text}`);
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkYandexGptEnv, yandexGptComplete, YandexGptError } from "@/lib/yandexgpt";
 import { buildApproachContextBlock } from "@/lib/approaches";
+import { anonymizeTranscript } from "@/lib/anonymize";
 import { checkAssistantLimit, consumeAssistantLimit, limitExceededResponse } from "@/lib/assistantLimits";
 
 // POST /api/content/generate
@@ -60,13 +61,27 @@ export async function POST(request: NextRequest) {
   if (body.session_id) {
     const { data: soapNote } = await supabase
       .from("soap_notes")
-      .select("a_assessment, p_plan")
+      .select("a_assessment, p_plan, sessions ( clients ( name ) )")
       .eq("session_id", body.session_id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (soapNote) {
-      sourceContext = `Обезличенный материал из практики (без имён и деталей, позволяющих идентифицировать клиента):\nОценка/динамика: ${soapNote.a_assessment ?? "—"}\nПлан работы: ${soapNote.p_plan ?? "—"}`;
+      // a_assessment/p_plan обычно уже не содержат имени клиента (оно и
+      // так не запрашивается в SOAP-полях), но могут остаться имена
+      // третьих лиц, даты, места — прогоняем через anonymizeTranscript
+      // на случай остаточных упоминаний перед отправкой в LLM.
+      const sessionRel = Array.isArray(soapNote.sessions) ? soapNote.sessions[0] : soapNote.sessions;
+      const clientRel = sessionRel && Array.isArray((sessionRel as { clients?: unknown }).clients)
+        ? (sessionRel as { clients: { name?: string }[] }).clients[0]
+        : (sessionRel as { clients?: { name?: string } } | null)?.clients;
+      const clientName = clientRel?.name ?? "";
+
+      const [assessment, plan] = await Promise.all([
+        anonymizeTranscript(soapNote.a_assessment ?? "", clientName),
+        anonymizeTranscript(soapNote.p_plan ?? "", clientName),
+      ]);
+      sourceContext = `Обезличенный материал из практики (без имён и деталей, позволяющих идентифицировать клиента):\nОценка/динамика: ${assessment || "—"}\nПлан работы: ${plan || "—"}`;
     }
   } else if (body.topic?.trim()) {
     sourceContext = `Тема поста: ${body.topic.trim()}`;
