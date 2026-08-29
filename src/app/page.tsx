@@ -4101,7 +4101,9 @@ export default function LandingPage() {
                 )}
 
                 <Link
-                  href="/login"
+                  href="https://t.me/ONEtema9_m"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{
                     display: "block",
                     padding: "12px 16px",
