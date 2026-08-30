@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { anonymizeTranscript } from "@/lib/anonymize";
 
-// GET /api/_debug/test-anonymize
+// GET /api/debug-test-anonymize
 // ВРЕМЕННЫЙ диагностический route — проверяет, что anonymizeTranscript
 // реально заменяет персональные данные третьих лиц через YandexGPT lite.
 // Удалить после проверки: без авторизации, не должен оставаться в проде.
