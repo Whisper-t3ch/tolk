@@ -91,13 +91,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Некорректное тело запроса" }, { status: 400 });
   }
 
-  // Подтверждаем, что сессия существует и принадлежит психологу
-  // (RLS на sessions это тоже проверит, но явная проверка даёт понятную
-  // ошибку 404 вместо непрозрачного отказа при insert).
+  // Подтверждаем, что сессия существует и принадлежит психологу — явная
+  // проверка владельца здесь обязательна (не полагаемся только на RLS),
+  // иначе психолог А мог бы читать/писать SOAP-протокол чужой сессии,
+  // подставив чужой session_id в URL.
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
     .select("id")
     .eq("id", sessionId)
+    .eq("psychologist_id", user.id)
     .maybeSingle();
   if (sessionError) {
     return NextResponse.json({ error: sessionError.message }, { status: 500 });

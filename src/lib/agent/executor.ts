@@ -9,13 +9,8 @@
 // не знает о статусе подтверждения, это ответственность route.ts.
 // ============================================================
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { yandexGptEmbed, yandexGptCompleteJson } from "@/lib/yandexgpt";
-import {
-  PERIOD_SUMMARY_SYSTEM_PROMPT,
-  buildPeriodSummaryUserMessage,
-  formatPeriodSummaryAsText,
-  type PeriodSummaryResult,
-} from "@/lib/prompts/periodSummary";
+import { yandexGptEmbed } from "@/lib/yandexgpt";
+import { buildAnonymizedPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
 import { anonymizeTranscript } from "@/lib/anonymize";
 import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
 import type { AgentToolName } from "./tools";
@@ -149,11 +144,21 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
   return { results: anonymizedRows };
 }
 
+// Использует общую buildAnonymizedPeriodSummary (см. lib/prompts/periodSummary.ts)
+// — раньше здесь была независимая копия логики /api/clients/[id]/summary,
+// которая разошлась по поведению. Лимит здесь НЕ списывается отдельно:
+// /api/assistant уже списывает "agentTask" (3) за всю цепочку вызовов
+// инструментов после её завершения, независимо от того, какие именно
+// инструменты вызывались — повторное списание здесь удвоило бы
+// стоимость для психолога. Результат всё же сохраняется в
+// period_summaries, чтобы срез был виден в истории вне зависимости от
+// того, вызван он через кнопку в UI или через ассистента.
 async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string; date_from: string; date_to: string }) {
   const { data: sessions, error: sessionsError } = await ctx.supabase
     .from("sessions")
     .select("id, scheduled_at")
     .eq("client_id", args.client_id)
+    .eq("psychologist_id", ctx.psychologistId)
     .gte("scheduled_at", args.date_from)
     .lte("scheduled_at", args.date_to)
     .order("scheduled_at", { ascending: true });
@@ -162,54 +167,38 @@ async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string;
     throw new AgentToolError("В указанном периоде нет сессий с этим клиентом", "get_period_summary");
   }
 
-  const { data: client } = await ctx.supabase.from("clients").select("name").eq("id", args.client_id).maybeSingle();
+  const { data: client } = await ctx.supabase
+    .from("clients")
+    .select("name")
+    .eq("id", args.client_id)
+    .eq("psychologist_id", ctx.psychologistId)
+    .maybeSingle();
   const clientName = client?.name ?? "";
 
-  const sessionIds = sessions.map(s => s.id as string);
-  const { data: transcripts, error: transcriptsError } = await ctx.supabase
-    .from("session_transcripts")
-    .select("session_id, raw_text, created_at")
-    .in("session_id", sessionIds)
-    .order("created_at", { ascending: false });
-  if (transcriptsError) throw new AgentToolError(transcriptsError.message, "get_period_summary");
-
-  const latestBySession = new Map<string, string>();
-  for (const t of transcripts ?? []) {
-    const sid = t.session_id as string;
-    if (!latestBySession.has(sid) && t.raw_text) latestBySession.set(sid, t.raw_text as string);
+  let periodSummary;
+  try {
+    periodSummary = await buildAnonymizedPeriodSummary(
+      ctx.supabase,
+      sessions.map(s => ({ id: s.id as string, scheduled_at: s.scheduled_at as string })),
+      clientName
+    );
+  } catch (e) {
+    const message = e instanceof PeriodSummaryError ? e.message : "Не удалось сгенерировать срез";
+    throw new AgentToolError(message, "get_period_summary");
   }
 
-  // Анонимизируем каждый транскрипт перед сборкой контекста для LLM —
-  // имя клиента остаётся, персональные данные третьих лиц заменяются
-  // на роли (см. lib/anonymize.ts).
-  const sections: string[] = [];
-  let n = 0;
-  for (const session of sessions) {
-    n += 1;
-    const rawText = latestBySession.get(session.id as string);
-    if (!rawText) continue;
-    const text = await anonymizeTranscript(rawText, clientName);
-    const date = new Date(session.scheduled_at as string).toISOString().slice(0, 10);
-    sections.push(`=== Сессия №${n} от ${date} ===\n${text}`);
-  }
-  if (sections.length === 0) {
-    throw new AgentToolError("Ни для одной сессии в периоде транскрипт не готов", "get_period_summary");
-  }
+  const { summaryText, structured, sectionsCount, dateStart, dateEnd } = periodSummary;
 
-  const result = await yandexGptCompleteJson<PeriodSummaryResult>([
-    { role: "system", text: PERIOD_SUMMARY_SYSTEM_PROMPT },
-    {
-      role: "user",
-      text: buildPeriodSummaryUserMessage({
-        sessionsCount: sections.length,
-        dateStart: args.date_from,
-        dateEnd: args.date_to,
-        transcripts: sections.join("\n\n"),
-      }),
-    },
-  ]);
+  await ctx.supabase.from("period_summaries").insert({
+    psychologist_id: ctx.psychologistId,
+    client_id: args.client_id,
+    period_start: dateStart,
+    period_end: dateEnd,
+    sessions_count: sectionsCount,
+    summary: summaryText,
+  });
 
-  return { summary: formatPeriodSummaryAsText(result), structured: result };
+  return { summary: summaryText, structured };
 }
 
 async function searchKnowledgeBase(ctx: ExecutorContext, args: { query: string; approach?: string }) {

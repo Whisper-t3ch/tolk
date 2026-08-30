@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
       .from("clients")
       .select("id, name, request, approach, status")
       .eq("id", body.client_id)
+      .eq("psychologist_id", user.id)
       .maybeSingle();
     if (client) {
       contextPrefix = `Контекст: открыта карточка клиента ${client.name} (id: ${client.id}, запрос: ${client.request ?? "—"}, подход: ${client.approach ?? "—"}).\n\n`;

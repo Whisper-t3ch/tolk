@@ -40,7 +40,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "channel должен быть telegram, vk или max" }, { status: 400 });
   }
 
-  // RLS сам ограничит доступ только своими soap_notes (через принадлежность session).
+  // soap_notes не хранит psychologist_id напрямую — принадлежность идёт
+  // через session_id → sessions.psychologist_id. Проверяем её явно перед
+  // update (не полагаемся только на RLS), иначе психолог А мог бы
+  // перезаписать client_summary чужого протокола, подставив чужой id.
+  const { data: soapNote, error: soapNoteError } = await supabase
+    .from("soap_notes")
+    .select("id, session_id, sessions ( psychologist_id )")
+    .eq("id", soapNoteId)
+    .maybeSingle();
+  if (soapNoteError) {
+    return NextResponse.json({ error: soapNoteError.message }, { status: 500 });
+  }
+  if (!soapNote) {
+    return NextResponse.json({ error: "SOAP-протокол не найден" }, { status: 404 });
+  }
+  const sessionRel = Array.isArray(soapNote.sessions) ? soapNote.sessions[0] : soapNote.sessions;
+  if ((sessionRel as { psychologist_id?: string } | null)?.psychologist_id !== user.id) {
+    return NextResponse.json({ error: "SOAP-протокол не найден" }, { status: 404 });
+  }
+
   const { data: updated, error: updateError } = await supabase
     .from("soap_notes")
     .update({

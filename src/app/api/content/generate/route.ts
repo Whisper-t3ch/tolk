@@ -59,14 +59,20 @@ export async function POST(request: NextRequest) {
   // произвольная тема текстом, либо просто "интересный кейс из практики".
   let sourceContext = "Тема не уточнена — предложи универсальную, но конкретную тему из практики психолога, избегая клише.";
   if (body.session_id) {
+    // sessions.psychologist_id проверяем явно в select — soap_notes сама
+    // по себе не хранит владельца, только через session_id, поэтому без
+    // этой проверки психолог А мог бы подставить чужой session_id и
+    // получить в контенте фрагменты SOAP-протокола чужого клиента.
     const { data: soapNote } = await supabase
       .from("soap_notes")
-      .select("a_assessment, p_plan, sessions ( clients ( name ) )")
+      .select("a_assessment, p_plan, sessions ( psychologist_id, clients ( name ) )")
       .eq("session_id", body.session_id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (soapNote) {
+    const sessionRelCheck = soapNote && (Array.isArray(soapNote.sessions) ? soapNote.sessions[0] : soapNote.sessions);
+    const belongsToUser = (sessionRelCheck as { psychologist_id?: string } | null)?.psychologist_id === user.id;
+    if (soapNote && belongsToUser) {
       // a_assessment/p_plan обычно уже не содержат имени клиента (оно и
       // так не запрашивается в SOAP-полях), но могут остаться имена
       // третьих лиц, даты, места — прогоняем через anonymizeTranscript

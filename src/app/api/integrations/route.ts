@@ -8,7 +8,11 @@ import {
 } from "@/lib/messengers/client";
 
 // GET /api/integrations
-// Список подключённых интеграций текущего психолога (без секретов).
+// Список подключённых интеграций текущего психолога (без секретов —
+// webhook_secret используется только для проверки входящих вебхуков и
+// не нужен фронтенду на постоянной основе; для VK он однократно
+// показывается психологу в ответе POST при подключении, чтобы он мог
+// вставить его в настройки Callback API сообщества).
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -16,7 +20,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("messenger_integrations")
-    .select("id, platform, bot_username, status, last_error, connected_at, webhook_secret")
+    .select("id, platform, bot_username, status, last_error, connected_at")
     .eq("psychologist_id", user.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

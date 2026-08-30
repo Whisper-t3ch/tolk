@@ -19,6 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .from("clients")
     .select("id, name")
     .eq("id", clientId)
+    .eq("psychologist_id", user.id)
     .maybeSingle();
 
   if (clientError) {
