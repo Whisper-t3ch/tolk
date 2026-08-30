@@ -11,7 +11,6 @@ import { Users, Video, UserPlus, AlertCircle, ArrowRight, Clock, ChevronLeft, Ch
 import { Button, Card, CardContent } from "@/components/ui";
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
-const TODAY = "2026-08-16";
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const EMPTY_LAST_TEST = { name: "—", score: 0, maxScore: 1, date: "—" };
 
@@ -19,11 +18,22 @@ function toDateStr(y: number, m: number, d: number) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+// Реальная сегодняшняя дата в формате YYYY-MM-DD (локальная, не UTC —
+// иначе после полуночи по UTC "сегодня" на дашборде могло бы отличаться
+// от календарной даты у психолога).
+function todayDateStr() {
+  const now = new Date();
+  return toDateStr(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
 export default function DashboardPage() {
   const [hoveredClient, setHoveredClient] = useState<string | null>(null);
   const { sessions } = useSession();
   const { clients } = useClients();
   const { events: personalEvents, updateEventTime } = usePersonalEvents();
+  // Вычисляем один раз при монтировании — стабильно на протяжении жизни
+  // страницы, чтобы "сегодня" не съезжало ровно в полночь во время сессии.
+  const [TODAY] = useState(todayDateStr);
 
   function clientIndex(clientId: string) {
     const idx = clients.findIndex(c => c.id === clientId);
