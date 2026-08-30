@@ -3,6 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Пути, доступные без авторизации
 const PUBLIC_PATHS = ["/", "/login"];
+// Префиксы, доступные без авторизации целиком (публичная страница
+// бронирования /book/[slug] — её открывают клиенты психолога, у
+// которых нет и не будет аккаунта; /api/public/* — её backend).
+const PUBLIC_PATH_PREFIXES = ["/book/", "/api/public/"];
 
 /**
  * Middleware выполняется на каждый запрос: обновляет сессию Supabase
@@ -36,7 +40,11 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path === p) || path.startsWith("/_next") || path.startsWith("/images");
+  const isPublic =
+    PUBLIC_PATHS.some((p) => path === p) ||
+    PUBLIC_PATH_PREFIXES.some((p) => path.startsWith(p)) ||
+    path.startsWith("/_next") ||
+    path.startsWith("/images");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
   User, Bell, Plug, CreditCard, Palette, ShieldCheck, AlertTriangle,
-  ExternalLink, Sun, Moon, Monitor,
+  ExternalLink, Sun, Moon, Monitor, CalendarClock,
 } from "lucide-react";
 import { currentPsychologist } from "@/lib/mock-data";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
@@ -212,6 +212,16 @@ export default function SettingsPage() {
               marginBottom: 8, border: "1px solid #E5DFD5",
             }}>
               <User size={15} /> Профиль
+              <ExternalLink size={12} style={{ marginLeft: "auto", opacity: 0.5 }} />
+            </div>
+          </Link>
+          <Link href="/settings/booking" style={{ textDecoration: "none" }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
+              borderRadius: 8, color: "#6B6058", fontSize: 13, fontWeight: 600,
+              marginBottom: 8, border: "1px solid #E5DFD5",
+            }}>
+              <CalendarClock size={15} /> Публичная запись
               <ExternalLink size={12} style={{ marginLeft: "auto", opacity: 0.5 }} />
             </div>
           </Link>

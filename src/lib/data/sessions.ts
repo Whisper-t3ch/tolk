@@ -13,14 +13,16 @@ export interface DbSession {
   clientName: string; // подтягивается join'ом к clients.name
   date: string; // YYYY-MM-DD, локальное представление scheduled_at
   time: string; // HH:MM
-  status: "scheduled" | "in_progress" | "completed" | "cancelled";
+  status: "scheduled" | "in_progress" | "completed" | "cancelled" | "pending_payment";
+  bookedVia: "psychologist" | "public_link";
 }
 
 interface SessionRow {
   id: string;
   client_id: string;
   scheduled_at: string;
-  status: "scheduled" | "in_progress" | "completed" | "cancelled";
+  status: "scheduled" | "in_progress" | "completed" | "cancelled" | "pending_payment";
+  booked_via: "psychologist" | "public_link" | null;
   clients: { name: string } | { name: string }[] | null;
 }
 
@@ -41,10 +43,11 @@ function mapRow(row: SessionRow): DbSession {
     date,
     time,
     status: row.status,
+    bookedVia: row.booked_via ?? "psychologist",
   };
 }
 
-const SESSION_COLUMNS = "id, client_id, scheduled_at, status, clients ( name )";
+const SESSION_COLUMNS = "id, client_id, scheduled_at, status, booked_via, clients ( name )";
 
 export async function fetchSessions(): Promise<DbSession[]> {
   const supabase = createClient();
@@ -80,6 +83,25 @@ export async function createSessionRecord(input: NewSessionInput): Promise<DbSes
       scheduled_at: scheduledAt,
       status: "scheduled",
     })
+    .select(SESSION_COLUMNS)
+    .single();
+
+  if (error) throw error;
+  return mapRow(data as unknown as SessionRow);
+}
+
+/**
+ * Ручное подтверждение оплаты сессии, забронированной клиентом через
+ * публичную ссылку (status pending_payment → scheduled). Пока нет
+ * автоматического СБП — психолог сам нажимает эту кнопку в UI сессии
+ * после того, как клиент оплатил вне платформы.
+ */
+export async function confirmSessionPayment(id: string): Promise<DbSession> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("sessions")
+    .update({ status: "scheduled" })
+    .eq("id", id)
     .select(SESSION_COLUMNS)
     .single();
 

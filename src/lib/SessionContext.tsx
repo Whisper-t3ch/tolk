@@ -1,6 +1,6 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
-import { fetchSessions, createSessionRecord, type NewSessionInput } from "@/lib/data/sessions";
+import { fetchSessions, createSessionRecord, confirmSessionPayment, type NewSessionInput } from "@/lib/data/sessions";
 
 export interface PlannedSession {
   id: string;
@@ -8,13 +8,16 @@ export interface PlannedSession {
   clientName: string;
   date: string;
   time: string;
+  status: "scheduled" | "in_progress" | "completed" | "cancelled" | "pending_payment";
+  bookedVia: "psychologist" | "public_link";
 }
 
 interface SessionContextType {
   sessions: PlannedSession[];
   loading: boolean;
   error: string | null;
-  addSession: (session: Omit<PlannedSession, "id">) => Promise<void>;
+  addSession: (session: Omit<PlannedSession, "id" | "status" | "bookedVia">) => Promise<void>;
+  confirmPayment: (sessionId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -41,7 +44,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
-  const addSession = useCallback(async (session: Omit<PlannedSession, "id">) => {
+  const addSession = useCallback(async (session: Omit<PlannedSession, "id" | "status" | "bookedVia">) => {
     const input: NewSessionInput = {
       clientId: session.clientId,
       clientName: session.clientName,
@@ -52,8 +55,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSessions(prev => [...prev, created]);
   }, []);
 
+  const confirmPayment = useCallback(async (sessionId: string) => {
+    const updated = await confirmSessionPayment(sessionId);
+    setSessions(prev => prev.map(s => (s.id === sessionId ? updated : s)));
+  }, []);
+
   return (
-    <SessionContext.Provider value={{ sessions, loading, error, addSession, refresh }}>
+    <SessionContext.Provider value={{ sessions, loading, error, addSession, confirmPayment, refresh }}>
       {children}
     </SessionContext.Provider>
   );

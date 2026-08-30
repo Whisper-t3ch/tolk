@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Calendar, Clock, ArrowRight, Video } from "lucide-react";
+import { Calendar, Clock, ArrowRight, Video, Link2, Check } from "lucide-react";
 import { useSession, type PlannedSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -15,9 +15,19 @@ function formatDateLabel(dateStr: string): string {
 }
 
 export default function SessionsPage() {
-  const { sessions } = useSession();
+  const { sessions, confirmPayment } = useSession();
   const { clients } = useClients();
   const [filter, setFilter] = useState<"upcoming" | "past">("upcoming");
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  async function handleConfirmPayment(sessionId: string) {
+    setConfirmingId(sessionId);
+    try {
+      await confirmPayment(sessionId);
+    } finally {
+      setConfirmingId(null);
+    }
+  }
 
   function clientIndex(clientId: string) {
     const idx = clients.findIndex(c => c.id === clientId);
@@ -139,11 +149,23 @@ export default function SessionsPage() {
                               {client?.initials ?? "?"}
                             </div>
                             <div style={{ minWidth: 0 }}>
-                              <div style={{
-                                fontSize: 14, fontWeight: 600, color: "#1C1C1E",
-                                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                              }}>
-                                {session.clientName}
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{
+                                  fontSize: 14, fontWeight: 600, color: "#1C1C1E",
+                                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                }}>
+                                  {session.clientName}
+                                </span>
+                                {session.bookedVia === "public_link" && (
+                                  <span style={{
+                                    display: "inline-flex", alignItems: "center", gap: 3,
+                                    fontSize: 10.5, fontWeight: 700, color: "#8B5CF6",
+                                    background: "#F1EBFE", padding: "2px 7px", borderRadius: 20,
+                                    flexShrink: 0,
+                                  }}>
+                                    <Link2 size={10} /> Забронировано клиентом
+                                  </span>
+                                )}
                               </div>
                               {client && (
                                 <div style={{
@@ -155,7 +177,16 @@ export default function SessionsPage() {
                           </div>
                         </Link>
 
-                        {filter === "upcoming" ? (
+                        {session.status === "pending_payment" ? (
+                          <Button
+                            size="sm"
+                            onClick={() => handleConfirmPayment(session.id)}
+                            disabled={confirmingId === session.id}
+                          >
+                            <Check size={14} style={{ marginRight: 6 }} />
+                            {confirmingId === session.id ? "Подтверждаю..." : "Подтвердить оплату"}
+                          </Button>
+                        ) : filter === "upcoming" ? (
                           <Link href={`/session/${session.clientId}`} style={{ textDecoration: "none", flexShrink: 0 }}>
                             <Button size="sm">
                               Начать <ArrowRight size={14} style={{ marginLeft: 6 }} />
