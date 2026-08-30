@@ -1,7 +1,7 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { usePersonalEvents } from "@/lib/PersonalEventsContext";
@@ -34,6 +34,22 @@ export default function DashboardPage() {
   // Вычисляем один раз при монтировании — стабильно на протяжении жизни
   // страницы, чтобы "сегодня" не съезжало ровно в полночь во время сессии.
   const [TODAY] = useState(todayDateStr);
+
+  // Имя психолога для персонализации заголовка — грузим из /api/profile,
+  // до ответа показываем нейтральное приветствие без имени.
+  const [psychologistName, setPsychologistName] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/profile")
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!cancelled && data?.name) setPsychologistName(data.name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function clientIndex(clientId: string) {
     const idx = clients.findIndex(c => c.id === clientId);
@@ -141,7 +157,7 @@ export default function DashboardPage() {
       {/* Заголовок */}
       <div style={{ marginBottom: 32 }}>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: "#1C1C1E", letterSpacing: "-0.5px" }}>
-          Добрый день, Мария
+          {psychologistName ? `Добрый день, ${psychologistName}` : "Добрый день"}
         </h1>
         <p style={{ fontSize: 15, color: "#6B6058", marginTop: 6 }}>
           Сегодня {new Date(TODAY + "T00:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" })} · {sessions.filter(s => s.date === TODAY).length} {sessions.filter(s => s.date === TODAY).length === 1 ? "сессия" : "сессии"}
