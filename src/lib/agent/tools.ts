@@ -13,6 +13,7 @@ import type { YandexGptTool } from "@/lib/yandexgpt";
 
 export type AgentToolName =
   | "get_clients"
+  | "find_client_by_name"
   | "get_client_info"
   | "create_client"
   | "update_client"
@@ -57,12 +58,26 @@ export const AGENT_TOOLS: YandexGptTool[] = [
   },
   {
     function: {
-      name: "get_client_info",
-      description: "Возвращает подробную информацию о клиенте: профиль, историю сессий, контакты.",
+      name: "find_client_by_name",
+      description:
+        "Ищет клиента(ов) по имени или фамилии (частичное совпадение, регистр не важен). Используй ЭТОТ инструмент первым, когда психолог упоминает клиента по имени, а не по UUID — например «что там у Марины» или «покажи историю Иванова». Возвращает список подходящих клиентов с их id; если найден ровно один — сразу используй его id в следующем вызове (get_client_info и т.д.), если несколько — уточни у психолога, кого из них он имел в виду.",
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента" },
+          name_query: { type: "string", description: "Имя, фамилия или их часть, как упомянул психолог" },
+        },
+        required: ["name_query"],
+      },
+    },
+  },
+  {
+    function: {
+      name: "get_client_info",
+      description: "Возвращает подробную информацию о клиенте: профиль, историю сессий, контакты. Требует client_id — если известно только имя, сначала вызови find_client_by_name.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
         },
         required: ["client_id"],
       },
@@ -92,7 +107,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента" },
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
           fields: {
             type: "object",
             description: "Поля для обновления: name, request, approach, status (active|pause|completed)",
@@ -112,7 +127,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента" },
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
           query: { type: "string", description: "Поисковый запрос (например, «делегирование задач»)" },
         },
         required: ["client_id", "query"],
@@ -126,7 +141,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента" },
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
           date_from: { type: "string", description: "Начало периода, YYYY-MM-DD" },
           date_to: { type: "string", description: "Конец периода, YYYY-MM-DD" },
         },
@@ -197,7 +212,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента" },
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
           datetime: { type: "string", description: "Дата и время сессии, ISO 8601" },
           duration_minutes: { type: "integer", description: "Длительность в минутах (по умолчанию 50)" },
         },
@@ -229,7 +244,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента" },
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
           text: { type: "string", description: "Текст сообщения" },
           channel: { type: "string", enum: ["telegram", "vk"], description: "Канал отправки" },
         },
@@ -244,7 +259,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента" },
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
           homework_text: { type: "string", description: "Текст домашнего задания" },
         },
         required: ["client_id", "homework_text"],
@@ -273,4 +288,12 @@ export const AGENT_SYSTEM_PROMPT = `Ты профессиональный асс
 Используй только данные из инструментов — не придумывай.
 Перед созданием, изменением или отправкой чего-либо — запроси подтверждение у психолога.
 Отвечай кратко и по делу на русском языке.
-Учитывай предпочтения психолога при планировании.`;
+Учитывай предпочтения психолога при планировании.
+
+Психолог почти никогда не знает и не называет UUID клиентов — он говорит именами
+("что там у Марины", "покажи историю Иванова"). Когда тебе нужен client_id, а
+психолог назвал только имя — сначала вызови find_client_by_name с этим именем,
+и используй полученный id в следующих вызовах. Не спрашивай у психолога UUID
+напрямую — это внутренний технический идентификатор, психологу он не известен.
+Если find_client_by_name вернул несколько совпадений — кратко перечисли их и
+уточни, кого из них психолог имел в виду.`;

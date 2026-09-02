@@ -41,6 +41,27 @@ async function getClients(ctx: ExecutorContext) {
   return { clients: data ?? [] };
 }
 
+async function findClientByName(ctx: ExecutorContext, args: { name_query: string }) {
+  const query = (args.name_query ?? "").trim();
+  if (!query) throw new AgentToolError("Не указано имя для поиска", "find_client_by_name");
+
+  const { data, error } = await ctx.supabase
+    .from("clients")
+    .select("id, name, status, request")
+    .eq("psychologist_id", ctx.psychologistId)
+    .is("deleted_at", null)
+    .ilike("name", `%${query}%`)
+    .order("name", { ascending: true })
+    .limit(10);
+  if (error) throw new AgentToolError(error.message, "find_client_by_name");
+
+  const clients = data ?? [];
+  if (clients.length === 0) {
+    return { clients: [], note: `Клиент по запросу «${query}» не найден. Возможно, психолог назвал имя неточно — уточни у него.` };
+  }
+  return { clients };
+}
+
 async function getClientInfo(ctx: ExecutorContext, args: { client_id: string }) {
   const { data: client, error: clientError } = await ctx.supabase
     .from("clients")
@@ -539,6 +560,8 @@ export async function executeAgentTool(
   switch (name as AgentToolName) {
     case "get_clients":
       return getClients(ctx);
+    case "find_client_by_name":
+      return findClientByName(ctx, args as { name_query: string });
     case "get_client_info":
       return getClientInfo(ctx, args as { client_id: string });
     case "create_client":
