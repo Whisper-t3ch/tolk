@@ -5,7 +5,7 @@ import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Users, Video, Bot, FileText,
-  BookOpen, Brain, Settings, Plus, X,
+  BookOpen, Brain, Settings, Plus, X, Search,
   ClipboardList, HelpCircle, Sparkles, CalendarDays
 } from "lucide-react";
 import { currentPsychologist } from "@/lib/mock-data";
@@ -42,6 +42,7 @@ export default function Sidebar() {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNewSession, setShowNewSession] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [showConference, setShowConference] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [conferenceClientName, setConferenceClientName] = useState("");
@@ -94,6 +95,7 @@ export default function Sidebar() {
     setShowNewSession(false);
     setSelectedClientId(null);
     setSchedulingClientId(null);
+    setClientSearchQuery("");
   };
 
   // Переход ко второму шагу модалки — выбору даты/времени для планирования
@@ -507,8 +509,44 @@ export default function Sidebar() {
                     <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12 }}>
                       Выберите клиента для встречи:
                     </p>
+                    <div style={{ position: "relative", marginBottom: 12 }}>
+                      <Search size={14} style={{
+                        position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+                        color: "#8C7355", pointerEvents: "none",
+                      }} />
+                      <input
+                        type="text"
+                        value={clientSearchQuery}
+                        onChange={e => setClientSearchQuery(e.target.value)}
+                        placeholder="Поиск по имени клиента..."
+                        autoFocus
+                        style={{
+                          width: "100%",
+                          padding: "9px 12px 9px 34px",
+                          border: "1px solid #E5DFD5",
+                          borderRadius: 8,
+                          fontSize: 13,
+                          fontFamily: "var(--font-sans)",
+                          outline: "none",
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
+                    {(() => {
+                      const q = clientSearchQuery.trim().toLowerCase();
+                      const filteredClients = q
+                        ? clients.filter(c => c.name.toLowerCase().includes(q))
+                        : clients;
+                      if (filteredClients.length === 0) {
+                        return (
+                          <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", padding: "16px 0" }}>
+                            Клиенты не найдены
+                          </p>
+                        );
+                      }
+                      return (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {clients.map((client, idx) => (
+                      {filteredClients.map((client, idx) => (
                         <button
                           key={client.id}
                           onClick={() => openScheduleStep(client.id)}
@@ -562,6 +600,8 @@ export default function Sidebar() {
                         </button>
                       ))}
                     </div>
+                      );
+                    })()}
                   </div>
 
                   <div style={{

@@ -85,7 +85,7 @@ export default function AssistantPage() {
       </div>
 
       {/* Чат — реальная интеграция с /api/assistant (function calling, RAG, подтверждения) */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Card className="flex-1 flex flex-col" style={{ minHeight: 0 }}>
           {/* key пересоздаёт чат при смене клиента — старая история другого контекста не должна путать модель */}
           <AssistantChat key={activeClientId ?? "no-client"} clientId={activeClientId} compact={false} placeholder="Напишите ваш вопрос..." />

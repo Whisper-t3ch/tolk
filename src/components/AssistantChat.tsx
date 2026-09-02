@@ -213,10 +213,11 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           padding: compact ? "12px" : "16px",
           display: "flex",
@@ -304,10 +305,10 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
       </div>
 
       {(error || voiceError) && (
-        <div style={{ padding: "0 12px", fontSize: 11, color: "#EF4444" }}>{error ?? voiceError}</div>
+        <div style={{ padding: "0 12px", fontSize: 11, color: "#EF4444", flexShrink: 0 }}>{error ?? voiceError}</div>
       )}
 
-      <div style={{ padding: 12, borderTop: "1px solid #E5DFD5", display: "flex", gap: 6 }}>
+      <div style={{ padding: 12, borderTop: "1px solid #E5DFD5", display: "flex", gap: 6, flexShrink: 0 }}>
         <input
           type="text"
           value={input}
