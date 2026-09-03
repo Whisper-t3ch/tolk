@@ -10,13 +10,15 @@ export interface PlannedSession {
   time: string;
   status: "scheduled" | "in_progress" | "completed" | "cancelled" | "pending_payment";
   bookedVia: "psychologist" | "public_link";
+  /** Пустая строка, если NEXT_PUBLIC_JITSI_DOMAIN ещё не настроен (ВМ не подключена). */
+  videoRoomUrl: string;
 }
 
 interface SessionContextType {
   sessions: PlannedSession[];
   loading: boolean;
   error: string | null;
-  addSession: (session: Omit<PlannedSession, "id" | "status" | "bookedVia">) => Promise<void>;
+  addSession: (session: Omit<PlannedSession, "id" | "status" | "bookedVia" | "videoRoomUrl">) => Promise<PlannedSession>;
   confirmPayment: (sessionId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -44,7 +46,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
-  const addSession = useCallback(async (session: Omit<PlannedSession, "id" | "status" | "bookedVia">) => {
+  const addSession = useCallback(async (session: Omit<PlannedSession, "id" | "status" | "bookedVia" | "videoRoomUrl">) => {
     const input: NewSessionInput = {
       clientId: session.clientId,
       clientName: session.clientName,
@@ -53,6 +55,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
     const created = await createSessionRecord(input);
     setSessions(prev => [...prev, created]);
+    return created;
   }, []);
 
   const confirmPayment = useCallback(async (sessionId: string) => {

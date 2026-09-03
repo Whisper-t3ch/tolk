@@ -13,6 +13,7 @@ import { yandexGptEmbed } from "@/lib/yandexgpt";
 import { buildAnonymizedPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
 import { anonymizeTranscript } from "@/lib/anonymize";
 import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
+import { buildJitsiRoomName, buildJitsiUrl, checkJitsiEnv } from "@/lib/jitsi";
 import type { AgentToolName } from "./tools";
 
 export class AgentToolError extends Error {
@@ -354,24 +355,33 @@ async function findAvailableSlots(
 // ------------------------------------------------------------
 
 async function createSession(ctx: ExecutorContext, args: { client_id: string; datetime: string; duration_minutes?: number }) {
+  // id генерируется заранее (crypto.randomUUID), чтобы имя Jitsi-комнаты
+  // было известно до insert — так jitsi_room_name попадает в БД одним
+  // запросом, без отдельного UPDATE после создания.
+  const sessionId = crypto.randomUUID();
+  const roomName = buildJitsiRoomName(sessionId);
+
   const { data, error } = await ctx.supabase
     .from("sessions")
     .insert({
+      id: sessionId,
       psychologist_id: ctx.psychologistId,
       client_id: args.client_id,
       scheduled_at: args.datetime,
       duration_minutes: args.duration_minutes ?? 50,
       status: "scheduled",
+      jitsi_room_name: roomName,
     })
     .select("id, client_id, scheduled_at, duration_minutes, status")
     .single();
   if (error) throw new AgentToolError(error.message, "create_session");
-  // Автосоздание Jitsi-комнаты — часть Трека Б (VPS с Jitsi+GigaAM),
-  // который на момент разработки этой фичи ещё не развёрнут. Сессия
-  // создаётся без video_room_url; поле добавится когда Трек Б будет готов.
+
+  const jitsiReady = checkJitsiEnv().configured;
   return {
-    session: data,
-    note: "Сессия создана. Автосоздание видеокомнаты Jitsi будет подключено вместе с Треком Б (сервер ещё не развёрнут).",
+    session: { ...data, video_room_url: buildJitsiUrl(roomName) || null },
+    note: jitsiReady
+      ? "Сессия создана, ссылка на видеокомнату готова."
+      : "Сессия создана. Ссылка на видеокомнату станет рабочей после развёртывания видеосервера (ВМ ещё не подключена).",
   };
 }
 
@@ -512,13 +522,22 @@ async function sendHomework(ctx: ExecutorContext, args: { client_id: string; hom
 async function sendSessionInvite(ctx: ExecutorContext, args: { session_id: string }) {
   const { data: session, error: sessionError } = await ctx.supabase
     .from("sessions")
-    .select("id, client_id, scheduled_at")
+    .select("id, client_id, scheduled_at, jitsi_room_name")
     .eq("id", args.session_id)
+    .eq("psychologist_id", ctx.psychologistId)
     .maybeSingle();
   if (sessionError) throw new AgentToolError(sessionError.message, "send_session_invite");
   if (!session) throw new AgentToolError("Сессия не найдена", "send_session_invite");
 
-  const text = "Ссылка на видеовстречу будет доступна после подключения видеосвязи (Трек Б).";
+  // Старые сессии (созданные до видео-интеграции) могут не иметь
+  // jitsi_room_name — достраиваем детерминированно по тем же правилам,
+  // что и createSession, чтобы приглашение работало и для них.
+  const roomName = (session.jitsi_room_name as string | null) || buildJitsiRoomName(session.id as string);
+  const roomUrl = buildJitsiUrl(roomName);
+
+  const text = roomUrl
+    ? `Ссылка на видеовстречу: ${roomUrl}`
+    : "Ссылка на видеовстречу будет доступна после подключения видеосервера.";
   const delivery = await tryDeliverMessage(ctx, session.client_id as string, "telegram", text);
 
   const { data, error } = await ctx.supabase
@@ -543,8 +562,8 @@ async function sendSessionInvite(ctx: ExecutorContext, args: { session_id: strin
     message: data,
     note:
       delivery.status === "sent"
-        ? "Приглашение отправлено клиенту в Telegram. Реальная ссылка на видеокомнату появится после подключения Jitsi (Трек Б) — сейчас отправлен текст-заглушка."
-        : "Приглашение сохранено. У клиента нет привязанного Telegram (или бот не подключён) — отправка станет доступна после привязки. Ссылка на видеокомнату появится после подключения Jitsi (Трек Б).",
+        ? "Приглашение с рабочей ссылкой на видеокомнату отправлено клиенту в Telegram."
+        : "Приглашение сохранено. У клиента нет привязанного Telegram (или бот не подключён) — отправка станет доступна после привязки.",
   };
 }
 

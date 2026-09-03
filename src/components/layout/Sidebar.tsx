@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -11,7 +11,6 @@ import {
 import { useProfile } from "@/lib/ProfileContext";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
-import ConferenceModal from "@/components/ConferenceModal";
 import { LogoMark } from "@/components/Logo";
 
 const navItems = [
@@ -37,20 +36,18 @@ const bottomItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { profile } = useProfile();
   const plan = profile?.plan ?? { name: "—", assistantRequests: { used: 0, total: 1 } };
   const avatarInitials = profile?.avatarInitials ?? "…";
   const name = profile?.name ?? "";
   const specialty = profile?.specialty ?? "";
-  const roomUrl = profile?.roomUrl ?? "";
   const creditPct = Math.round((plan.assistantRequests.used / plan.assistantRequests.total) * 100);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNewSession, setShowNewSession] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState("");
-  const [showConference, setShowConference] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [conferenceClientName, setConferenceClientName] = useState("");
   const [notification, setNotification] = useState<string | null>(null);
   // Шаг 2 модалки «Новая сессия»: после выбора клиента — сейчас или
   // запланировать на конкретные дату/время (создаётся в календаре
@@ -63,37 +60,34 @@ export default function Sidebar() {
   const { clients } = useClients();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
+  // Создаёт сессию "на сейчас" и сразу переходит на страницу звонка
+  // с её реальным session_id. Раньше здесь открывалась ConferenceModal
+  // с фейковым таймером "клиент подключился" и персональной ссылкой
+  // психолога (roomUrl) вместо комнаты конкретной сессии — теперь у
+  // каждой сессии своя Jitsi-комната (см. lib/jitsi.ts), поэтому нужен
+  // реальный переход на /session/{id}, а не показ модалки.
   const startSessionNow = async (clientId: string) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
 
-    // Создаём сессию в календаре
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
     try {
-      await addSession({
+      const created = await addSession({
         clientId,
         clientName: client.name,
         date: dateStr,
         time: timeStr,
       });
+      setShowNewSession(false);
+      setSelectedClientId(null);
+      router.push(`/session/${created.id}`);
     } catch {
       setNotification("Не удалось создать сессию — попробуйте ещё раз");
       setTimeout(() => setNotification(null), 3000);
-      return;
     }
-
-    // Открываем окно конференции
-    setConferenceClientName(client.name);
-    setShowConference(true);
-    setShowNewSession(false);
-    setSelectedClientId(null);
-
-    // Уведомление
-    setNotification(`Ссылка на конференцию отправлена ${client.name}`);
-    setTimeout(() => setNotification(null), 3000);
   };
 
   const closeNewSessionModal = () => {
@@ -706,14 +700,6 @@ export default function Sidebar() {
           </>
         )}
       </AnimatePresence>
-
-      {/* Модал конференции */}
-      <ConferenceModal
-        isOpen={showConference}
-        clientName={conferenceClientName}
-        conferenceLink={`${roomUrl}/${conferenceClientName}`}
-        onClose={() => setShowConference(false)}
-      />
 
       {/* Уведомление */}
       <AnimatePresence>

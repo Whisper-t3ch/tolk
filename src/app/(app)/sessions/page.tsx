@@ -187,7 +187,7 @@ export default function SessionsPage() {
                             {confirmingId === session.id ? "Подтверждаю..." : "Подтвердить оплату"}
                           </Button>
                         ) : filter === "upcoming" ? (
-                          <Link href={`/session/${session.clientId}`} style={{ textDecoration: "none", flexShrink: 0 }}>
+                          <Link href={`/session/${session.id}`} style={{ textDecoration: "none", flexShrink: 0 }}>
                             <Button size="sm">
                               Начать <ArrowRight size={14} style={{ marginLeft: 6 }} />
                             </Button>

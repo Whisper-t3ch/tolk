@@ -370,7 +370,7 @@ export default function DashboardPage() {
                                     </div>
                                   </Link>
                                   {isToday && (
-                                    <Link href={`/session/${session.clientId}`} style={{ textDecoration: "none" }}>
+                                    <Link href={`/session/${session.id}`} style={{ textDecoration: "none" }}>
                                       <Button size="sm">
                                         Начать <ArrowRight size={13} style={{ marginLeft: 6 }} />
                                       </Button>

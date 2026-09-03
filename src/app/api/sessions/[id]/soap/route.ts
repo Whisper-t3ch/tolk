@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { buildJitsiRoomName, buildJitsiUrl } from "@/lib/jitsi";
 
 // GET /api/sessions/[id]/soap
 // Возвращает существующий soap_notes для сессии (если есть) вместе
@@ -19,8 +20,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
-    .select("id, scheduled_at, duration_minutes, client_id, clients ( name )")
+    .select("id, scheduled_at, duration_minutes, client_id, status, jitsi_room_name, recording_status, clients ( name )")
     .eq("id", sessionId)
+    .eq("psychologist_id", user.id)
     .maybeSingle();
 
   if (sessionError) {
@@ -43,6 +45,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const clientRel = Array.isArray(session.clients) ? session.clients[0] : session.clients;
+  const roomName = (session.jitsi_room_name as string | null) || buildJitsiRoomName(session.id as string);
 
   return NextResponse.json({
     session: {
@@ -51,6 +54,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       durationMinutes: session.duration_minutes,
       clientId: session.client_id,
       clientName: (clientRel as { name?: string } | null)?.name ?? "",
+      status: session.status,
+      videoRoomUrl: buildJitsiUrl(roomName),
+      recordingStatus: session.recording_status,
     },
     soapNote: soapNote
       ? {

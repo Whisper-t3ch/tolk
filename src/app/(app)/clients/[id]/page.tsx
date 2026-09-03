@@ -2,6 +2,7 @@
 import { use, useState, useRef, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Send, ChevronLeft, FileText, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
@@ -80,7 +81,29 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const { id } = use(params);
   const { clients, loading: clientsLoading } = useClients();
   const client = clients.find(c => c.id === id);
-  const { sessions } = useSession();
+  const { sessions, addSession } = useSession();
+  const router = useRouter();
+  const [startingSession, setStartingSession] = useState(false);
+
+  // "Начать сессию" на карточке клиента — спонтанный звонок вне
+  // расписания (в отличие от запланированной сессии из /sessions).
+  // Создаём запись sessions "на сейчас" (тот же паттерн, что и
+  // startSessionNow в Sidebar), затем переходим на /session/{id}
+  // с реальным session_id — раньше ссылка вела на /session/{clientId},
+  // и страница звонка не могла достать конкретную сессию из БД.
+  async function startSessionNow() {
+    if (!client || startingSession) return;
+    setStartingSession(true);
+    try {
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      const created = await addSession({ clientId: client.id, clientName: client.name, date: dateStr, time: timeStr });
+      router.push(`/session/${created.id}`);
+    } finally {
+      setStartingSession(false);
+    }
+  }
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
@@ -420,11 +443,9 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             {client.status === "active" ? "Активный" : client.status === "pause" ? "На паузе" : "Завершено"}
           </div>
         </div>
-        <Link href={`/session/${client.id}`} style={{ textDecoration: "none" }}>
-          <Button size="md">
-            Начать сессию <ArrowRight size={15} style={{ marginLeft: 8 }} />
-          </Button>
-        </Link>
+        <Button size="md" onClick={startSessionNow} disabled={startingSession}>
+          {startingSession ? "Создаю сессию..." : <>Начать сессию <ArrowRight size={15} style={{ marginLeft: 8 }} /></>}
+        </Button>
       </div>
 
       {/* Табы */}
@@ -494,7 +515,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                         <Clock size={13} style={{ color: "#2D6A5C" }} />
                         <span style={{ fontSize: 12, fontWeight: 600, color: "#1C1C1E" }}>{s.date} · {s.time}</span>
                       </div>
-                      <Link href={`/session/${client.id}`} style={{ textDecoration: "none" }}>
+                      <Link href={`/session/${s.id}`} style={{ textDecoration: "none" }}>
                         <Button size="sm">Начать</Button>
                       </Link>
                     </CardContent>
