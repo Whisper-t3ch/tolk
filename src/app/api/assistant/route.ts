@@ -90,8 +90,32 @@ export async function POST(request: NextRequest) {
   const approachBlock = psychologistProfile ? buildApproachContextBlock(psychologistProfile) : "";
   const systemPrompt = approachBlock ? `${approachBlock}\n\n${AGENT_SYSTEM_PROMPT}` : AGENT_SYSTEM_PROMPT;
 
+  // Подгружаем историю переписки этой agent_session — без этого каждое
+  // сообщение психолога обрабатывается моделью в полном отрыве от
+  // предыдущих реплик (например, «найди его по имени» без контекста,
+  // о ком вообще шла речь). Берём только последние сообщения, чтобы не
+  // раздувать промпт — токены tool-вызовов внутри одного хода сюда не
+  // попадают, только финальные реплики user/assistant.
+  const MAX_HISTORY_MESSAGES = 12;
+  const history: YandexGptAnyMessage[] = [];
+  if (body.agent_session_id) {
+    const { data: existingSession } = await supabase
+      .from("agent_sessions")
+      .select("messages")
+      .eq("id", body.agent_session_id)
+      .eq("psychologist_id", user.id)
+      .maybeSingle();
+    const prevMessages = Array.isArray(existingSession?.messages) ? existingSession.messages : [];
+    for (const entry of prevMessages.slice(-MAX_HISTORY_MESSAGES) as Array<{ role: string; text: string }>) {
+      if (entry.role === "user" || entry.role === "assistant") {
+        history.push({ role: entry.role, text: entry.text });
+      }
+    }
+  }
+
   const messages: YandexGptAnyMessage[] = [
     { role: "system", text: systemPrompt },
+    ...history,
     { role: "user", text: contextPrefix + userMessage },
   ];
 
