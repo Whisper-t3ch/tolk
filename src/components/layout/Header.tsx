@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Search, X, LogOut } from "lucide-react";
 import { ToastContainer } from "@/components/ui";
-import { currentPsychologist } from "@/lib/mock-data";
+import { useProfile } from "@/lib/ProfileContext";
 import { createClient } from "@/lib/supabase/client";
 import { useClients } from "@/lib/ClientsContext";
 
@@ -24,6 +24,7 @@ const NOTIFICATIONS = [
 export default function Header() {
   const router = useRouter();
   const { clients } = useClients();
+  const { profile } = useProfile();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
@@ -242,7 +243,7 @@ export default function Header() {
               fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0,
               border: "2px solid #E8F2EF", cursor: "pointer", transition: "all 0.2s",
             }}>
-              {currentPsychologist.avatarInitials}
+              {profile?.avatarInitials ?? "…"}
             </div>
           </Link>
 

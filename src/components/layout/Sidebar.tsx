@@ -8,7 +8,7 @@ import {
   BookOpen, Brain, Settings, Plus, X, Search,
   ClipboardList, HelpCircle, Sparkles, CalendarDays
 } from "lucide-react";
-import { currentPsychologist } from "@/lib/mock-data";
+import { useProfile } from "@/lib/ProfileContext";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import ConferenceModal from "@/components/ConferenceModal";
@@ -37,7 +37,12 @@ const bottomItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { plan, avatarInitials, name, specialty, roomUrl } = currentPsychologist;
+  const { profile } = useProfile();
+  const plan = profile?.plan ?? { name: "—", assistantRequests: { used: 0, total: 1 } };
+  const avatarInitials = profile?.avatarInitials ?? "…";
+  const name = profile?.name ?? "";
+  const specialty = profile?.specialty ?? "";
+  const roomUrl = profile?.roomUrl ?? "";
   const creditPct = Math.round((plan.assistantRequests.used / plan.assistantRequests.total) * 100);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -706,7 +711,7 @@ export default function Sidebar() {
       <ConferenceModal
         isOpen={showConference}
         clientName={conferenceClientName}
-        conferenceLink={`${currentPsychologist.roomUrl}/${conferenceClientName}`}
+        conferenceLink={`${roomUrl}/${conferenceClientName}`}
         onClose={() => setShowConference(false)}
       />
 

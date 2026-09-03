@@ -6,8 +6,18 @@ import {
   User, Bell, Plug, CreditCard, Palette, ShieldCheck, AlertTriangle,
   ExternalLink, Sun, Moon, Monitor, CalendarClock,
 } from "lucide-react";
-import { currentPsychologist } from "@/lib/mock-data";
+import { useProfile } from "@/lib/ProfileContext";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
+
+// Настройки уведомлений пока не хранятся в БД (нет отдельной таблицы/
+// колонки) — форма ниже честно работает как локальный переключатель с
+// разумными дефолтами вместо значений конкретного мок-психолога.
+const DEFAULT_NOTIFICATIONS = {
+  sessionReminders: true,
+  clientMessages: true,
+  homeworkUpdates: true,
+  productNews: false,
+};
 
 const SECTIONS = [
   { id: "notifications", label: "Уведомления", icon: Bell },
@@ -21,8 +31,9 @@ const SECTIONS = [
 type SectionId = typeof SECTIONS[number]["id"];
 
 export default function SettingsPage() {
+  const { profile } = useProfile();
   const [activeSection, setActiveSection] = useState<SectionId>("notifications");
-  const [notifications, setNotifications] = useState(currentPsychologist.notifications);
+  const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
   const [theme, setTheme] = useState<"light" | "dark" | "system">("light");
   const [extraCredits, setExtraCredits] = useState(0);
   const [notification, setNotification] = useState<string | null>(null);
@@ -158,12 +169,11 @@ export default function SettingsPage() {
     await loadIntegrations();
   };
 
-  const { plan } = currentPsychologist;
-  const requestsUsed = limitInfo?.used ?? plan.assistantRequests.used;
-  const totalRequests = (limitInfo?.limit ?? plan.assistantRequests.total) + extraCredits;
+  const requestsUsed = limitInfo?.used ?? profile?.plan.assistantRequests.used ?? 0;
+  const totalRequests = (limitInfo?.limit ?? profile?.plan.assistantRequests.total ?? 1) + extraCredits;
   const creditPct = totalRequests > 0 ? Math.round((requestsUsed / totalRequests) * 100) : 0;
   const requestsRemaining = Math.max(0, totalRequests - requestsUsed);
-  const planLabel = limitInfo?.planLabel ?? plan.name;
+  const planLabel = limitInfo?.planLabel ?? profile?.plan.name ?? "—";
 
   const notify = (msg: string) => {
     setNotification(msg);
@@ -524,7 +534,7 @@ export default function SettingsPage() {
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Тариф «{planLabel}»</h3>
                     <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>
-                      {plan.price} · до {plan.maxClients} клиентов · продление {plan.renewsOn}
+                      Бета-тестирование — тариф и оплата пока не подключены
                     </p>
 
                     {limitLoading ? (

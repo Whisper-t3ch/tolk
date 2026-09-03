@@ -1,9 +1,10 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
+import { useProfile } from "@/lib/ProfileContext";
 import { usePersonalEvents } from "@/lib/PersonalEventsContext";
 import { findNearestFreeSlot } from "@/lib/calendarSlots";
 import { getScoreColor, getScoreBg } from "@/lib/utils";
@@ -35,21 +36,12 @@ export default function DashboardPage() {
   // страницы, чтобы "сегодня" не съезжало ровно в полночь во время сессии.
   const [TODAY] = useState(todayDateStr);
 
-  // Имя психолога для персонализации заголовка — грузим из /api/profile,
-  // до ответа показываем нейтральное приветствие без имени.
-  const [psychologistName, setPsychologistName] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/profile")
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => {
-        if (!cancelled && data?.name) setPsychologistName(data.name);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Имя психолога для персонализации заголовка — из общего ProfileContext
+  // (раньше был отдельный fetch("/api/profile") здесь же, теперь один
+  // источник на весь layout). До загрузки показываем нейтральное
+  // приветствие без имени.
+  const { profile } = useProfile();
+  const psychologistName = profile?.name ?? null;
 
   function clientIndex(clientId: string) {
     const idx = clients.findIndex(c => c.id === clientId);

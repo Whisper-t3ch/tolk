@@ -1,23 +1,36 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Copy, Check, QrCode, X, Settings as SettingsIcon, Sparkles } from "lucide-react";
-import { currentPsychologist } from "@/lib/mock-data";
+import { useProfile } from "@/lib/ProfileContext";
 import { Button, Card, CardContent, Input } from "@/components/ui";
 
 export default function ProfilePage() {
+  const { profile, updateProfile } = useProfile();
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [name, setName] = useState(currentPsychologist.name);
-  const [specialty, setSpecialty] = useState(currentPsychologist.specialty);
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState("");
+  const [specialty, setSpecialty] = useState("");
   const [showQr, setShowQr] = useState(false);
   const [extraCredits, setExtraCredits] = useState(0);
   const [notification, setNotification] = useState<string | null>(null);
 
-  const { plan, roomUrl, avatarInitials, email, memberSince } = currentPsychologist;
+  useEffect(() => {
+    if (profile) {
+      setName(profile.name);
+      setSpecialty(profile.specialty);
+    }
+  }, [profile]);
+
+  const plan = profile?.plan ?? { name: "—", assistantRequests: { used: 0, total: 1 } };
+  const roomUrl = profile?.roomUrl ?? "";
+  const avatarInitials = profile?.avatarInitials ?? "…";
+  const email = profile?.email ?? "";
+  const memberSince = profile?.memberSince ?? "—";
   const totalRequests = plan.assistantRequests.total + extraCredits;
-  const creditPct = Math.round((plan.assistantRequests.used / totalRequests) * 100);
+  const creditPct = totalRequests > 0 ? Math.round((plan.assistantRequests.used / totalRequests) * 100) : 0;
 
   const notify = (msg: string) => {
     setNotification(msg);
@@ -30,9 +43,17 @@ export default function ProfilePage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function saveProfile() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  async function saveProfile() {
+    setSaving(true);
+    try {
+      await updateProfile({ name, specialty });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Не удалось сохранить профиль");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function buyCredits() {
@@ -80,8 +101,8 @@ export default function ProfilePage() {
                 value={specialty}
                 onChange={e => setSpecialty(e.target.value)}
               />
-              <Button onClick={saveProfile} variant="primary">
-                {saved ? <><Check size={14} style={{ marginRight: 6 }} /> Сохранено</> : "Сохранить"}
+              <Button onClick={saveProfile} variant="primary" disabled={saving}>
+                {saved ? <><Check size={14} style={{ marginRight: 6 }} /> Сохранено</> : saving ? "Сохраняю..." : "Сохранить"}
               </Button>
             </div>
           </CardContent>
@@ -132,7 +153,7 @@ export default function ProfilePage() {
               </Link>
             </div>
             <p style={{ fontSize: 13, color: "#6B6058", marginBottom: 16 }}>
-              {plan.price} · до {plan.maxClients} клиентов · продление {plan.renewsOn}
+              Бета-тестирование — тариф и оплата пока не подключены
             </p>
             <div style={{
               padding: 12,

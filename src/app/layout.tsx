@@ -4,6 +4,7 @@ import "./globals.css";
 import { SessionProvider } from "@/lib/SessionContext";
 import { ClientsProvider } from "@/lib/ClientsContext";
 import { PersonalEventsProvider } from "@/lib/PersonalEventsContext";
+import { ProfileProvider } from "@/lib/ProfileContext";
 
 const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
@@ -30,11 +31,13 @@ export default function RootLayout({
   return (
     <html lang="ru" className={`${manrope.variable} ${inter.variable}`}>
       <body>
-        <ClientsProvider>
-          <SessionProvider>
-            <PersonalEventsProvider>{children}</PersonalEventsProvider>
-          </SessionProvider>
-        </ClientsProvider>
+        <ProfileProvider>
+          <ClientsProvider>
+            <SessionProvider>
+              <PersonalEventsProvider>{children}</PersonalEventsProvider>
+            </SessionProvider>
+          </ClientsProvider>
+        </ProfileProvider>
       </body>
     </html>
   );

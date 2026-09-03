@@ -3,7 +3,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, MessageCircle, Mail, Send, LifeBuoy } from "lucide-react";
 import { Button, Card, CardContent, Textarea } from "@/components/ui";
-import { currentPsychologist } from "@/lib/mock-data";
+import { useProfile } from "@/lib/ProfileContext";
 
 const FAQ = [
   {
@@ -29,6 +29,7 @@ const FAQ = [
 ];
 
 export default function HelpPage() {
+  const { profile } = useProfile();
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   const [message, setMessage] = useState("");
   const [sent, setSent] = useState(false);
@@ -135,7 +136,7 @@ export default function HelpPage() {
             </h3>
           </div>
           <p style={{ fontSize: 12, color: "#8C7355", marginBottom: 12 }}>
-            Ответим на {currentPsychologist.telegram.username || "ваш контакт"} в течение рабочего дня
+            Ответим на {profile?.telegram.username || profile?.email || "ваш контакт"} в течение рабочего дня
           </p>
           <Textarea
             value={message}
