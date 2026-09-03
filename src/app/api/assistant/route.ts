@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
+  const userId = user.id;
 
   let body: { message?: string; client_id?: string; session_id?: string; agent_session_id?: string };
   try {
@@ -123,66 +124,107 @@ export async function POST(request: NextRequest) {
   let iterations = 0;
   let finalText: string | null = null;
 
+  // Возвращает NextResponse, если цикл должен немедленно остановиться
+  // (нужно подтверждение психолога), иначе null и продолжает messages
+  // для следующей итерации. Вынесено в функцию, чтобы не дублировать
+  // одну и ту же обработку toolCalls в двух местах цикла (см. ниже,
+  // где lite неожиданно тоже запрашивает tool call).
+  async function handleToolCalls(toolCalls: NonNullable<Awaited<ReturnType<typeof yandexGptCompleteWithTools>>["toolCalls"]>) {
+    messages.push({ role: "assistant", toolCallList: { toolCalls } });
+
+    // Если хотя бы один из запрошенных вызовов требует подтверждения —
+    // останавливаемся и просим психолога подтвердить именно его.
+    // (Остальные toolCalls в этой же пачке, если были, отбрасываются —
+    // модель перезапросит их в новой цепочке после confirm/отказа.)
+    const confirmationCall = toolCalls.find(tc => toolNeedsConfirmation(tc.functionCall.name));
+    if (confirmationCall) {
+      // Действие ещё не выполнено (ждём подтверждения) — списываем
+      // минимальную стоимость "агентская задача была начата".
+      await consumeAssistantLimit(supabase, userId, "agentTask");
+      return NextResponse.json({
+        type: "confirmation_required",
+        action: {
+          tool: confirmationCall.functionCall.name,
+          arguments: confirmationCall.functionCall.arguments,
+        },
+        description: describeAction(confirmationCall.functionCall.name, confirmationCall.functionCall.arguments),
+      });
+    }
+
+    usedTools = true;
+    const toolResults: Array<{ functionResult: { name: string; content: string } }> = [];
+    for (const call of toolCalls) {
+      try {
+        const output = await executeAgentTool(
+          { supabase, psychologistId: userId },
+          call.functionCall.name,
+          call.functionCall.arguments
+        );
+        toolResults.push({
+          functionResult: { name: call.functionCall.name, content: JSON.stringify(output) },
+        });
+      } catch (e) {
+        const message = e instanceof AgentToolError ? e.message : "Ошибка выполнения инструмента";
+        toolResults.push({
+          functionResult: { name: call.functionCall.name, content: JSON.stringify({ error: message }) },
+        });
+      }
+    }
+    messages.push({ role: "user", toolResultList: { toolResults } });
+    return null;
+  }
+
   try {
     while (iterations < MAX_AGENT_ITERATIONS) {
       iterations += 1;
+
+      // Стоимостная оптимизация: первую итерацию пробуем на lite — она
+      // почти всегда дешевле справляется с "механическими" вызовами вроде
+      // find_client_by_name/get_clients/get_schedule (выбор инструмента
+      // по прямому упоминанию в тексте психолога — простая задача,
+      // основной вклад в стоимость даёт не сама генерация, а то, что
+      // полный набор из 16 tool-схем (~4000 токенов) летит в промпт
+      // на КАЖДУЮ итерацию цикла). Каждый дальнейший шаг (после того как
+      // мы уже знаем, что нужен хотя бы один tool call, то есть цепочка
+      // содержательная — анализ, суммаризация, генерация ответа) идёт на
+      // pro, где важно качество.
+      const useLite = iterations === 1 && !usedTools;
       const result = await yandexGptCompleteWithTools(messages, {
-        model: "pro",
+        model: useLite ? "lite" : "pro",
         tools: AGENT_TOOLS,
         temperature: 0.2,
       });
 
       if (result.text !== null) {
-        finalText = result.text;
-        break;
+        if (!useLite) {
+          finalText = result.text;
+          break;
+        }
+        // lite ответила текстом сразу, без единого tool call — редкий
+        // путь (психолог поздоровался, задал общий вопрос не про своих
+        // клиентов). Не доверяем этому напрямую как финальному ответу —
+        // lite может звучать хуже там, где ответ формируется без
+        // фактов из инструментов, а из общих рассуждений. Перегенерируем
+        // тот же контекст на pro.
+        const finalResult = await yandexGptCompleteWithTools(messages, {
+          model: "pro",
+          tools: AGENT_TOOLS,
+          temperature: 0.2,
+        });
+        if (finalResult.text !== null) {
+          finalText = finalResult.text;
+          break;
+        }
+        // pro неожиданно запросила tool call там, где lite ответила
+        // текстом — обрабатываем как обычный tool call и продолжаем цикл.
+        const stopResponse = await handleToolCalls(finalResult.toolCalls ?? []);
+        if (stopResponse) return stopResponse;
+        continue;
       }
 
       // Модель запросила вызов функций.
-      const toolCalls = result.toolCalls ?? [];
-      messages.push({
-        role: "assistant",
-        toolCallList: { toolCalls },
-      });
-
-      // Если хотя бы один из запрошенных вызовов требует подтверждения —
-      // останавливаемся и просим психолога подтвердить именно его.
-      // (Остальные toolCalls в этой же пачке, если были, отбрасываются —
-      // модель перезапросит их в новой цепочке после confirm/отказа.)
-      const confirmationCall = toolCalls.find(tc => toolNeedsConfirmation(tc.functionCall.name));
-      if (confirmationCall) {
-        // Действие ещё не выполнено (ждём подтверждения) — списываем
-        // минимальную стоимость "агентская задача была начата".
-        await consumeAssistantLimit(supabase, user.id, "agentTask");
-        return NextResponse.json({
-          type: "confirmation_required",
-          action: {
-            tool: confirmationCall.functionCall.name,
-            arguments: confirmationCall.functionCall.arguments,
-          },
-          description: describeAction(confirmationCall.functionCall.name, confirmationCall.functionCall.arguments),
-        });
-      }
-
-      usedTools = true;
-      const toolResults: Array<{ functionResult: { name: string; content: string } }> = [];
-      for (const call of toolCalls) {
-        try {
-          const output = await executeAgentTool(
-            { supabase, psychologistId: user.id },
-            call.functionCall.name,
-            call.functionCall.arguments
-          );
-          toolResults.push({
-            functionResult: { name: call.functionCall.name, content: JSON.stringify(output) },
-          });
-        } catch (e) {
-          const message = e instanceof AgentToolError ? e.message : "Ошибка выполнения инструмента";
-          toolResults.push({
-            functionResult: { name: call.functionCall.name, content: JSON.stringify({ error: message }) },
-          });
-        }
-      }
-      messages.push({ role: "user", toolResultList: { toolResults } });
+      const stopResponse = await handleToolCalls(result.toolCalls ?? []);
+      if (stopResponse) return stopResponse;
     }
   } catch (e) {
     const message = e instanceof YandexGptError ? e.message : "Не удалось получить ответ ассистента";
