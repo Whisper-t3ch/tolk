@@ -178,48 +178,24 @@ export async function POST(request: NextRequest) {
     while (iterations < MAX_AGENT_ITERATIONS) {
       iterations += 1;
 
-      // Стоимостная оптимизация: первую итерацию пробуем на lite — она
-      // почти всегда дешевле справляется с "механическими" вызовами вроде
-      // find_client_by_name/get_clients/get_schedule (выбор инструмента
-      // по прямому упоминанию в тексте психолога — простая задача,
-      // основной вклад в стоимость даёт не сама генерация, а то, что
-      // полный набор из 16 tool-схем (~4000 токенов) летит в промпт
-      // на КАЖДУЮ итерацию цикла). Каждый дальнейший шаг (после того как
-      // мы уже знаем, что нужен хотя бы один tool call, то есть цепочка
-      // содержательная — анализ, суммаризация, генерация ответа) идёт на
-      // pro, где важно качество.
-      const useLite = iterations === 1 && !usedTools;
+      // Пробовали каскад lite (первая итерация) → pro — на проде это
+      // приводило к полному отказу ассистента: в коротком пути (lite
+      // отвечает текстом сразу) код делал ДВА последовательных сетевых
+      // вызова к YandexGPT в рамках одной serverless-функции, что похоже
+      // на превышение таймаута Vercel (фронт получал не-JSON ответ и
+      // показывал generic "не удалось связаться с сервером"). Откачено —
+      // каждая итерация снова идёт на pro. Если оптимизацию стоимости
+      // будем возвращать — делать её так, чтобы в рамках одной итерации
+      // был максимум один сетевой вызов к YandexGPT.
       const result = await yandexGptCompleteWithTools(messages, {
-        model: useLite ? "lite" : "pro",
+        model: "pro",
         tools: AGENT_TOOLS,
         temperature: 0.2,
       });
 
       if (result.text !== null) {
-        if (!useLite) {
-          finalText = result.text;
-          break;
-        }
-        // lite ответила текстом сразу, без единого tool call — редкий
-        // путь (психолог поздоровался, задал общий вопрос не про своих
-        // клиентов). Не доверяем этому напрямую как финальному ответу —
-        // lite может звучать хуже там, где ответ формируется без
-        // фактов из инструментов, а из общих рассуждений. Перегенерируем
-        // тот же контекст на pro.
-        const finalResult = await yandexGptCompleteWithTools(messages, {
-          model: "pro",
-          tools: AGENT_TOOLS,
-          temperature: 0.2,
-        });
-        if (finalResult.text !== null) {
-          finalText = finalResult.text;
-          break;
-        }
-        // pro неожиданно запросила tool call там, где lite ответила
-        // текстом — обрабатываем как обычный tool call и продолжаем цикл.
-        const stopResponse = await handleToolCalls(finalResult.toolCalls ?? []);
-        if (stopResponse) return stopResponse;
-        continue;
+        finalText = result.text;
+        break;
       }
 
       // Модель запросила вызов функций.
