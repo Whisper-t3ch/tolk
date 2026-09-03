@@ -2,8 +2,38 @@
 import { use, useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Download, Copy, FileOutput, CheckCircle, Sparkles, Send, X } from "lucide-react";
+import { Download, Copy, FileOutput, CheckCircle, Sparkles, Send, X, Loader2, AlertTriangle } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
+
+// Статус session.recording_status (см. migration_007_video_asr.sql) —
+// подсказка психологу, почему автоматическая генерация SOAP пока
+// недоступна (или уже скоро будет). "none" — запись не велась вообще
+// (например, звонок был вне платформы) — тогда подсказка не нужна.
+function recordingStatusHint(status: string) {
+  if (status === "recording" || status === "processing") {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+        fontSize: 12, color: "#8C7355", marginBottom: 12,
+      }}>
+        <Loader2 size={13} className="animate-spin" />
+        Запись обрабатывается, расшифровка появится автоматически
+      </div>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+        fontSize: 12, color: "#EF4444", marginBottom: 12,
+      }}>
+        <AlertTriangle size={13} />
+        Не удалось расшифровать запись — заполните протокол вручную
+      </div>
+    );
+  }
+  return null;
+}
 
 const SOAP_BLOCKS = [
   { key: "s" as const, label: "S — Субъективно", color: "#2D6A5C", emoji: "💬", hint: "Слова и описания клиента" },
@@ -26,7 +56,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sessionInfo, setSessionInfo] = useState<{ clientName: string; scheduledAt: string; durationMinutes: number } | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{ clientName: string; scheduledAt: string; durationMinutes: number; recordingStatus: string } | null>(null);
   const [soapNoteId, setSoapNoteId] = useState<string | null>(null);
   const [content, setContent] = useState<SoapContent>(EMPTY_SOAP);
   const [protocolExists, setProtocolExists] = useState(false);
@@ -58,6 +88,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         clientName: data.session.clientName,
         scheduledAt: data.session.scheduledAt,
         durationMinutes: data.session.durationMinutes,
+        recordingStatus: data.session.recordingStatus ?? "none",
       });
       if (data.soapNote) {
         setSoapNoteId(data.soapNote.id);
@@ -252,6 +283,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               <p style={{ fontSize: 13, color: "#6B6058", margin: "0 0 16px 0" }}>
                 Для этой сессии ещё нет SOAP-протокола. Сгенерируйте его автоматически или заполните блоки ниже вручную.
               </p>
+              {sessionInfo && recordingStatusHint(sessionInfo.recordingStatus)}
               <span title="Генерация будет доступна после настройки API" style={{ display: "inline-block" }}>
                 <Button variant="primary" disabled>
                   <Sparkles size={14} style={{ marginRight: 6 }} /> Сгенерировать SOAP
