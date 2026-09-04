@@ -236,6 +236,8 @@ function describeAction(tool: string, args: Record<string, unknown>): string {
       return `Отправить клиенту домашнее задание.`;
     case "send_session_invite":
       return `Отправить клиенту ссылку на сессию.`;
+    case "send_broadcast_message":
+      return `Разослать сообщение всем активным клиентам: «${String(args.text ?? "").slice(0, 120)}».`;
     default:
       return `Выполнить действие: ${tool}.`;
   }

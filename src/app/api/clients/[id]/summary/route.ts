@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkYandexGptEnv } from "@/lib/yandexgpt";
 import { checkAssistantLimit, consumeAssistantLimit, limitExceededResponse } from "@/lib/assistantLimits";
-import { buildAnonymizedPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
+import { buildPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
 
 // POST /api/clients/[id]/summary
 // Body: { session_ids: string[], period_label?: string }
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   let periodSummary;
   try {
-    periodSummary = await buildAnonymizedPeriodSummary(
+    periodSummary = await buildPeriodSummary(
       supabase,
       sessions.map(s => ({ id: s.id as string, scheduled_at: s.scheduled_at as string })),
       client.name

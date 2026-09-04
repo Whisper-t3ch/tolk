@@ -1,5 +1,5 @@
 // ============================================================
-// Определения 14 инструментов AI-агента: схемы для YandexGPT
+// Определения 17 инструментов AI-агента: схемы для YandexGPT
 // function calling + типы аргументов на TypeScript-стороне.
 // Реализация вызовов — в src/lib/agent/executor.ts.
 //
@@ -27,7 +27,8 @@ export type AgentToolName =
   | "cancel_session"
   | "send_message_to_client"
   | "send_homework"
-  | "send_session_invite";
+  | "send_session_invite"
+  | "send_broadcast_message";
 
 /** Инструменты, необратимые по своей природе — требуют подтверждения психолога. */
 export const CONFIRMATION_REQUIRED_TOOLS: ReadonlySet<AgentToolName> = new Set([
@@ -38,6 +39,7 @@ export const CONFIRMATION_REQUIRED_TOOLS: ReadonlySet<AgentToolName> = new Set([
   "send_message_to_client",
   "send_homework",
   "send_session_invite",
+  "send_broadcast_message",
 ]);
 
 export function toolNeedsConfirmation(name: string): boolean {
@@ -276,6 +278,20 @@ export const AGENT_TOOLS: YandexGptTool[] = [
           session_id: { type: "string", description: "UUID сессии" },
         },
         required: ["session_id"],
+      },
+    },
+  },
+  {
+    function: {
+      name: "send_broadcast_message",
+      description:
+        "Готовит массовую рассылку одного и того же сообщения ВСЕМ активным клиентам психолога сразу (например «я в отпуске с 10 по 20 сентября»). Необратимое действие — требует подтверждения психолога. Используй ТОЛЬКО когда психолог явно просит написать всем/всем активным клиентам; для сообщения одному конкретному клиенту используй send_message_to_client.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Текст сообщения, который получит каждый активный клиент" },
+        },
+        required: ["text"],
       },
     },
   },

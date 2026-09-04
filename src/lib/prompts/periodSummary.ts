@@ -3,21 +3,25 @@
 // (period_summaries). Тяжёлый запрос — списывает 3 из лимита ассистента
 // (см. src/lib/assistantLimits.ts, ASSISTANT_REQUEST_COST.heavy).
 //
-// buildAnonymizedPeriodSummary() — единая точка входа, используется и
-// из /api/clients/[id]/summary (явный список session_ids), и из
+// buildPeriodSummary() — единая точка входа, используется и из
+// /api/clients/[id]/summary (явный список session_ids), и из
 // lib/agent/executor.ts (get_period_summary tool, диапазон дат). Раньше
 // это были две независимые копии одной и той же логики сборки
-// анонимизированного контекста + вызова LLM, которые разошлись по
-// поведению (агентская версия не списывала лимит и не сохраняла
-// результат в БД) — теперь общий код живёт в одном месте, а решение о
-// сохранении/списании лимита осознанно остаётся на вызывающей стороне
-// (это разная политика между HTTP route и agent tool, её не стоит
-// прятать внутри shared-функции).
+// контекста + вызова LLM, которые разошлись по поведению (агентская
+// версия не списывала лимит и не сохраняла результат в БД) — теперь
+// общий код живёт в одном месте, а решение о сохранении/списании лимита
+// осознанно остаётся на вызывающей стороне (это разная политика между
+// HTTP route и agent tool, её не стоит прятать внутри shared-функции).
+//
+// Транскрипты (session_transcripts.raw_text) анонимизируются один раз
+// при сохранении, в /api/webhooks/recording — здесь они читаются уже
+// готовыми, повторная анонимизация не нужна (раньше была здесь и
+// применялась точечно перед каждым LLM-запросом; убрана вместе с
+// переходом на анонимизацию "на входе").
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { yandexGptCompleteJson, YandexGptError } from "@/lib/yandexgpt";
-import { anonymizeTranscript } from "@/lib/anonymize";
 
 export const PERIOD_SUMMARY_SYSTEM_PROMPT = `Ты клинический ассистент психолога.
 На основе транскриптов нескольких сессий с одним клиентом составь обобщённое резюме на русском языке.
@@ -63,7 +67,7 @@ export interface PeriodSummarySession {
 
 export class PeriodSummaryError extends Error {}
 
-export interface AnonymizedPeriodSummary {
+export interface PeriodSummaryOutput {
   summaryText: string;
   structured: PeriodSummaryResult;
   sectionsCount: number;
@@ -72,19 +76,19 @@ export interface AnonymizedPeriodSummary {
 }
 
 /**
- * Строит анонимизированный периодический срез по уже отобранному списку
- * сессий клиента. Вызывающий код отвечает за то, ЧТО попадает в
- * `sessions` (явный session_ids[] в route, диапазон дат в agent tool) —
- * здесь только общая часть: подтянуть транскрипты, анонимизировать,
- * вызвать LLM. Бросает PeriodSummaryError с понятным сообщением на
- * русском при отсутствии транскриптов — вызывающий код сам решает, как
- * это подать (HTTP 404 vs AgentToolError).
+ * Строит периодический срез по уже отобранному списку сессий клиента.
+ * Вызывающий код отвечает за то, ЧТО попадает в `sessions` (явный
+ * session_ids[] в route, диапазон дат в agent tool) — здесь только общая
+ * часть: подтянуть уже анонимизированные транскрипты, вызвать LLM.
+ * Бросает PeriodSummaryError с понятным сообщением на русском при
+ * отсутствии транскриптов — вызывающий код сам решает, как это подать
+ * (HTTP 404 vs AgentToolError).
  */
-export async function buildAnonymizedPeriodSummary(
+export async function buildPeriodSummary(
   supabase: SupabaseClient,
   sessions: PeriodSummarySession[],
   clientName: string
-): Promise<AnonymizedPeriodSummary> {
+): Promise<PeriodSummaryOutput> {
   if (sessions.length === 0) {
     throw new PeriodSummaryError("Нет сессий для построения среза");
   }
@@ -107,17 +111,15 @@ export async function buildAnonymizedPeriodSummary(
     }
   }
 
-  // Анонимизируем каждый транскрипт перед сборкой контекста для LLM —
-  // имя клиента остаётся, персональные данные третьих лиц заменяются на
-  // роли (см. lib/anonymize.ts).
+  // Транскрипты уже анонимизированы при сохранении (см.
+  // /api/webhooks/recording) — здесь просто собираем их в секции.
   const sortedSessions = [...sessions].sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
   const sections: string[] = [];
   let sessionNumber = 0;
   for (const session of sortedSessions) {
     sessionNumber += 1;
-    const rawText = latestBySession.get(session.id);
-    if (!rawText) continue;
-    const text = await anonymizeTranscript(rawText, clientName);
+    const text = latestBySession.get(session.id);
+    if (!text) continue;
     const date = new Date(session.scheduled_at).toISOString().slice(0, 10);
     sections.push(`=== Сессия №${sessionNumber} от ${date} ===\n${text}`);
   }

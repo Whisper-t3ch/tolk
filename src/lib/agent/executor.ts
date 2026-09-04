@@ -1,5 +1,5 @@
 // ============================================================
-// Реализация 14 инструментов AI-агента. Серверный код — вызывается
+// Реализация 17 инструментов AI-агента. Серверный код — вызывается
 // только из /api/assistant и /api/assistant/confirm с уже
 // авторизованным Supabase-клиентом (RLS ограничивает данные
 // текущим психологом через auth.uid()).
@@ -10,8 +10,7 @@
 // ============================================================
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { yandexGptEmbed } from "@/lib/yandexgpt";
-import { buildAnonymizedPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
-import { anonymizeTranscript } from "@/lib/anonymize";
+import { buildPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
 import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
 import { buildJitsiRoomName, buildJitsiUrl, checkJitsiEnv } from "@/lib/jitsi";
 import type { AgentToolName } from "./tools";
@@ -145,28 +144,14 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
     );
   }
 
-  // Результаты попадают обратно в контекст модели как результат tool
-  // call — анонимизируем raw_text каждого найденного фрагмента перед
-  // возвратом (имя клиента сохраняется).
+  // raw_text в session_transcripts теперь всегда уже анонимизирован на
+  // этапе сохранения (см. /api/webhooks/recording) — повторная
+  // анонимизация здесь не нужна, возвращаем найденные фрагменты как есть.
   const rows = (data ?? []) as Array<{ session_id: string; raw_text: string; similarity: number; scheduled_at: string }>;
-  if (rows.length === 0) {
-    return { results: [] };
-  }
-
-  const { data: client } = await ctx.supabase.from("clients").select("name").eq("id", args.client_id).maybeSingle();
-  const clientName = client?.name ?? "";
-
-  const anonymizedRows = await Promise.all(
-    rows.map(async row => ({
-      ...row,
-      raw_text: await anonymizeTranscript(row.raw_text, clientName),
-    }))
-  );
-
-  return { results: anonymizedRows };
+  return { results: rows };
 }
 
-// Использует общую buildAnonymizedPeriodSummary (см. lib/prompts/periodSummary.ts)
+// Использует общую buildPeriodSummary (см. lib/prompts/periodSummary.ts)
 // — раньше здесь была независимая копия логики /api/clients/[id]/summary,
 // которая разошлась по поведению. Лимит здесь НЕ списывается отдельно:
 // /api/assistant уже списывает "agentTask" (3) за всю цепочку вызовов
@@ -199,7 +184,7 @@ async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string;
 
   let periodSummary;
   try {
-    periodSummary = await buildAnonymizedPeriodSummary(
+    periodSummary = await buildPeriodSummary(
       ctx.supabase,
       sessions.map(s => ({ id: s.id as string, scheduled_at: s.scheduled_at as string })),
       clientName
@@ -519,6 +504,77 @@ async function sendHomework(ctx: ExecutorContext, args: { client_id: string; hom
   };
 }
 
+// Массовая рассылка активным клиентам психолога. Необратимое действие —
+// проходит через тот же механизм подтверждения, что и остальные
+// массовые/необратимые инструменты (см. CONFIRMATION_REQUIRED_TOOLS в
+// tools.ts). Канал берётся из client_messenger_links (реальная привязка
+// мессенджера у клиента) — это тот же источник истины, которым
+// пользуется tryDeliverMessage для точечной отправки; если привязки нет,
+// используем "telegram" как канал по умолчанию для записи в messages
+// (согласуется с sendHomework/sendSessionInvite), отправка всё равно
+// останется в статусе pending, пока канал не подключат.
+async function sendBroadcastMessage(ctx: ExecutorContext, args: { text: string }) {
+  const text = (args.text ?? "").trim();
+  if (!text) throw new AgentToolError("Не указан текст сообщения", "send_broadcast_message");
+
+  const { data: clients, error: clientsError } = await ctx.supabase
+    .from("clients")
+    .select("id, name")
+    .eq("psychologist_id", ctx.psychologistId)
+    .eq("status", "active")
+    .is("deleted_at", null);
+  if (clientsError) throw new AgentToolError(clientsError.message, "send_broadcast_message");
+  if (!clients || clients.length === 0) {
+    return { sent_to: [], note: "Нет активных клиентов для рассылки." };
+  }
+
+  const clientIds = clients.map(c => c.id as string);
+  const { data: links } = await ctx.supabase
+    .from("client_messenger_links")
+    .select("client_id, platform")
+    .in("client_id", clientIds);
+  const channelByClient = new Map<string, "telegram" | "vk">();
+  for (const link of links ?? []) {
+    channelByClient.set(link.client_id as string, link.platform as "telegram" | "vk");
+  }
+
+  const results: Array<{ client_id: string; client_name: string; channel: string; status: string }> = [];
+  for (const client of clients) {
+    const clientId = client.id as string;
+    const channel = channelByClient.get(clientId) ?? "telegram";
+    const delivery = await tryDeliverMessage(ctx, clientId, channel, text);
+
+    const { data, error } = await ctx.supabase
+      .from("messages")
+      .insert({
+        psychologist_id: ctx.psychologistId,
+        client_id: clientId,
+        channel,
+        kind: "broadcast",
+        text,
+        status: delivery.status,
+        external_message_id: delivery.externalMessageId ?? null,
+        error_message: delivery.errorMessage ?? null,
+        sent_at: delivery.status === "sent" ? new Date().toISOString() : null,
+      })
+      .select("status")
+      .single();
+    if (error) {
+      results.push({ client_id: clientId, client_name: client.name as string, channel, status: "error" });
+      continue;
+    }
+    results.push({ client_id: clientId, client_name: client.name as string, channel, status: data.status as string });
+  }
+
+  const sentCount = results.filter(r => r.status === "sent").length;
+  const pendingCount = results.filter(r => r.status === "pending").length;
+
+  return {
+    sent_to: results,
+    note: `Разослано ${results.length} клиентам: отправлено ${sentCount}, отложено (нет подключённого канала) ${pendingCount}.`,
+  };
+}
+
 async function sendSessionInvite(ctx: ExecutorContext, args: { session_id: string }) {
   const { data: session, error: sessionError } = await ctx.supabase
     .from("sessions")
@@ -609,6 +665,8 @@ export async function executeAgentTool(
       return sendHomework(ctx, args as { client_id: string; homework_text: string });
     case "send_session_invite":
       return sendSessionInvite(ctx, args as { session_id: string });
+    case "send_broadcast_message":
+      return sendBroadcastMessage(ctx, args as { text: string });
     default:
       throw new AgentToolError(`Неизвестный инструмент: ${name}`, String(name));
   }

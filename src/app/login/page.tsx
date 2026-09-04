@@ -21,7 +21,7 @@ function LoginForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [consentChecked, setConsentChecked] = useState(true);
+  const [consentChecked, setConsentChecked] = useState(false);
 
   async function handleSubmit() {
     setError(null);

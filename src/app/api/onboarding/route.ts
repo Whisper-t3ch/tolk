@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
             title: item.title,
             content: item.content,
             embedding,
-            source_type: "technique",
+            source_type: item.source_type,
             approach,
           });
         }

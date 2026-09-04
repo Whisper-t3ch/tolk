@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { transcribeAudio, AsrError } from "@/lib/asr";
 import { yandexGptEmbed } from "@/lib/yandexgpt";
+import { anonymizeTranscript } from "@/lib/anonymize";
 
 // POST /api/webhooks/recording
 // Body: { session_id: string, recording_url: string }
@@ -16,11 +17,17 @@ import { yandexGptEmbed } from "@/lib/yandexgpt";
 // секрет, как у Telegram/VK.
 //
 // Пайплайн: пометить sessions.recording_status='processing' →
-// отправить запись в GigaAM (lib/asr.ts) → сохранить raw_text в
-// session_transcripts (source='jitsi_gigaam') → посчитать embedding для
-// RAG → recording_status='ready'. Транскрипт сохраняется СЫРЫМ (без
-// анонимизации) — анонимизация происходит на лету при чтении для LLM
-// (см. lib/anonymize.ts), это уже устоявшийся паттерн в проекте.
+// отправить запись в GigaAM (lib/asr.ts) → анонимизировать текст
+// (lib/anonymize.ts, имя клиента остаётся) → сохранить в
+// session_transcripts (source='jitsi_gigaam') ТОЛЬКО анонимизированную
+// версию → посчитать embedding для RAG уже из неё → recording_status='ready'.
+//
+// Сырой текст от GigaAM живёт только в памяти этой функции и никуда не
+// сохраняется — раньше raw_text хранился как есть, а анонимизация
+// применялась точечно перед каждым LLM-запросом (executor.ts,
+// periodSummary.ts). Теперь анонимизация происходит один раз здесь, до
+// первой записи в БД, а вызывающий код читает уже чистый текст напрямую
+// без повторной анонимизации (двойное применение избыточно и не нужно).
 export async function POST(request: NextRequest) {
   const secret = process.env.RECORDING_WEBHOOK_SECRET;
   if (!secret) {
@@ -48,7 +55,7 @@ export async function POST(request: NextRequest) {
 
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
-    .select("id, psychologist_id")
+    .select("id, psychologist_id, clients ( name )")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError) {
@@ -57,6 +64,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Сессия не найдена" }, { status: 404 });
   }
+  const clientRel = Array.isArray(session.clients) ? session.clients[0] : session.clients;
+  const clientName = (clientRel as { name?: string } | null)?.name ?? "";
 
   await supabase
     .from("sessions")
@@ -75,19 +84,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
-  // Эмбеддинг для RAG (search_client_history) — если он не посчитается,
-  // транскрипт всё равно полезен для SOAP/суммаризации, поэтому не
-  // прерываем пайплайн из-за сбоя одного лишь embedding-вызова.
+  // Анонимизируем СРАЗУ, до первой записи в БД — сырой текст от GigaAM
+  // дальше этой переменной не переживает. Имя клиента (clientName)
+  // сохраняется как есть, персональные данные третьих лиц заменяются на
+  // роли/обобщения (см. lib/anonymize.ts). При сбое анонимизации
+  // anonymizeTranscript возвращает исходный текст без изменений — в этом
+  // редком случае лучше сохранить неанонимизированный транскрипт, чем
+  // потерять запись сессии целиком.
+  const anonymizedText = await anonymizeTranscript(transcript.text, clientName);
+
+  // Эмбеддинг для RAG (search_client_history) строим уже из
+  // анонимизированного текста — если он не посчитается, транскрипт
+  // всё равно полезен для SOAP/суммаризации, поэтому не прерываем
+  // пайплайн из-за сбоя одного лишь embedding-вызова.
   let embedding: number[] | null = null;
   try {
-    embedding = await yandexGptEmbed(transcript.text, "doc");
+    embedding = await yandexGptEmbed(anonymizedText, "doc");
   } catch {
     embedding = null;
   }
 
   const { error: insertError } = await supabase.from("session_transcripts").insert({
     session_id: sessionId,
-    raw_text: transcript.text,
+    raw_text: anonymizedText,
     source: "jitsi_gigaam",
     duration_seconds: transcript.durationSeconds,
     embedding,
