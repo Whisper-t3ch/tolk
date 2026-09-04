@@ -10,14 +10,15 @@
 // SUPABASE_SERVICE_ROLE_KEY напрямую (обходит RLS), поэтому запускать
 // только локально, никогда не как часть деплоя.
 //
-// Запуск (из корня репозитория tolk-demo):
+// Запуск (из корня репозитория tolk-demo) — ключи брать не нужно,
+// скрипт сам читает .env.local (тот же файл, что использует next dev):
 //   node outputs/backend/seed_knowledge_base.mjs <email психолога>
 //
-// Требует переменные окружения (те же, что в .env.local Vercel):
-//   NEXT_PUBLIC_SUPABASE_URL
-//   SUPABASE_SERVICE_ROLE_KEY
-//   YANDEX_GPT_API_KEY
-//   YANDEX_GPT_FOLDER_ID
+// .env.local должен содержать (уже должны быть там, если приложение
+// запускается локально): NEXT_PUBLIC_SUPABASE_URL,
+// SUPABASE_SERVICE_ROLE_KEY, YANDEX_GPT_API_KEY, YANDEX_GPT_FOLDER_ID.
+// Если каких-то значений там нет — можно также задать их как обычные
+// переменные окружения перед запуском, они имеют приоритет над .env.local.
 //
 // Пропускает подходы, для которых у психолога уже есть материалы в
 // knowledge_base (тот же принцип "не дублировать", что и в онбординге) —
@@ -25,6 +26,40 @@
 // ============================================================
 
 import { createClient } from "@supabase/supabase-js";
+import { readFileSync, existsSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = join(__dirname, "..", "..");
+
+// Простой .env-парсер (без зависимости от dotenv): построчно KEY=VALUE,
+// пропускает пустые строки и комментарии, снимает кавычки вокруг
+// значения, если они есть. Не перезаписывает переменные, уже заданные
+// в самом окружении процесса (process.env имеет приоритет).
+function loadDotEnv(path) {
+  if (!existsSync(path)) return;
+  const content = readFileSync(path, "utf8");
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eqIdx = line.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = line.slice(0, eqIdx).trim();
+    let value = line.slice(eqIdx + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadDotEnv(join(repoRoot, ".env.local"));
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -33,17 +68,17 @@ const YANDEX_FOLDER_ID = process.env.YANDEX_GPT_FOLDER_ID;
 const YANDEX_EMBEDDINGS_MODEL = process.env.YANDEX_EMBEDDINGS_MODEL || "text-search-doc";
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error("Нужны NEXT_PUBLIC_SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY в окружении");
+  console.error("Нужны NEXT_PUBLIC_SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY — не найдены ни в .env.local, ни в окружении процесса");
   process.exit(1);
 }
 if (!YANDEX_API_KEY || !YANDEX_FOLDER_ID) {
-  console.error("Нужны YANDEX_GPT_API_KEY и YANDEX_GPT_FOLDER_ID в окружении");
+  console.error("Нужны YANDEX_GPT_API_KEY и YANDEX_GPT_FOLDER_ID — не найдены ни в .env.local, ни в окружении процесса");
   process.exit(1);
 }
 
 const email = process.argv[2];
 if (!email) {
-  console.error("Использование: node seed_knowledge_base.mjs <email психолога>");
+  console.error("Использование: node outputs/backend/seed_knowledge_base.mjs <email психолога>");
   process.exit(1);
 }
 
@@ -52,12 +87,7 @@ if (!email) {
 // читаем файл как текст и извлекаем сам объект (TS-типы в нём не влияют
 // на значение — валидный TS object literal здесь является одновременно
 // валидным JS object literal).
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const approachesPath = join(__dirname, "..", "..", "src", "lib", "approaches.ts");
+const approachesPath = join(repoRoot, "src", "lib", "approaches.ts");
 const src = readFileSync(approachesPath, "utf8");
 
 const startMarker = "export const APPROACH_SEED_KNOWLEDGE";
