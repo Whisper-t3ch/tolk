@@ -1,7 +1,7 @@
 -- ============================================================
 -- migration_008_consent_broadcast_recording.sql
 --
--- Три независимых изменения схемы по итогам сверки обещаний психологам
+-- Четыре независимых изменения схемы по итогам сверки обещаний психологам
 -- с реальной реализацией (2026-09-03):
 --
 -- 1. Согласие психолога с офертой/ПД при регистрации (psychologists).
@@ -10,6 +10,9 @@
 --    ассистента, send_broadcast_message) + 'stopped_by_client' как
 --    допустимое значение sessions.recording_status (кнопка остановки
 --    записи клиентом в UI звонка).
+-- 4. 'homework' как допустимое значение knowledge_base.source_type —
+--    вкладка "Шаблоны ДЗ" в разделе База знаний перестала быть моком и
+--    теперь читает готовые тексты домашних заданий из реальной таблицы.
 --
 -- Применять через Supabase SQL Editor. Все операции идемпотентны —
 -- безопасно применять повторно.
@@ -75,3 +78,26 @@ end $$;
 
 alter table sessions add constraint sessions_recording_status_check
   check (recording_status in ('none', 'recording', 'processing', 'ready', 'failed', 'stopped_by_client'));
+
+-- ------------------------------------------------------------
+-- 4. knowledge_base.source_type — добавляем 'homework' в допустимые
+-- значения (наряду с существующими technique/article/protocol/manual).
+-- ------------------------------------------------------------
+do $$
+declare
+  constraint_name_var text;
+begin
+  select tc.constraint_name into constraint_name_var
+  from information_schema.constraint_column_usage ccu
+  join information_schema.table_constraints tc on tc.constraint_name = ccu.constraint_name
+  where ccu.table_name = 'knowledge_base'
+    and ccu.column_name = 'source_type'
+    and tc.constraint_type = 'CHECK';
+
+  if constraint_name_var is not null then
+    execute format('alter table knowledge_base drop constraint %I', constraint_name_var);
+  end if;
+end $$;
+
+alter table knowledge_base add constraint knowledge_base_source_type_check
+  check (source_type in ('technique', 'article', 'protocol', 'manual', 'homework'));

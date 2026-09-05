@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   if (!content) {
     return NextResponse.json({ error: "Укажите content" }, { status: 400 });
   }
-  const allowedSourceTypes = ["technique", "article", "protocol", "manual"];
+  const allowedSourceTypes = ["technique", "article", "protocol", "manual", "homework"];
   if (!body.source_type || !allowedSourceTypes.includes(body.source_type)) {
     return NextResponse.json({ error: `source_type должен быть одним из: ${allowedSourceTypes.join(", ")}` }, { status: 400 });
   }
