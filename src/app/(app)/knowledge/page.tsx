@@ -4,6 +4,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, BookOpen, Trash2, X, Loader2, Send } from "lucide-react";
 import { Button, Card, CardContent, Badge, Tabs } from "@/components/ui";
 import { useClients } from "@/lib/useClients";
+import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
+
+// Материалы, засеянные автоматически при онбординге, хранят approach как
+// сырой ключ ("cbt", "gestalt", ...) — переводим на русский для UI.
+// Материалы, добавленные психологом вручную, могут содержать произвольный
+// текст (форма — обычный input) — в этом случае просто показываем как есть.
+function approachLabel(value: string | null): string | null {
+  if (!value) return null;
+  return APPROACH_LABELS[value as Approach] ?? value;
+}
 
 // ------------------------------------------------------------
 // Раздел "База знаний" — три вкладки поверх ОДНОЙ реальной таблицы
@@ -120,7 +130,7 @@ function TechniquesTab({
               </p>
               {tech.approach && (
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  <Badge variant="muted">{tech.approach}</Badge>
+                  <Badge variant="muted">{approachLabel(tech.approach)}</Badge>
                 </div>
               )}
             </CardContent>
@@ -222,7 +232,7 @@ function HomeworkTemplatesTab({
                   </p>
                   {template.approach && (
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
-                      <Badge variant="muted">{template.approach}</Badge>
+                      <Badge variant="muted">{approachLabel(template.approach)}</Badge>
                     </div>
                   )}
                   <Button onClick={() => openPicker(template)} variant="secondary" size="sm" className="w-full">
@@ -424,7 +434,7 @@ function MaterialsTab({
                       {item.title || "Без названия"}
                     </span>
                     <Badge variant="muted">{SOURCE_TYPE_LABELS[item.source_type]}</Badge>
-                    {item.approach && <Badge variant="muted">{item.approach}</Badge>}
+                    {item.approach && <Badge variant="muted">{approachLabel(item.approach)}</Badge>}
                   </div>
                   <p style={{ fontSize: 12.5, color: "#6B6058", lineHeight: 1.5, margin: 0 }}>
                     {item.content.length > 200 ? `${item.content.slice(0, 200)}…` : item.content}

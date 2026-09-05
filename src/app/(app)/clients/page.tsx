@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useClients } from "@/lib/ClientsContext";
 import { createClientRecord } from "@/lib/data/clients";
+import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
 import { Card, CardContent, Input } from "@/components/ui";
 import ClientProgressScale from "@/components/ClientProgressScale";
 
@@ -1216,7 +1217,7 @@ function ClientsPageInner() {
 
                     <div style={{ marginBottom: 16 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 6 }}>Подход</div>
-                      <div style={{ fontSize: 12, color: "#1C1C1E" }}>{selectedClient.approach}</div>
+                      <div style={{ fontSize: 12, color: "#1C1C1E" }}>{APPROACH_LABELS[selectedClient.approach as Approach] ?? selectedClient.approach}</div>
                     </div>
 
                     <div style={{ marginBottom: 16 }}>

@@ -9,6 +9,7 @@ import {
   Sparkles, X, Link2, Copy, Check,
 } from "lucide-react";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
+import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
 import { TEST_SCALES, type TestType } from "@/lib/testScales";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
@@ -702,7 +703,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Подход</div>
-                  <div style={{ fontSize: 13, color: "#1C1C1E" }}>{client.approach}</div>
+                  <div style={{ fontSize: 13, color: "#1C1C1E" }}>{APPROACH_LABELS[client.approach as Approach] ?? client.approach}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Всего сессий</div>
