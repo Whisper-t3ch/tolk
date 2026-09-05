@@ -1,8 +1,8 @@
 // ============================================================
-// Одноразовый скрипт: догружает расширенную APPROACH_SEED_KNOWLEDGE
-// (105 материалов — по 15 на каждый из 6 подходов + 15 в общем
-// разделе) на уже существующий аккаунт психолога, который прошёл
-// онбординг раньше, до расширения базы знаний.
+// Скрипт: догружает содержимое APPROACH_SEED_KNOWLEDGE (src/lib/approaches.ts)
+// на уже существующий аккаунт психолога, который прошёл онбординг
+// раньше, до расширения базы знаний — обычный сидинг срабатывает
+// только один раз, при первом онбординге.
 //
 // Обычный путь (POST /api/knowledge через браузерную сессию) сюда не
 // подходит — набор большой, и это одноразовая операция, а не то, что
@@ -20,9 +20,12 @@
 // Если каких-то значений там нет — можно также задать их как обычные
 // переменные окружения перед запуском, они имеют приоритет над .env.local.
 //
-// Пропускает подходы, для которых у психолога уже есть материалы в
-// knowledge_base (тот же принцип "не дублировать", что и в онбординге) —
-// безопасно перезапускать, если что-то не доехало с первого раза.
+// Пропускает КОНКРЕТНЫЕ материалы, у которых уже есть запись с тем же
+// (title, approach) в базе психолога — не весь раздел целиком. Это
+// позволяет безопасно перезапускать скрипт после того, как в
+// approaches.ts добавили новые материалы к уже частично загруженному
+// разделу (например, дописали шаблоны ДЗ к разделу, где техники уже
+// были) — старые записи не дублируются, новые по названию доезжают.
 // ============================================================
 
 import { createClient } from "@supabase/supabase-js";
@@ -167,29 +170,28 @@ async function main() {
 
   const { data: existing, error: existingError } = await supabase
     .from("knowledge_base")
-    .select("id, approach")
+    .select("title, approach")
     .eq("psychologist_id", psychologistId);
   if (existingError) {
     console.error("Не удалось прочитать существующую базу знаний:", existingError.message);
     process.exit(1);
   }
-  const approachesWithContent = new Set((existing ?? []).map(row => row.approach).filter(Boolean));
-  if (approachesWithContent.size > 0) {
-    console.log(`У психолога уже есть материалы по: ${[...approachesWithContent].join(", ")} — эти разделы будут пропущены, чтобы не дублировать.`);
-  }
+  // Ключ "approach|||title" — сравниваем конкретные материалы, а не
+  // весь раздел целиком, чтобы можно было дозагружать только новое.
+  const existingKeys = new Set((existing ?? []).map(row => `${row.approach ?? ""}|||${row.title ?? ""}`));
 
   let inserted = 0;
   let skipped = 0;
   let failed = 0;
 
   for (const approach of APPROACHES) {
-    if (approachesWithContent.has(approach)) {
-      skipped += APPROACH_SEED_KNOWLEDGE[approach].length;
-      continue;
-    }
     const items = APPROACH_SEED_KNOWLEDGE[approach];
-    console.log(`\n${approach}: ${items.length} материалов`);
-    for (const item of items) {
+    const newItems = items.filter(item => !existingKeys.has(`${approach}|||${item.title}`));
+    skipped += items.length - newItems.length;
+    if (newItems.length === 0) continue;
+
+    console.log(`\n${approach}: ${newItems.length} новых материалов (из ${items.length})`);
+    for (const item of newItems) {
       try {
         const embedding = await yandexEmbed(item.content);
         const { error: insertError } = await supabase.from("knowledge_base").insert({
