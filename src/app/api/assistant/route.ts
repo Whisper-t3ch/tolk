@@ -14,6 +14,8 @@ import {
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { buildApproachContextBlock } from "@/lib/approaches";
+import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
+import { randomUUID } from "crypto";
 
 // POST /api/assistant
 // Body: { message: string, client_id?: string, session_id?: string, agent_session_id?: string }
@@ -89,7 +91,20 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   const approachBlock = psychologistProfile ? buildApproachContextBlock(psychologistProfile) : "";
-  const systemPrompt = approachBlock ? `${approachBlock}\n\n${AGENT_SYSTEM_PROMPT}` : AGENT_SYSTEM_PROMPT;
+
+  // prompt_additions — динамическая стилевая добавка по approach,
+  // выработанная автоматикой самоулучшения (см. lib/promptEvolution.ts
+  // и migration_009). Пока cron-анализ не запущен, для всех approach
+  // активной версии ещё нет — additions пустой, промпт не меняется.
+  // Важно: это ДОБАВКА поверх неизменного AGENT_SYSTEM_PROMPT, а не
+  // его замена — сам base-промпт (этика, безопасность, структура
+  // ответа) автоматика никогда не трогает.
+  const { text: promptAdditions, promptVersionId } = await getActivePromptAdditions(
+    supabase,
+    psychologistProfile?.approach ?? null
+  );
+
+  const systemPrompt = [approachBlock, AGENT_SYSTEM_PROMPT, promptAdditions].filter(Boolean).join("\n\n");
 
   // Подгружаем историю переписки этой agent_session — без этого каждое
   // сообщение психолога обрабатывается моделью в полном отрыве от
@@ -211,13 +226,43 @@ export async function POST(request: NextRequest) {
     finalText = "Не удалось завершить обработку запроса за отведённое число шагов. Попробуйте переформулировать вопрос проще.";
   }
 
-  // Сохраняем диалог.
-  await saveAgentSession(supabase, user.id, body.agent_session_id, userMessage, finalText);
+  // Сохраняем диалог. assistantMessageId — стабильный id именно этого
+  // ответа ассистента (сохраняется вместе с сообщением в jsonb), нужен
+  // как FK для явного/неявного фидбека психолога по конкретному ответу.
+  const assistantMessageId = randomUUID();
+  const { agentSessionId } = await saveAgentSession(
+    supabase,
+    user.id,
+    body.agent_session_id,
+    userMessage,
+    finalText,
+    assistantMessageId
+  );
 
   // Списываем лимит по фактической стоимости.
   await consumeAssistantLimit(supabase, user.id, usedTools ? "agentTask" : "normal");
 
-  return NextResponse.json({ message: finalText, actions_taken: usedTools });
+  // Обратная связь по approach — вспомогательная аналитика для
+  // самоулучшения ассистента (см. lib/promptEvolution.ts), не должна
+  // задерживать ответ психологу дольше необходимого, но и не должна
+  // теряться, поэтому просто await, а не fire-and-forget: сам insert
+  // лёгкий, а ошибки внутри уже проглатываются и логируются.
+  await recordAssistantFeedback(supabase, {
+    psychologistId: user.id,
+    approach: psychologistProfile?.approach ?? null,
+    agentSessionId,
+    messageId: assistantMessageId,
+    question: userMessage,
+    answer: finalText,
+    promptVersionId,
+  });
+
+  return NextResponse.json({
+    message: finalText,
+    actions_taken: usedTools,
+    agent_session_id: agentSessionId,
+    message_id: assistantMessageId,
+  });
 }
 
 function describeAction(tool: string, args: Record<string, unknown>): string {
@@ -248,11 +293,15 @@ async function saveAgentSession(
   psychologistId: string,
   agentSessionId: string | undefined,
   userMessage: string,
-  assistantMessage: string
-) {
+  assistantMessage: string,
+  assistantMessageId: string
+): Promise<{ agentSessionId: string | null }> {
+  // id у user-реплики тоже нужен (хоть пока и не используется как FK
+  // нигде явно) — для единообразия формата записей в jsonb и на случай
+  // будущего фидбека по вопросам психолога, а не только по ответам.
   const newEntries = [
-    { role: "user", text: userMessage, at: new Date().toISOString() },
-    { role: "assistant", text: assistantMessage, at: new Date().toISOString() },
+    { id: randomUUID(), role: "user", text: userMessage, at: new Date().toISOString() },
+    { id: assistantMessageId, role: "assistant", text: assistantMessage, at: new Date().toISOString() },
   ];
 
   if (agentSessionId) {
@@ -267,12 +316,18 @@ async function saveAgentSession(
         .from("agent_sessions")
         .update({ messages: [...prevMessages, ...newEntries] })
         .eq("id", agentSessionId);
-      return;
+      return { agentSessionId };
     }
   }
 
-  await supabase.from("agent_sessions").insert({
-    psychologist_id: psychologistId,
-    messages: newEntries,
-  });
+  const { data: inserted } = await supabase
+    .from("agent_sessions")
+    .insert({
+      psychologist_id: psychologistId,
+      messages: newEntries,
+    })
+    .select("id")
+    .maybeSingle();
+
+  return { agentSessionId: inserted?.id ?? null };
 }

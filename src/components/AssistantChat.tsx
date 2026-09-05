@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Send, Mic, Check, X as XIcon } from "lucide-react";
+import { Send, Mic, Check, X as XIcon, ThumbsUp, ThumbsDown, Copy } from "lucide-react";
 
 // Web Speech API не имеет официальных типов в TS lib.dom — минимальный
 // набросок нужных полей (тот же паттерн, что в AIAssistant.tsx).
@@ -26,12 +26,55 @@ interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
+  // feedbackId — message_id, вернувшийся с сервера вместе с этим
+  // ответом ассистента (см. POST /api/assistant, поле message_id).
+  // Отличается от id тем, что id — чисто клиентский React key (нужен
+  // и для welcome-сообщения, и для системных реплик подтверждения,
+  // у которых feedbackId нет и оценивать их нельзя), а feedbackId —
+  // это то, что реально отправляется в /api/assistant/feedback.
+  // Только у role==="assistant" может быть непустым.
+  feedbackId?: string;
+  // Явная оценка психолога (для подсветки нажатой кнопки) — null,
+  // пока психолог явно не оценил.
+  rating?: "positive" | "negative" | null;
 }
 
 interface PendingAction {
   tool: string;
   arguments: Record<string, unknown>;
   description: string;
+}
+
+// Простая эвристика "похоже на переформулировку": сравниваем множества
+// значимых слов (без стоп-слов и коротких слов) двух реплик — если
+// пересечение достаточно большое, считаем, что психолог задал по сути
+// тот же вопрос ещё раз. Не претендует на лингвистическую точность —
+// это сигнал для аналитики, а не для блокирующей логики.
+const STOP_WORDS = new Set([
+  "как", "что", "это", "для", "или", "его", "она", "они", "мне", "мой",
+  "моя", "моё", "нет", "да", "по", "на", "не", "то", "же", "бы", "но",
+  "и", "а", "в", "с", "у", "к", "о", "от", "из", "за", "при", "про",
+  "если", "чтобы", "есть", "был", "была", "было", "были", "можно",
+]);
+
+function extractKeywords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^\wа-яё\s]/gi, " ")
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !STOP_WORDS.has(w))
+  );
+}
+
+function looksLikeReformulation(prevQuestion: string, nextQuestion: string): boolean {
+  const a = extractKeywords(prevQuestion);
+  const b = extractKeywords(nextQuestion);
+  if (a.size === 0 || b.size === 0) return false;
+  let overlap = 0;
+  for (const word of a) if (b.has(word)) overlap += 1;
+  const smaller = Math.min(a.size, b.size);
+  return overlap / smaller >= 0.5;
 }
 
 export interface AssistantChatProps {
@@ -59,8 +102,15 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   const [isRecording, setIsRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [agentSessionId, setAgentSessionId] = useState<string | undefined>(undefined);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Для неявного сигнала was_reformulated: запоминаем последний ответ
+  // ассистента (его feedbackId, текст вопроса психолога, который к нему
+  // привёл, и время получения). Если следующее сообщение психолога
+  // придёт быстро и будет похоже по ключевым словам на тот же вопрос —
+  // считаем это переформулировкой неудачного ответа.
+  const lastExchangeRef = useRef<{ feedbackId: string; question: string; answeredAt: number } | null>(null);
 
   // При открытии — подтягиваем последнюю сохранённую переписку с ассистентом
   // (если она есть), чтобы на созвоне/при возврате в чат была видна история,
@@ -77,10 +127,14 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
         if (Array.isArray(data?.messages) && data.messages.length > 0) {
           setMessages([
             WELCOME_MESSAGE,
-            ...data.messages.map((m: { role: "user" | "assistant"; text: string }, i: number) => ({
+            ...data.messages.map((m: { id?: string; role: "user" | "assistant"; text: string }, i: number) => ({
               id: `h-${i}`,
               role: m.role,
               text: m.text,
+              // Старые записи (до внедрения фидбека) не имеют id внутри
+              // jsonb — для них просто не показываем кнопки оценки.
+              feedbackId: m.role === "assistant" ? m.id : undefined,
+              rating: null,
             })),
           ]);
         }
@@ -153,6 +207,20 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
     const text = input.trim();
     if (!text || isLoading) return;
 
+    // Неявный сигнал was_reformulated: если предыдущий ответ ассистента
+    // пришёл меньше 15 секунд назад и это сообщение похоже по ключевым
+    // словам на вопрос, который к нему привёл — психолог, скорее всего,
+    // не получил то, что хотел, и переспрашивает. Шлём сигнал не дожидаясь
+    // ответа на новое сообщение — он относится к ПРЕДЫДУЩЕМУ ответу.
+    const prevExchange = lastExchangeRef.current;
+    if (prevExchange && Date.now() - prevExchange.answeredAt < 15000 && looksLikeReformulation(prevExchange.question, text)) {
+      fetch("/api/assistant/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: prevExchange.feedbackId, was_reformulated: true }),
+      }).catch(() => {});
+    }
+
     setMessages(prev => [...prev, { id: `u-${Date.now()}`, role: "user", text }]);
     setInput("");
     setError(null);
@@ -178,14 +246,45 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
           ...prev,
           { id: `a-${Date.now()}`, role: "assistant", text: data.description ?? "Нужно подтверждение действия." },
         ]);
+        // Карточка подтверждения — не обычный ответ ассистента, оценивать
+        // нечего, поэтому lastExchangeRef не обновляем.
       } else {
-        setMessages(prev => [...prev, { id: `a-${Date.now()}`, role: "assistant", text: data.message }]);
+        const feedbackId: string | undefined = data.message_id;
+        setMessages(prev => [
+          ...prev,
+          { id: `a-${Date.now()}`, role: "assistant", text: data.message, feedbackId, rating: null },
+        ]);
+        if (feedbackId) {
+          lastExchangeRef.current = { feedbackId, question: text, answeredAt: Date.now() };
+        }
       }
       if (data.agent_session_id) setAgentSessionId(data.agent_session_id);
     } catch {
       setError("Не удалось связаться с сервером");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const rateMessage = (messageId: string, feedbackId: string, rating: "positive" | "negative") => {
+    setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, rating } : m)));
+    fetch("/api/assistant/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id: feedbackId, rating }),
+    }).catch(() => {});
+  };
+
+  const copyMessage = (messageId: string, feedbackId: string | undefined, text: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedId(messageId);
+    setTimeout(() => setCopiedId(prev => (prev === messageId ? null : prev)), 1500);
+    if (feedbackId) {
+      fetch("/api/assistant/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: feedbackId, was_used: true }),
+      }).catch(() => {});
     }
   };
 
@@ -230,7 +329,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
             key={msg.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            style={{ display: "flex", justifyContent: msg.role === "assistant" ? "flex-start" : "flex-end" }}
+            style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "assistant" ? "flex-start" : "flex-end" }}
           >
             <div
               style={{
@@ -246,6 +345,43 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
             >
               {msg.text}
             </div>
+            {msg.role === "assistant" && msg.feedbackId && (
+              <div style={{ display: "flex", gap: 2, marginTop: 3, opacity: 0.55 }}>
+                <button
+                  onClick={() => copyMessage(msg.id, msg.feedbackId, msg.text)}
+                  title="Скопировать"
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    padding: 4, borderRadius: 4, display: "flex", alignItems: "center",
+                    color: copiedId === msg.id ? "#2D6A5C" : "#6B6058",
+                  }}
+                >
+                  <Copy size={12} />
+                </button>
+                <button
+                  onClick={() => rateMessage(msg.id, msg.feedbackId!, "positive")}
+                  title="Полезный ответ"
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    padding: 4, borderRadius: 4, display: "flex", alignItems: "center",
+                    color: msg.rating === "positive" ? "#2D6A5C" : "#6B6058",
+                  }}
+                >
+                  <ThumbsUp size={12} fill={msg.rating === "positive" ? "#2D6A5C" : "none"} />
+                </button>
+                <button
+                  onClick={() => rateMessage(msg.id, msg.feedbackId!, "negative")}
+                  title="Неполезный ответ"
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    padding: 4, borderRadius: 4, display: "flex", alignItems: "center",
+                    color: msg.rating === "negative" ? "#EF4444" : "#6B6058",
+                  }}
+                >
+                  <ThumbsDown size={12} fill={msg.rating === "negative" ? "#EF4444" : "none"} />
+                </button>
+              </div>
+            )}
           </motion.div>
         ))}
 
