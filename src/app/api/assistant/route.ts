@@ -15,6 +15,7 @@ import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, MAX_AGENT_ITERATIONS, toolNeedsConfir
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { buildApproachContextBlock } from "@/lib/approaches";
 import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
+import { selectAssistantModel } from "@/lib/agent/modelSelection";
 import { randomUUID } from "crypto";
 
 // POST /api/assistant
@@ -129,6 +130,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Модель выбирается ОДИН РАЗ, до входа в цикл, по дешёвой текстовой
+  // эвристике (без сети) — и используется на всех итерациях. См.
+  // lib/agent/modelSelection.ts про то, почему это безопаснее ранее
+  // откаченного каскада lite→pro (тот выбирал модель ПОСЛЕ первого
+  // ответа, что означало до двух сетевых вызовов на один запрос).
+  const selectedModel = selectAssistantModel(userMessage, history.length > 0);
+
   const messages: YandexGptAnyMessage[] = [
     { role: "system", text: systemPrompt },
     ...history,
@@ -193,17 +201,15 @@ export async function POST(request: NextRequest) {
     while (iterations < MAX_AGENT_ITERATIONS) {
       iterations += 1;
 
-      // Пробовали каскад lite (первая итерация) → pro — на проде это
-      // приводило к полному отказу ассистента: в коротком пути (lite
-      // отвечает текстом сразу) код делал ДВА последовательных сетевых
-      // вызова к YandexGPT в рамках одной serverless-функции, что похоже
-      // на превышение таймаута Vercel (фронт получал не-JSON ответ и
-      // показывал generic "не удалось связаться с сервером"). Откачено —
-      // каждая итерация снова идёт на pro. Если оптимизацию стоимости
-      // будем возвращать — делать её так, чтобы в рамках одной итерации
-      // был максимум один сетевой вызов к YandexGPT.
+      // selectedModel выбран заранее (см. выше) и не меняется между
+      // итерациями — ровно один сетевой вызов к YandexGPT на итерацию,
+      // независимо от того, lite это или pro. Прошлый каскад (lite на
+      // первой итерации → pro, если lite запросил tool call) приводил
+      // к ДВУМ последовательным сетевым вызовам в рамках одной
+      // serverless-функции и превышал таймаут Vercel — здесь такого
+      // сценария нет в принципе.
       const result = await yandexGptCompleteWithTools(messages, {
-        model: "pro",
+        model: selectedModel,
         tools: AGENT_TOOLS,
         temperature: 0.2,
       });
