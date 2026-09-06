@@ -30,7 +30,7 @@ function splitIntoChunks(content: string): string[] {
 }
 
 // POST /api/knowledge
-// Body: { title?: string, content: string, source_type: 'technique'|'article'|'protocol'|'manual', approach?: string }
+// Body: { title?: string, content: string, source_type: 'technique'|'article'|'protocol'|'manual'|'homework'|'test', approach?: string, topic?: string }
 // Разбивает content на чанки, создаёт эмбеддинг для каждого через
 // YandexGPT Embeddings, сохраняет каждый чанк отдельной строкой в
 // knowledge_base. Не расходует лимит ассистента.
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  let body: { title?: string; content?: string; source_type?: string; approach?: string };
+  let body: { title?: string; content?: string; source_type?: string; approach?: string; topic?: string };
   try {
     body = await request.json();
   } catch {
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   if (!content) {
     return NextResponse.json({ error: "Укажите content" }, { status: 400 });
   }
-  const allowedSourceTypes = ["technique", "article", "protocol", "manual", "homework"];
+  const allowedSourceTypes = ["technique", "article", "protocol", "manual", "homework", "test"];
   if (!body.source_type || !allowedSourceTypes.includes(body.source_type)) {
     return NextResponse.json({ error: `source_type должен быть одним из: ${allowedSourceTypes.join(", ")}` }, { status: 400 });
   }
@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
     embedding: number[];
     source_type: string;
     approach: string | null;
+    topic: string | null;
   }> = [];
 
   try {
@@ -88,6 +89,7 @@ export async function POST(request: NextRequest) {
         embedding,
         source_type: body.source_type,
         approach: body.approach ?? null,
+        topic: body.topic?.trim() || null,
       });
     }
   } catch (e) {
@@ -98,7 +100,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase
     .from("knowledge_base")
     .insert(rows)
-    .select("id, title, source_type, approach, created_at");
+    .select("id, title, source_type, approach, topic, created_at");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -119,7 +121,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("knowledge_base")
-    .select("id, title, content, source_type, approach, created_at")
+    .select("id, title, content, source_type, approach, topic, created_at")
     .eq("psychologist_id", user.id)
     .order("created_at", { ascending: false });
 

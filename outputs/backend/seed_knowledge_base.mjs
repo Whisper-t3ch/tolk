@@ -201,6 +201,7 @@ async function main() {
           embedding,
           source_type: item.source_type,
           approach,
+          topic: item.topic ?? null,
         });
         if (insertError) throw new Error(insertError.message);
         inserted += 1;

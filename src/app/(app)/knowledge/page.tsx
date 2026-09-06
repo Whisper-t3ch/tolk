@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, BookOpen, Trash2, X, Loader2, Send } from "lucide-react";
+import { Plus, BookOpen, Trash2, X, Loader2, Send, ClipboardList } from "lucide-react";
 import { Button, Card, CardContent, Badge, Tabs } from "@/components/ui";
 import { useClients } from "@/lib/useClients";
 import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
@@ -16,38 +16,41 @@ function approachLabel(value: string | null): string | null {
 }
 
 // ------------------------------------------------------------
-// Раздел "База знаний" — три вкладки поверх ОДНОЙ реальной таблицы
+// Раздел "База знаний" — пять вкладок поверх ОДНОЙ реальной таблицы
 // knowledge_base (через /api/knowledge), различаемые по source_type:
-//   - "Техники" — source_type: "technique" (описание техники для
-//     психолога, справочный материал)
+//   - "Техники" — source_type: "technique"
 //   - "Шаблоны ДЗ" — source_type: "homework" (готовый текст сообщения,
-//     который отправляется клиенту как есть, кнопка "Отправить" вызывает
-//     POST /api/clients/[id]/homework с реальным выбором клиента)
-//   - "Материалы" — все остальные типы (article/protocol/manual) плюс
-//     форма добавления собственного материала
+//     который отправляется клиенту как есть)
+//   - "Тесты" — source_type: "test" (открытые/российские
+//     диагностические методики — не защищённые авторским правом шкалы)
+//   - "Шаблоны протоколов" — source_type: "protocol" (перенесено сюда
+//     из отдельного пункта меню /note-templates — формат заметки
+//     сессии, не сама заполненная заметка конкретного клиента)
+//   - "Материалы" — всё остальное (article/manual) плюс форма
+//     добавления любого материала
 //
-// Раньше "Техники" и "Шаблоны ДЗ" были захардкоженными моками
-// (knowledgeTechniques из mock-data.ts, локальный HW_TEMPLATES) —
-// ничего не сохраняли, не отправляли, в одном даже было вписано
-// вымышленное имя клиента. Теперь все три вкладки читают один и тот же
-// /api/knowledge и просто фильтруют результат на клиенте.
+// Каждый материал дополнительно может иметь topic (тема/проблема,
+// например "тревога", "отношения") — свободный текст, используется
+// для группировки и фильтрации внутри вкладки.
 // ------------------------------------------------------------
 
 interface KnowledgeItem {
   id: string;
   title: string | null;
   content: string;
-  source_type: "technique" | "article" | "protocol" | "manual" | "homework";
+  source_type: "technique" | "article" | "protocol" | "manual" | "homework" | "test";
   approach: string | null;
+  topic: string | null;
   created_at: string;
 }
 
 const SOURCE_TYPE_LABELS: Record<KnowledgeItem["source_type"], string> = {
   technique: "Техника",
   article: "Статья",
-  protocol: "Протокол",
+  protocol: "Шаблон протокола",
   manual: "Материал",
   homework: "Домашнее задание",
+  test: "Тест",
 };
 
 function useKnowledgeItems() {
@@ -80,6 +83,138 @@ function useKnowledgeItems() {
 }
 
 // ------------------------------------------------------------
+// Фильтры по теме и подходу — общий хук для вкладок со списком
+// материалов (Техники/Материалы/Тесты). У ДЗ и Шаблонов протоколов
+// собственная более простая структура (карточек обычно меньше), но
+// то же поле topic там тоже участвует в отображении бейджем.
+// ------------------------------------------------------------
+function useTopicApproachFilter(items: KnowledgeItem[]) {
+  const [topicFilter, setTopicFilter] = useState<string>("");
+  const [approachFilter, setApproachFilter] = useState<string>("");
+
+  const topics = useMemo(
+    () => Array.from(new Set(items.map(i => i.topic).filter((t): t is string => Boolean(t)))).sort(),
+    [items]
+  );
+  const approaches = useMemo(
+    () => Array.from(new Set(items.map(i => i.approach).filter((a): a is string => Boolean(a)))).sort(),
+    [items]
+  );
+
+  const filtered = items.filter(
+    i => (!topicFilter || i.topic === topicFilter) && (!approachFilter || i.approach === approachFilter)
+  );
+
+  return { filtered, topics, approaches, topicFilter, setTopicFilter, approachFilter, setApproachFilter };
+}
+
+function FilterBar({
+  topics,
+  approaches,
+  topicFilter,
+  setTopicFilter,
+  approachFilter,
+  setApproachFilter,
+}: {
+  topics: string[];
+  approaches: string[];
+  topicFilter: string;
+  setTopicFilter: (v: string) => void;
+  approachFilter: string;
+  setApproachFilter: (v: string) => void;
+}) {
+  if (topics.length === 0 && approaches.length === 0) return null;
+  const selectStyle: React.CSSProperties = {
+    padding: "6px 10px", border: "1px solid #E5DFD5", borderRadius: 8,
+    fontSize: 12.5, color: "#1C1C1E", background: "#fff", fontFamily: "var(--font-sans)",
+  };
+  return (
+    <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+      {topics.length > 0 && (
+        <select value={topicFilter} onChange={e => setTopicFilter(e.target.value)} style={selectStyle}>
+          <option value="">Все темы</option>
+          {topics.map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      )}
+      {approaches.length > 0 && (
+        <select value={approachFilter} onChange={e => setApproachFilter(e.target.value)} style={selectStyle}>
+          <option value="">Все подходы</option>
+          {approaches.map(a => (
+            <option key={a} value={a}>{approachLabel(a)}</option>
+          ))}
+        </select>
+      )}
+      {(topicFilter || approachFilter) && (
+        <button
+          onClick={() => { setTopicFilter(""); setApproachFilter(""); }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", fontSize: 12.5, padding: "6px 4px" }}
+        >
+          Сбросить
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Модалка просмотра — общая для всех вкладок, показывает полный текст
+// материала (карточки в списках обрезают текст превью). Раньше клик
+// по карточке ничего не делал — единственным способом увидеть полный
+// текст было открыть форму редактирования (которой тоже не было).
+// ------------------------------------------------------------
+function ViewModal({ item, onClose }: { item: KnowledgeItem | null; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {item && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 40 }}
+          />
+          <div style={{ position: "fixed", inset: 0, zIndex: 45, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, pointerEvents: "none" }}>
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              style={{
+                background: "#FFFFFF", borderRadius: 16, width: "90%", maxWidth: 640, maxHeight: "85vh",
+                overflowY: "auto", boxShadow: "0 25px 80px rgba(0,0,0,0.2)", pointerEvents: "auto",
+              }}
+            >
+              <div style={{ padding: 24, borderBottom: "1px solid #E5DFD5", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                <div>
+                  <h3 style={{ fontSize: 17, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
+                    {item.title || "Без названия"}
+                  </h3>
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                    <Badge variant="muted">{SOURCE_TYPE_LABELS[item.source_type]}</Badge>
+                    {item.approach && <Badge variant="muted">{approachLabel(item.approach)}</Badge>}
+                    {item.topic && <Badge variant="muted">{item.topic}</Badge>}
+                  </div>
+                </div>
+                <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", flexShrink: 0 }}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div style={{ padding: 24 }}>
+                <p style={{ fontSize: 13.5, color: "#1C1C1E", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>
+                  {item.content}
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ------------------------------------------------------------
 // Вкладка "Техники" — справочные материалы для психолога
 // (source_type: "technique"), read-only список без формы добавления
 // (добавление — только через вкладку "Материалы", единая точка входа).
@@ -93,7 +228,10 @@ function TechniquesTab({
   loading: boolean;
   loadError: string | null;
 }) {
-  const techniques = items.filter(i => i.source_type === "technique");
+  const allTechniques = items.filter(i => i.source_type === "technique");
+  const { filtered, topics, approaches, topicFilter, setTopicFilter, approachFilter, setApproachFilter } =
+    useTopicApproachFilter(allTechniques);
+  const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
@@ -105,7 +243,7 @@ function TechniquesTab({
       </div>
     );
   }
-  if (techniques.length === 0) {
+  if (allTechniques.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "40px 20px" }}>
         <BookOpen size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
@@ -117,36 +255,42 @@ function TechniquesTab({
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 }}>
-      {techniques.map((tech, idx) => (
-        <motion.div key={tech.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}>
-          <Card hoverable>
-            <CardContent className="pt-6">
-              <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
-                {tech.title || "Без названия"}
-              </h4>
-              <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
-                {tech.content.length > 220 ? `${tech.content.slice(0, 220)}…` : tech.content}
-              </p>
-              {tech.approach && (
+    <div>
+      <FilterBar
+        topics={topics} approaches={approaches}
+        topicFilter={topicFilter} setTopicFilter={setTopicFilter}
+        approachFilter={approachFilter} setApproachFilter={setApproachFilter}
+      />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 }}>
+        {filtered.map((tech, idx) => (
+          <motion.div key={tech.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}>
+            <Card hoverable onClick={() => setViewing(tech)} style={{ cursor: "pointer" }}>
+              <CardContent className="pt-6">
+                <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
+                  {tech.title || "Без названия"}
+                </h4>
+                <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
+                  {tech.content.length > 220 ? `${tech.content.slice(0, 220)}…` : tech.content}
+                </p>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  <Badge variant="muted">{approachLabel(tech.approach)}</Badge>
+                  {tech.approach && <Badge variant="muted">{approachLabel(tech.approach)}</Badge>}
+                  {tech.topic && <Badge variant="muted">{tech.topic}</Badge>}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      ))}
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+      <ViewModal item={viewing} onClose={() => setViewing(null)} />
     </div>
   );
 }
 
 // ------------------------------------------------------------
 // Вкладка "Шаблоны ДЗ" — готовые тексты для отправки клиенту
-// (source_type: "homework"). Кнопка "Отправить" открывает выбор
-// реального клиента психолога и вызывает POST /api/clients/[id]/homework —
-// в отличие от прошлой версии, это настоящая отправка (запись в messages,
-// попытка доставки через мессенджер), а не toast-заглушка.
+// (source_type: "homework"). Клик по карточке открывает просмотр
+// полного текста; кнопка "Отправить" открывает выбор реального
+// клиента и вызывает POST /api/clients/[id]/homework.
 // ------------------------------------------------------------
 function HomeworkTemplatesTab({
   items,
@@ -161,6 +305,7 @@ function HomeworkTemplatesTab({
 }) {
   const { clients, loading: clientsLoading } = useClients();
   const [pickerFor, setPickerFor] = useState<KnowledgeItem | null>(null);
+  const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -224,17 +369,20 @@ function HomeworkTemplatesTab({
             <motion.div key={template.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}>
               <Card hoverable>
                 <CardContent className="pt-6">
-                  <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
-                    {template.title || "Без названия"}
-                  </h4>
-                  <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
-                    {template.content.length > 200 ? `${template.content.slice(0, 200)}…` : template.content}
-                  </p>
-                  {template.approach && (
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
-                      <Badge variant="muted">{approachLabel(template.approach)}</Badge>
-                    </div>
-                  )}
+                  <div onClick={() => setViewing(template)} style={{ cursor: "pointer" }}>
+                    <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
+                      {template.title || "Без названия"}
+                    </h4>
+                    <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
+                      {template.content.length > 200 ? `${template.content.slice(0, 200)}…` : template.content}
+                    </p>
+                    {(template.approach || template.topic) && (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
+                        {template.approach && <Badge variant="muted">{approachLabel(template.approach)}</Badge>}
+                        {template.topic && <Badge variant="muted">{template.topic}</Badge>}
+                      </div>
+                    )}
+                  </div>
                   <Button onClick={() => openPicker(template)} variant="secondary" size="sm" className="w-full">
                     <Send size={13} style={{ marginRight: 6 }} /> Отправить клиенту
                   </Button>
@@ -244,6 +392,8 @@ function HomeworkTemplatesTab({
           ))}
         </div>
       )}
+
+      <ViewModal item={viewing} onClose={() => setViewing(null)} />
 
       {/* Модал выбора клиента */}
       <AnimatePresence>
@@ -318,11 +468,148 @@ function HomeworkTemplatesTab({
 }
 
 // ------------------------------------------------------------
+// Вкладка "Тесты" — открытые/российские диагностические методики
+// (source_type: "test"). Read-only список, как "Техники" — тексты уже
+// содержат вопросы/шкалы/интерпретацию там, где это применимо, без
+// добавления собственной формы (методики не создаются на лету).
+// ------------------------------------------------------------
+function TestsTab({
+  items,
+  loading,
+  loadError,
+}: {
+  items: KnowledgeItem[];
+  loading: boolean;
+  loadError: string | null;
+}) {
+  const tests = items.filter(i => i.source_type === "test");
+  const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
+  }
+  if (loadError) {
+    return (
+      <div style={{ padding: 12, background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, color: "#B91C1C", fontSize: 13 }}>
+        {loadError}
+      </div>
+    );
+  }
+  if (tests.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 20px" }}>
+        <ClipboardList size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+        <p style={{ color: "#6B6058", marginBottom: 0 }}>
+          Пока нет тестов — добавьте открытую методику во вкладке «Материалы» с типом «Тест».
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 12.5, color: "#6B6058", marginBottom: 16 }}>
+        Только открытые и российские диагностические методики, не защищённые авторским правом.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 }}>
+        {tests.map((test, idx) => (
+          <motion.div key={test.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}>
+            <Card hoverable onClick={() => setViewing(test)} style={{ cursor: "pointer" }}>
+              <CardContent className="pt-6">
+                <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
+                  {test.title || "Без названия"}
+                </h4>
+                <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
+                  {test.content.length > 220 ? `${test.content.slice(0, 220)}…` : test.content}
+                </p>
+                {test.topic && (
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    <Badge variant="muted">{test.topic}</Badge>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+      <ViewModal item={viewing} onClose={() => setViewing(null)} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Вкладка "Шаблоны протоколов" — форматы ведения записи сессии
+// (source_type: "protocol"). Перенесено сюда с отдельной страницы
+// /note-templates, убранной из сайдбара — раньше это были 5
+// захардкоженных карточек (SOAP/DAP/BIRP/EMDR/Семейная сессия) без
+// связи с реальной базой знаний психолога и с иностранной
+// терминологией. Теперь это обычные материалы psychologist'а, как и
+// всё остальное в БЗ — можно добавлять свои варианты через "Материалы".
+// ------------------------------------------------------------
+function ProtocolTemplatesTab({
+  items,
+  loading,
+  loadError,
+}: {
+  items: KnowledgeItem[];
+  loading: boolean;
+  loadError: string | null;
+}) {
+  const templates = items.filter(i => i.source_type === "protocol");
+  const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
+  }
+  if (loadError) {
+    return (
+      <div style={{ padding: 12, background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, color: "#B91C1C", fontSize: 13 }}>
+        {loadError}
+      </div>
+    );
+  }
+  if (templates.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 20px" }}>
+        <ClipboardList size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+        <p style={{ color: "#6B6058", marginBottom: 0 }}>
+          Пока нет шаблонов протоколов — добавьте свой во вкладке «Материалы» с типом «Шаблон протокола», либо используйте формат по умолчанию на странице сессии.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 12.5, color: "#6B6058", marginBottom: 16 }}>
+        Форматы ведения записи сессии. Сама запись по конкретному клиенту заполняется на странице сессии.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 }}>
+        {templates.map((tpl, idx) => (
+          <motion.div key={tpl.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}>
+            <Card hoverable onClick={() => setViewing(tpl)} style={{ cursor: "pointer" }}>
+              <CardContent className="pt-6">
+                <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
+                  {tpl.title || "Без названия"}
+                </h4>
+                <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 0, lineHeight: 1.5 }}>
+                  {tpl.content.length > 220 ? `${tpl.content.slice(0, 220)}…` : tpl.content}
+                </p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+      <ViewModal item={viewing} onClose={() => setViewing(null)} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
 // Вкладка "Материалы" — личная база знаний психолога, которую
 // использует AI-ассистент для RAG-поиска (/api/knowledge). Единственное
-// место, где можно добавить новый материал любого типа, включая
-// техники и домашние задания — они автоматически появятся в
-// соответствующих вкладках.
+// место, где можно добавить новый материал любого типа — он
+// автоматически появится в соответствующей вкладке.
 // ------------------------------------------------------------
 function MaterialsTab({
   items,
@@ -335,13 +622,17 @@ function MaterialsTab({
   loadError: string | null;
   reload: () => Promise<void>;
 }) {
-  const materials = items.filter(i => i.source_type !== "technique" && i.source_type !== "homework");
+  const allMaterials = items.filter(i => i.source_type !== "technique" && i.source_type !== "homework" && i.source_type !== "test" && i.source_type !== "protocol");
+  const { filtered, topics, approaches, topicFilter, setTopicFilter, approachFilter, setApproachFilter } =
+    useTopicApproachFilter(allMaterials);
+  const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [sourceType, setSourceType] = useState<KnowledgeItem["source_type"]>("manual");
   const [approach, setApproach] = useState("");
+  const [topic, setTopic] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -361,6 +652,7 @@ function MaterialsTab({
           content: content.trim(),
           source_type: sourceType,
           approach: approach.trim() || undefined,
+          topic: topic.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -371,6 +663,7 @@ function MaterialsTab({
       setTitle("");
       setContent("");
       setApproach("");
+      setTopic("");
       setSourceType("manual");
       setShowForm(false);
       await reload();
@@ -393,9 +686,9 @@ function MaterialsTab({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <p style={{ fontSize: 12.5, color: "#6B6058", margin: 0 }}>
-          Все ваши материалы — статьи, протоколы, техники, домашние задания. Ассистент использует их при ответах; техники и ДЗ также появляются в соответствующих вкладках.
+          Все ваши материалы — статьи и прочее. Ассистент использует их при ответах; техники, ДЗ, тесты и шаблоны протоколов также появляются в соответствующих вкладках.
         </p>
         <Button onClick={() => setShowForm(true)} variant="primary" size="sm">
           <Plus size={14} style={{ marginRight: 6 }} /> Добавить материал
@@ -410,7 +703,7 @@ function MaterialsTab({
 
       {loading ? (
         <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>
-      ) : materials.length === 0 ? (
+      ) : allMaterials.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
           <BookOpen size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
           <p style={{ color: "#6B6058", marginBottom: 0 }}>
@@ -418,40 +711,53 @@ function MaterialsTab({
           </p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {materials.map(item => (
-            <Card key={item.id}>
-              <CardContent className="pt-6" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{
-                  width: 36, height: 36, background: "#E8F2EF", borderRadius: 8,
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                }}>
-                  <BookOpen size={16} style={{ color: "#2D6A5C" }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
-                      {item.title || "Без названия"}
-                    </span>
-                    <Badge variant="muted">{SOURCE_TYPE_LABELS[item.source_type]}</Badge>
-                    {item.approach && <Badge variant="muted">{approachLabel(item.approach)}</Badge>}
+        <>
+          <FilterBar
+            topics={topics} approaches={approaches}
+            topicFilter={topicFilter} setTopicFilter={setTopicFilter}
+            approachFilter={approachFilter} setApproachFilter={setApproachFilter}
+          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {filtered.map(item => (
+              <Card key={item.id}>
+                <CardContent className="pt-6" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div
+                    onClick={() => setViewing(item)}
+                    style={{
+                      width: 36, height: 36, background: "#E8F2EF", borderRadius: 8,
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer",
+                    }}
+                  >
+                    <BookOpen size={16} style={{ color: "#2D6A5C" }} />
                   </div>
-                  <p style={{ fontSize: 12.5, color: "#6B6058", lineHeight: 1.5, margin: 0 }}>
-                    {item.content.length > 200 ? `${item.content.slice(0, 200)}…` : item.content}
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  title="Удалить материал"
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4, flexShrink: 0 }}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setViewing(item)}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
+                        {item.title || "Без названия"}
+                      </span>
+                      <Badge variant="muted">{SOURCE_TYPE_LABELS[item.source_type]}</Badge>
+                      {item.approach && <Badge variant="muted">{approachLabel(item.approach)}</Badge>}
+                      {item.topic && <Badge variant="muted">{item.topic}</Badge>}
+                    </div>
+                    <p style={{ fontSize: 12.5, color: "#6B6058", lineHeight: 1.5, margin: 0 }}>
+                      {item.content.length > 200 ? `${item.content.slice(0, 200)}…` : item.content}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    title="Удалить материал"
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4, flexShrink: 0 }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
+
+      <ViewModal item={viewing} onClose={() => setViewing(null)} />
 
       <AnimatePresence>
         {showForm && (
@@ -529,7 +835,8 @@ function MaterialsTab({
                         <option value="technique">Техника</option>
                         <option value="homework">Домашнее задание</option>
                         <option value="article">Статья</option>
-                        <option value="protocol">Протокол</option>
+                        <option value="protocol">Шаблон протокола</option>
+                        <option value="test">Тест</option>
                       </select>
                     </div>
                     <div style={{ flex: 1 }}>
@@ -547,6 +854,22 @@ function MaterialsTab({
                         }}
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058", display: "block", marginBottom: 6 }}>
+                      Тема / проблема (опционально)
+                    </label>
+                    <input
+                      type="text"
+                      value={topic}
+                      onChange={e => setTopic(e.target.value)}
+                      placeholder="Например: тревога, отношения, самооценка"
+                      style={{
+                        width: "100%", padding: "8px 12px", border: "1px solid #E5DFD5",
+                        borderRadius: 8, fontSize: 13, color: "#1C1C1E", boxSizing: "border-box",
+                      }}
+                    />
                   </div>
 
                   <div>
@@ -617,6 +940,16 @@ export default function KnowledgePage() {
       content: <HomeworkTemplatesTab items={items} loading={loading} loadError={loadError} onNotify={notify} />,
     },
     {
+      id: "tests",
+      label: "Тесты",
+      content: <TestsTab items={items} loading={loading} loadError={loadError} />,
+    },
+    {
+      id: "protocols",
+      label: "Шаблоны протоколов",
+      content: <ProtocolTemplatesTab items={items} loading={loading} loadError={loadError} />,
+    },
+    {
       id: "materials",
       label: "Материалы",
       content: <MaterialsTab items={items} loading={loading} loadError={loadError} reload={reload} />,
@@ -629,7 +962,7 @@ export default function KnowledgePage() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E" }}>База знаний</h1>
           <p style={{ fontSize: 14, color: "#6B6058", marginTop: 2 }}>
-            Техники, шаблоны и материалы
+            Техники, шаблоны, тесты и материалы
           </p>
         </div>
       </div>

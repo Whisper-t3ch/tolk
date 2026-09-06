@@ -35,11 +35,19 @@ function recordingStatusHint(status: string) {
   return null;
 }
 
-const SOAP_BLOCKS = [
-  { key: "s" as const, label: "S — Субъективно", color: "#2D6A5C", emoji: "💬", hint: "Слова и описания клиента" },
-  { key: "o" as const, label: "O — Объективно", color: "#1BAF7A", emoji: "👁", hint: "Ваши наблюдения, тесты, поведение" },
-  { key: "a" as const, label: "A — Оценка", color: "#F59E0B", emoji: "🧠", hint: "Клинический анализ, гипотезы" },
-  { key: "p" as const, label: "P — План", color: "#8B5CF6", emoji: "📋", hint: "ДЗ, задачи следующей сессии" },
+// Русскоязычный формат протокола сессии — вместо медицинской
+// англоязычной аббревиатуры SOAP используется структура, отражающая
+// то, как реально ведут записи консультирующие психологи в России:
+// жалоба и запрос клиента его словами → контекст и наблюдения →
+// гипотеза психолога → договорённости и план. Поля в БД (s_subjective/
+// o_objective/a_assessment/p_plan) переиспользуются как есть — это
+// просто новые русские подписи и подсказки поверх тех же 4 колонок,
+// без миграции схемы.
+const PROTOCOL_BLOCKS = [
+  { key: "s" as const, label: "Жалоба и запрос клиента", color: "#2D6A5C", emoji: "💬", hint: "Своими словами клиента — что беспокоит, чего хочет добиться" },
+  { key: "o" as const, label: "Контекст и наблюдения", color: "#1BAF7A", emoji: "👁", hint: "Что происходило на сессии: факты, поведение, выполнение ДЗ, результаты тестов" },
+  { key: "a" as const, label: "Гипотеза психолога", color: "#F59E0B", emoji: "🧠", hint: "Ваш клинический анализ, динамика по сравнению с прошлыми сессиями" },
+  { key: "p" as const, label: "Договорённости и план", color: "#8B5CF6", emoji: "📋", hint: "Домашнее задание, фокус следующей сессии" },
 ];
 
 interface SoapContent {
@@ -68,6 +76,8 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   const [copied, setCopied] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [downloadingTranscript, setDownloadingTranscript] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [showSendSummary, setShowSendSummary] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [summaryChannel, setSummaryChannel] = useState<"telegram" | "vk" | "max">("telegram");
@@ -132,6 +142,28 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
       setSaveError("Не удалось связаться с сервером — проверьте соединение");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/soap/generate`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setGenerateError(data.error ?? "Не удалось сгенерировать протокол");
+        return;
+      }
+      setSoapNoteId(data.soapNote.id);
+      setContent({ s: data.soapNote.s, o: data.soapNote.o, a: data.soapNote.a, p: data.soapNote.p });
+      setProtocolExists(true);
+      setNotification("Протокол сгенерирован — проверьте и при необходимости отредактируйте перед сохранением");
+      setTimeout(() => setNotification(null), 4000);
+    } catch {
+      setGenerateError("Не удалось связаться с сервером — проверьте соединение");
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -217,7 +249,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   }
 
   function handleCopy() {
-    const fullText = SOAP_BLOCKS.map(b => `${b.label}\n${content[b.key]}`).join("\n\n");
+    const fullText = PROTOCOL_BLOCKS.map(b => `${b.label}\n${content[b.key]}`).join("\n\n");
     navigator.clipboard?.writeText(fullText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -237,7 +269,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <h1 style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
-                    SOAP-протокол
+                    Протокол сессии
                   </h1>
                 </div>
                 <p style={{ fontSize: 13, color: "#6B6058", margin: 0, marginTop: 4 }}>
@@ -281,22 +313,29 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 Протокол не создан
               </h3>
               <p style={{ fontSize: 13, color: "#6B6058", margin: "0 0 16px 0" }}>
-                Для этой сессии ещё нет SOAP-протокола. Сгенерируйте его автоматически или заполните блоки ниже вручную.
+                Для этой сессии ещё нет протокола. Сгенерируйте его автоматически по записи сессии или заполните блоки ниже вручную.
               </p>
               {sessionInfo && recordingStatusHint(sessionInfo.recordingStatus)}
-              <span title="Генерация будет доступна после настройки API" style={{ display: "inline-block" }}>
-                <Button variant="primary" disabled>
-                  <Sparkles size={14} style={{ marginRight: 6 }} /> Сгенерировать SOAP
-                </Button>
-              </span>
+              {generateError && (
+                <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+                  {generateError}
+                </p>
+              )}
+              <Button variant="primary" onClick={handleGenerate} disabled={generating}>
+                {generating ? (
+                  <><Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} /> Генерирую…</>
+                ) : (
+                  <><Sparkles size={14} style={{ marginRight: 6 }} /> Сгенерировать протокол</>
+                )}
+              </Button>
             </CardContent>
           </Card>
         </motion.div>
       )}
 
-      {/* SOAP блоки */}
+      {/* Блоки протокола */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 24 }}>
-        {SOAP_BLOCKS.map((block, idx) => (
+        {PROTOCOL_BLOCKS.map((block, idx) => (
           <motion.div
             key={block.key}
             initial={{ opacity: 0, y: 20 }}

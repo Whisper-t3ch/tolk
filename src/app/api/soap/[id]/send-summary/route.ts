@@ -53,11 +53,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: soapNoteError.message }, { status: 500 });
   }
   if (!soapNote) {
-    return NextResponse.json({ error: "SOAP-протокол не найден" }, { status: 404 });
+    return NextResponse.json({ error: "Протокол не найден" }, { status: 404 });
   }
   const sessionRel = Array.isArray(soapNote.sessions) ? soapNote.sessions[0] : soapNote.sessions;
   if ((sessionRel as { psychologist_id?: string } | null)?.psychologist_id !== user.id) {
-    return NextResponse.json({ error: "SOAP-протокол не найден" }, { status: 404 });
+    return NextResponse.json({ error: "Протокол не найден" }, { status: 404 });
   }
 
   const { data: updated, error: updateError } = await supabase
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
   if (!updated) {
-    return NextResponse.json({ error: "SOAP-протокол не найден" }, { status: 404 });
+    return NextResponse.json({ error: "Протокол не найден" }, { status: 404 });
   }
 
   return NextResponse.json({

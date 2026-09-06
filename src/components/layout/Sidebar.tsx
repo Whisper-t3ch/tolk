@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Users, Video, Bot, FileText,
   BookOpen, Brain, Settings, Plus, X, Search,
-  ClipboardList, HelpCircle, Sparkles, CalendarDays
+  HelpCircle, Sparkles, CalendarDays
 } from "lucide-react";
 import { useProfile } from "@/lib/ProfileContext";
 import { useSession } from "@/lib/SessionContext";
@@ -18,7 +18,6 @@ const navItems = [
   { href: "/calendar",       icon: CalendarDays,    label: "Календарь" },
   { href: "/sessions",       icon: Video,           label: "Сессии" },
   { href: "/clients",        icon: Users,           label: "Клиенты" },
-  { href: "/note-templates", icon: ClipboardList,   label: "Шаблоны протоколов" },
   { href: "/knowledge",      icon: Brain,           label: "База знаний" },
   { href: "/reflections",    icon: BookOpen,        label: "Рефлексии" },
 ];
