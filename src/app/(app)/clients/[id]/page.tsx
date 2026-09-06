@@ -1,12 +1,12 @@
 "use client";
 import { use, useState, useRef, useEffect, useMemo } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Send, ChevronLeft, FileText, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
-  Sparkles, X, Link2, Copy, Check,
+  Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen,
 } from "lucide-react";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
 import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
@@ -30,6 +30,29 @@ interface ChatMessage {
   status?: "pending" | "sent" | "delivered" | "failed";
   errorMessage?: string | null;
 }
+
+// Материал из базы знаний (/api/knowledge), доступный для вставки в
+// сообщение клиенту прямо из чата — то же, что вкладки "Техники" /
+// "Материалы" в разделе База знаний, просто отфильтрованное подмножество
+// полей, нужных только для выбора и вставки текста.
+interface KnowledgeAttachItem {
+  id: string;
+  title: string | null;
+  content: string;
+  source_type: string;
+}
+
+// Короткие ярлыки типов материала для пикера вложений — те же подписи,
+// что в разделе База знаний, продублированы здесь, чтобы не тащить
+// зависимость между независимыми страницами ради одной константы.
+const ATTACH_SOURCE_TYPE_LABELS: Record<string, string> = {
+  technique: "Техника",
+  homework: "ДЗ",
+  article: "Материал",
+  manual: "Материал",
+  protocol: "Протокол",
+  test: "Тест",
+};
 
 interface MessengerLink {
   platform: "telegram" | "vk";
@@ -116,6 +139,10 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [chatInput, setChatInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
+  const [attachItems, setAttachItems] = useState<KnowledgeAttachItem[]>([]);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("sessions");
   const [exportingTranscripts, setExportingTranscripts] = useState(false);
   const [showPeriodSummary, setShowPeriodSummary] = useState(false);
@@ -264,6 +291,38 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     } finally {
       setSending(false);
     }
+  };
+
+  // Открывает выбор материала из базы знаний для вставки в сообщение
+  // клиенту — раньше в чате не было способа прикрепить готовую технику
+  // или материал платформы, кроме ручного набора текста заново.
+  const openAttachPicker = async () => {
+    setShowAttachPicker(true);
+    if (attachItems.length > 0 || attachLoading) return;
+    setAttachLoading(true);
+    setAttachError(null);
+    try {
+      const res = await fetch("/api/knowledge");
+      const data = await res.json();
+      if (!res.ok) {
+        setAttachError(data?.error ?? "Не удалось загрузить материалы");
+        return;
+      }
+      setAttachItems(data.items ?? []);
+    } catch {
+      setAttachError("Не удалось связаться с сервером");
+    } finally {
+      setAttachLoading(false);
+    }
+  };
+
+  // Вставляет текст материала в поле ввода — психолог может
+  // отредактировать перед отправкой, а не отправляется напрямую, в
+  // отличие от готовых ДЗ во вкладке "Шаблоны ДЗ" (там текст уже
+  // адресован клиенту как есть, здесь материалы разного назначения).
+  const attachMaterial = (item: KnowledgeAttachItem) => {
+    setChatInput(prev => (prev ? `${prev}\n\n${item.content}` : item.content));
+    setShowAttachPicker(false);
   };
 
   const loadInviteLink = async () => {
@@ -667,6 +726,18 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   </div>
                   <div style={{ display: "flex", gap: 4 }}>
                     <button
+                      onClick={openAttachPicker}
+                      title="Прикрепить материал из базы знаний"
+                      style={{
+                        width: 32, height: 32, background: "#F5F1E8",
+                        border: "1px solid #E5DFD5", borderRadius: 6,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        cursor: "pointer", color: "#6B6058",
+                      }}
+                    >
+                      <Paperclip size={16} />
+                    </button>
+                    <button
                       onClick={sendMessage}
                       disabled={sending || !chatInput.trim()}
                       style={{
@@ -685,6 +756,100 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       )}
+
+      {/* Выбор материала из базы знаний для вставки в сообщение клиенту */}
+      <AnimatePresence>
+        {showAttachPicker && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowAttachPicker(false)}
+            style={{
+              position: "fixed", inset: 0, background: "rgba(28,28,30,0.4)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              zIndex: 100, padding: 24,
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "#FFFFFF", borderRadius: 16, width: "100%", maxWidth: 520,
+                maxHeight: "80vh", display: "flex", flexDirection: "column",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden",
+              }}
+            >
+              <div style={{
+                padding: "18px 20px", borderBottom: "1px solid #EFEAE0",
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <BookOpen size={16} style={{ color: "#2D6A5C" }} />
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
+                    Прикрепить материал
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowAttachPicker(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ overflowY: "auto", padding: "8px 12px", flex: 1 }}>
+                {attachLoading && (
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                    Загрузка материалов...
+                  </div>
+                )}
+                {attachError && !attachLoading && (
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#C0392B" }}>
+                    {attachError}
+                  </div>
+                )}
+                {!attachLoading && !attachError && attachItems.length === 0 && (
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                    В базе знаний пока нет материалов
+                  </div>
+                )}
+                {!attachLoading && !attachError && attachItems.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => attachMaterial(item)}
+                    style={{
+                      width: "100%", textAlign: "left", background: "none", border: "none",
+                      borderBottom: "1px solid #F5F1E8", padding: "12px 8px", cursor: "pointer",
+                      display: "flex", flexDirection: "column", gap: 4, fontFamily: "var(--font-sans)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, color: "#2D6A5C", background: "#E8F2EF",
+                        padding: "2px 6px", borderRadius: 4, flexShrink: 0,
+                      }}>
+                        {ATTACH_SOURCE_TYPE_LABELS[item.source_type] ?? item.source_type}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
+                        {item.title ?? "Без названия"}
+                      </span>
+                    </div>
+                    <p style={{
+                      fontSize: 12, color: "#6B6058", margin: 0, lineHeight: 1.5,
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                    }}>
+                      {item.content}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* СВОДКА: профиль + ДЗ */}
       {activeTab === "summary" && (
