@@ -477,13 +477,55 @@ function TestsTab({
   items,
   loading,
   loadError,
+  onNotify,
 }: {
   items: KnowledgeItem[];
   loading: boolean;
   loadError: string | null;
+  onNotify: (msg: string) => void;
 }) {
+  const { clients, loading: clientsLoading } = useClients();
   const tests = items.filter(i => i.source_type === "test");
   const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
+  const [pickerFor, setPickerFor] = useState<KnowledgeItem | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const openPicker = (item: KnowledgeItem) => {
+    setPickerFor(item);
+    setSelectedClientId("");
+    setSendError(null);
+  };
+
+  // Отправляет бланк теста клиенту тем же путём, что и обычное
+  // сообщение в чате (/api/messages) — без отдельного "интерактивного
+  // прохождения": психолог сам решает, в каком месте разговора уместно
+  // прислать методику, а клиент отвечает текстом в чате как обычно.
+  const send = async () => {
+    if (!pickerFor || !selectedClientId) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: selectedClientId, text: pickerFor.content, channel: "telegram" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data?.error ?? "Не удалось отправить тест");
+        return;
+      }
+      const clientName = clients.find(c => c.id === selectedClientId)?.name ?? "клиенту";
+      onNotify(`Тест отправлен: ${clientName}`);
+      setPickerFor(null);
+    } catch {
+      setSendError("Не удалось связаться с сервером");
+    } finally {
+      setSending(false);
+    }
+  };
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
@@ -514,25 +556,99 @@ function TestsTab({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 }}>
         {tests.map((test, idx) => (
           <motion.div key={test.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}>
-            <Card hoverable onClick={() => setViewing(test)} style={{ cursor: "pointer" }}>
+            <Card hoverable>
               <CardContent className="pt-6">
-                <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
-                  {test.title || "Без названия"}
-                </h4>
-                <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
-                  {test.content.length > 220 ? `${test.content.slice(0, 220)}…` : test.content}
-                </p>
-                {test.topic && (
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    <Badge variant="muted">{test.topic}</Badge>
-                  </div>
-                )}
+                <div onClick={() => setViewing(test)} style={{ cursor: "pointer" }}>
+                  <h4 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 6 }}>
+                    {test.title || "Без названия"}
+                  </h4>
+                  <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
+                    {test.content.length > 220 ? `${test.content.slice(0, 220)}…` : test.content}
+                  </p>
+                  {test.topic && (
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
+                      <Badge variant="muted">{test.topic}</Badge>
+                    </div>
+                  )}
+                </div>
+                <Button onClick={() => openPicker(test)} variant="secondary" size="sm" className="w-full">
+                  <Send size={13} style={{ marginRight: 6 }} /> Отправить клиенту
+                </Button>
               </CardContent>
             </Card>
           </motion.div>
         ))}
       </div>
       <ViewModal item={viewing} onClose={() => setViewing(null)} />
+
+      {/* Модал выбора клиента */}
+      <AnimatePresence>
+        {pickerFor && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !sending && setPickerFor(null)}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 40 }}
+            />
+            <div style={{ position: "fixed", inset: 0, zIndex: 45, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, pointerEvents: "none" }}>
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                style={{
+                  background: "#FFFFFF", borderRadius: 16, width: "90%", maxWidth: 460,
+                  boxShadow: "0 25px 80px rgba(0,0,0,0.2)", pointerEvents: "auto",
+                }}
+              >
+                <div style={{ padding: 24, borderBottom: "1px solid #E5DFD5", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Кому отправить</h3>
+                  <button
+                    onClick={() => !sending && setPickerFor(null)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+                  <p style={{ fontSize: 12.5, color: "#6B6058", margin: 0 }}>«{pickerFor.title || "Тест"}»</p>
+                  {clientsLoading ? (
+                    <div style={{ fontSize: 13, color: "#8C7355" }}>Загружаю список клиентов…</div>
+                  ) : clients.length === 0 ? (
+                    <div style={{ fontSize: 13, color: "#8C7355" }}>У вас пока нет клиентов.</div>
+                  ) : (
+                    <select
+                      value={selectedClientId}
+                      onChange={e => setSelectedClientId(e.target.value)}
+                      style={{
+                        width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5",
+                        borderRadius: 8, fontSize: 13, color: "#1C1C1E", boxSizing: "border-box", background: "#fff",
+                      }}
+                    >
+                      <option value="">Выберите клиента…</option>
+                      {clients.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  {sendError && <div style={{ fontSize: 12, color: "#B91C1C" }}>{sendError}</div>}
+                  <Button size="md" className="w-full" onClick={send} disabled={sending || !selectedClientId}>
+                    {sending ? (
+                      <>
+                        <Loader2 size={15} style={{ marginRight: 8, animation: "knowledgeSpin 1s linear infinite" }} />
+                        Отправляем…
+                      </>
+                    ) : (
+                      "Отправить"
+                    )}
+                  </Button>
+                </div>
+              </motion.div>
+            </div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -942,7 +1058,7 @@ export default function KnowledgePage() {
     {
       id: "tests",
       label: "Тесты",
-      content: <TestsTab items={items} loading={loading} loadError={loadError} />,
+      content: <TestsTab items={items} loading={loading} loadError={loadError} onNotify={notify} />,
     },
     {
       id: "protocols",
