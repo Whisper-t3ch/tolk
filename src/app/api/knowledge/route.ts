@@ -121,7 +121,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("knowledge_base")
-    .select("id, title, content, source_type, approach, topic, created_at")
+    .select("id, title, content, source_type, approach, topic, questionnaire_key, created_at")
     .eq("psychologist_id", user.id)
     .order("created_at", { ascending: false });
 

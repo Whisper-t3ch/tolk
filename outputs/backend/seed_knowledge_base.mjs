@@ -202,6 +202,7 @@ async function main() {
           source_type: item.source_type,
           approach,
           topic: item.topic ?? null,
+          questionnaire_key: item.questionnaireKey ?? null,
         });
         if (insertError) throw new Error(insertError.message);
         inserted += 1;

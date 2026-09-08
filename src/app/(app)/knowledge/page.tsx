@@ -41,6 +41,11 @@ interface KnowledgeItem {
   source_type: "technique" | "article" | "protocol" | "manual" | "homework" | "test";
   approach: string | null;
   topic: string | null;
+  // Ссылка на test_questionnaires.test_key — если заполнено, у этого
+  // теста есть реальный интерактивный опросник (см. migration_011/012/013),
+  // и его можно отправить клиенту как ссылку на форму с вопросами и
+  // автоподсчётом, а не просто переслать текст описания методики.
+  questionnaire_key: string | null;
   created_at: string;
 }
 
@@ -498,27 +503,45 @@ function TestsTab({
     setSendError(null);
   };
 
-  // Отправляет бланк теста клиенту тем же путём, что и обычное
-  // сообщение в чате (/api/messages) — без отдельного "интерактивного
-  // прохождения": психолог сам решает, в каком месте разговора уместно
-  // прислать методику, а клиент отвечает текстом в чате как обычно.
+  // Если у теста есть привязанный интерактивный опросник
+  // (questionnaire_key — см. migration_011/012/013), отправляем клиенту
+  // ссылку на реальную форму с вопросами и автоподсчётом балла
+  // (/api/clients/[id]/tests/send создаёт test_results с access_token и
+  // сама формирует сообщение со ссылкой /test/[token]). Иначе — как
+  // раньше, пересылаем текст описания методики через /api/messages:
+  // психолог сам решает, в каком месте разговора это уместно, а клиент
+  // отвечает текстом в чате.
   const send = async () => {
     if (!pickerFor || !selectedClientId) return;
     setSending(true);
     setSendError(null);
     try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: selectedClientId, text: pickerFor.content, channel: "telegram" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setSendError(data?.error ?? "Не удалось отправить тест");
-        return;
-      }
       const clientName = clients.find(c => c.id === selectedClientId)?.name ?? "клиенту";
-      onNotify(`Тест отправлен: ${clientName}`);
+      if (pickerFor.questionnaire_key) {
+        const res = await fetch(`/api/clients/${selectedClientId}/tests/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questionnaire_key: pickerFor.questionnaire_key, title: pickerFor.title ?? undefined }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSendError(data?.error ?? "Не удалось отправить тест");
+          return;
+        }
+        onNotify(`Ссылка на тест отправлена: ${clientName}`);
+      } else {
+        const res = await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: selectedClientId, text: pickerFor.content, channel: "telegram" }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSendError(data?.error ?? "Не удалось отправить тест");
+          return;
+        }
+        onNotify(`Тест отправлен: ${clientName}`);
+      }
       setPickerFor(null);
     } catch {
       setSendError("Не удалось связаться с сервером");
@@ -565,14 +588,16 @@ function TestsTab({
                   <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 12, lineHeight: 1.5 }}>
                     {test.content.length > 220 ? `${test.content.slice(0, 220)}…` : test.content}
                   </p>
-                  {test.topic && (
+                  {(test.topic || test.questionnaire_key) && (
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
-                      <Badge variant="muted">{test.topic}</Badge>
+                      {test.topic && <Badge variant="muted">{test.topic}</Badge>}
+                      {test.questionnaire_key && <Badge variant="success">Интерактивный опросник</Badge>}
                     </div>
                   )}
                 </div>
                 <Button onClick={() => openPicker(test)} variant="secondary" size="sm" className="w-full">
-                  <Send size={13} style={{ marginRight: 6 }} /> Отправить клиенту
+                  <Send size={13} style={{ marginRight: 6 }} />
+                  {test.questionnaire_key ? "Отправить как тест клиенту" : "Отправить клиенту"}
                 </Button>
               </CardContent>
             </Card>
@@ -613,6 +638,15 @@ function TestsTab({
                 </div>
                 <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
                   <p style={{ fontSize: 12.5, color: "#6B6058", margin: 0 }}>«{pickerFor.title || "Тест"}»</p>
+                  {pickerFor.questionnaire_key ? (
+                    <p style={{ fontSize: 12, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                      Клиенту придёт ссылка на форму с вопросами — балл посчитается автоматически, результат увидите вы.
+                    </p>
+                  ) : (
+                    <p style={{ fontSize: 12, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                      Клиенту придёт текст методики сообщением — ответы он пришлёт в чат как обычно.
+                    </p>
+                  )}
                   {clientsLoading ? (
                     <div style={{ fontSize: 13, color: "#8C7355" }}>Загружаю список клиентов…</div>
                   ) : clients.length === 0 ? (
