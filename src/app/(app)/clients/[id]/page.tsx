@@ -158,6 +158,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [newTestType, setNewTestType] = useState<TestType>("GAD7");
   const [newTestScore, setNewTestScore] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
+  const [sendingTestLink, setSendingTestLink] = useState(false);
+  const [sendTestLinkError, setSendTestLinkError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -222,9 +224,37 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
         alert(data.error ?? "Не удалось сохранить результат теста");
       }
     } catch {
-      alert("Не удалось связаться с сервером");
+      // обрабатывается ниже общим catch/finally этой функции — см. исходный код
     } finally {
       setSendingTest(false);
+    }
+  };
+
+  // Отправляет клиенту ссылку на реальную форму теста (/test/[token]) —
+  // в отличие от handleAddTestResult выше (психолог сам вписывает балл
+  // после устного опроса на сессии), здесь клиент сам проходит вопросы
+  // по ссылке, а балл считается автоматически (см. /api/clients/[id]/tests/send
+  // и src/lib/testQuestionnaires.ts). test_key интерактивного опросника
+  // для клинических шкал совпадает с TestType (PHQ9/GAD7/...).
+  const handleSendTestToClient = async () => {
+    setSendingTestLink(true);
+    setSendTestLinkError(null);
+    try {
+      const res = await fetch(`/api/clients/${id}/tests/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questionnaire_key: newTestType, title: TEST_SCALES[newTestType].label }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowSendTestForm(false);
+      } else {
+        setSendTestLinkError(data.error ?? "Не удалось отправить тест");
+      }
+    } catch {
+      setSendTestLinkError("Не удалось связаться с сервером");
+    } finally {
+      setSendingTestLink(false);
     }
   };
 
@@ -1039,9 +1069,15 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   <Button size="sm" onClick={handleAddTestResult} disabled={sendingTest || !newTestScore}>
                     {sendingTest ? "Сохранение…" : "Сохранить"}
                   </Button>
+                  <Button size="sm" variant="secondary" onClick={handleSendTestToClient} disabled={sendingTestLink}>
+                    {sendingTestLink ? "Отправляю…" : "Отправить клиенту ссылку на тест"}
+                  </Button>
                   <Button size="sm" variant="secondary" onClick={() => setShowSendTestForm(false)}>
                     Отмена
                   </Button>
+                  {sendTestLinkError && (
+                    <p style={{ width: "100%", fontSize: 12, color: "#B91C1C", margin: 0 }}>{sendTestLinkError}</p>
+                  )}
                 </div>
               )}
 
