@@ -1,20 +1,11 @@
 "use client";
 import { useState, useRef, useEffect, useMemo, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Send, Paperclip, User, FileText, X, Mic, Trash2, Play, Pause, Smile, Sparkles } from "lucide-react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { Search, Send, Paperclip, X, Sparkles, BookOpen } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useClients } from "@/lib/ClientsContext";
 import { createClientRecord } from "@/lib/data/clients";
-import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
 import { Card, CardContent, Input } from "@/components/ui";
-import ClientProgressScale from "@/components/ClientProgressScale";
-
-// Триггеры/тесты/история прогресса пока не мигрированы на Supabase (Этап 2
-// осознанно ограничен клиентами и сессиями) — для реальных клиентов
-// показываем пустые заглушки вместо padения интерфейса.
-const EMPTY_TRIGGERS: string[] = [];
-const EMPTY_PROGRESS = { aiScore: 0, psychologistScore: null, clientScore: null, history: [] as Array<{ date: string; aiScore: number; psychologistScore?: number; clientScore?: number }> };
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
 
@@ -47,35 +38,66 @@ const getClientStatus = (): { online: boolean; lastSeen: string } => {
   return { online: isOnline, lastSeen };
 };
 
-const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "🙏"];
-
 interface ChatMessage {
   id: string;
   role: "client" | "psychologist";
   text: string;
   time: string;
   timestamp: Date;
-  isRead?: boolean;
+  status?: "pending" | "sent" | "delivered" | "failed";
+  errorMessage?: string | null;
   file?: { name: string; size: string };
-  voice?: { duration: string };
-  reactions?: string[];
 }
 
-const createMockMessages = (): ChatMessage[] => {
-  const now = new Date();
-  const messages: ChatMessage[] = [
-    { id: "1", role: "client", text: "Привет! Как дела?", time: "14:32", timestamp: new Date(now.getTime() - 5 * 60000), isRead: true },
-    { id: "2", role: "psychologist", text: "Привет! Всё хорошо, спасибо. Как у тебя?", time: "14:34", timestamp: new Date(now.getTime() - 4 * 60000), isRead: true },
-    { id: "3", role: "client", text: "Мне нужна консультация по поводу работы", time: "14:35", timestamp: new Date(now.getTime() - 3 * 60000), isRead: true },
-    { id: "4", role: "psychologist", text: "Давай подробнее о том, что тебя беспокоит?", time: "14:37", timestamp: new Date(now.getTime() - 2 * 60000), isRead: true },
-    { id: "5", role: "client", text: "В последнее время чувствую усталость и стресс на работе", time: "14:38", timestamp: new Date(now.getTime() - 1 * 60000), isRead: true },
-  ];
-  return messages;
+// Материал из базы знаний (/api/knowledge), доступный для вставки в
+// сообщение клиенту прямо из чата — то же, что вкладки "Техники" /
+// "Материалы" в разделе База знаний, просто отфильтрованное подмножество
+// полей, нужных только для выбора и вставки текста.
+interface KnowledgeAttachItem {
+  id: string;
+  title: string | null;
+  content: string;
+  source_type: string;
+}
+
+// Короткие ярлыки типов материала для пикера вложений — те же подписи,
+// что в разделе База знаний, продублированы здесь, чтобы не тащить
+// зависимость между независимыми страницами ради одной константы.
+const ATTACH_SOURCE_TYPE_LABELS: Record<string, string> = {
+  technique: "Техника",
+  homework: "ДЗ",
+  article: "Материал",
+  manual: "Материал",
+  protocol: "Протокол",
+  test: "Тест",
 };
+
+interface MessengerLink {
+  platform: "telegram" | "vk";
+  external_username: string | null;
+  linked_at: string;
+}
+
+// Приводит запись из таблицы messages (API-формат) к формату чата на экране.
+function toChatMessage(raw: {
+  id: string; direction: string; text: string; created_at: string;
+  status: string; error_message: string | null;
+}): ChatMessage {
+  return {
+    id: raw.id,
+    role: raw.direction === "incoming" ? "client" : "psychologist",
+    text: raw.text,
+    time: new Date(raw.created_at).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }),
+    timestamp: new Date(raw.created_at),
+    status: raw.status as ChatMessage["status"],
+    errorMessage: raw.error_message,
+  };
+}
 
 function ClientsPageInner() {
   const { clients, loading: clientsLoading, error: clientsError, refresh: refreshClients } = useClients();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const clientFromUrl = searchParams.get("client");
   const filterFromUrl = searchParams.get("filter"); // "new" | "attention" | null
 
@@ -83,16 +105,18 @@ function ClientsPageInner() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [specialFilter, setSpecialFilter] = useState<string | null>(filterFromUrl);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(clientFromUrl || null);
-  const [messages, setMessages] = useState<ChatMessage[]>(createMockMessages());
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
+  const [messengerLinks, setMessengerLinks] = useState<MessengerLink[]>([]);
+  const [sendChannel, setSendChannel] = useState<"telegram" | "vk">("telegram");
   const [chatInput, setChatInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [showProfile, setShowProfile] = useState(false);
-  const [profileTab, setProfileTab] = useState<"profile" | "progress">("profile");
+  const [sending, setSending] = useState(false);
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
+  const [attachItems, setAttachItems] = useState<KnowledgeAttachItem[]>([]);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const [clientStatus, setClientStatus] = useState({ online: true, lastSeen: "сейчас" });
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
-  const [reactionMenuFor, setReactionMenuFor] = useState<string | null>(null);
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [newClientRequest, setNewClientRequest] = useState("");
@@ -103,7 +127,6 @@ function ClientsPageInner() {
   const [createClientError, setCreateClientError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recordIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // Инициализируем статус только на клиенте
@@ -137,132 +160,92 @@ function ClientsPageInner() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Загружаем реальную историю переписки при выборе клиента — эффект
+  // должен полностью заменять messages (не дописывать), т.к. страница не
+  // размонтируется между переключениями клиентов в списке слева.
   useEffect(() => {
-    return () => {
-      if (recordIntervalRef.current) clearInterval(recordIntervalRef.current);
-    };
-  }, []);
+    if (!selectedClientId) {
+      setMessages([]);
+      setMessengerLinks([]);
+      setMessagesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    async function loadMessages() {
+      setMessagesLoading(true);
+      setMessages([]);
+      try {
+        const res = await fetch(`/api/messages?client_id=${selectedClientId}`);
+        const data = await res.json();
+        if (!cancelled && res.ok) {
+          setMessages((data.messages ?? []).map(toChatMessage));
+          setMessengerLinks(data.links ?? []);
+          setSendChannel((data.links ?? []).some((l: MessengerLink) => l.platform === "vk") ? "vk" : "telegram");
+        }
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
+      }
+    }
+    loadMessages();
+    return () => { cancelled = true; };
+  }, [selectedClientId]);
 
-  const sendMessage = () => {
-    if (!chatInput.trim() && !selectedFile) return;
-
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: "psychologist",
-      text: chatInput,
-      time: timeStr,
-      timestamp: now,
-      isRead: true,
-      file: selectedFile ? {
-        name: selectedFile.name,
-        size: (selectedFile.size / 1024).toFixed(1) + " KB",
-      } : undefined,
-    };
-
-    setMessages(prev => [...prev, newMessage]);
+  const sendMessage = async () => {
+    if (!chatInput.trim() || sending || !selectedClientId) return;
+    // Вложения пока не поддерживаются реальной отправкой — Telegram/VK
+    // API для файлов требует отдельной загрузки, добавим отдельно.
+    const text = chatInput;
     setChatInput("");
-    setSelectedFile(null);
-
-    // Имитация ответа клиента
-    setTimeout(() => {
-      const replyTime = new Date();
-      const replyTimeStr = replyTime.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-      const replyMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: "client",
-        text: "Спасибо! Я согласен(а) с вашей рекомендацией.",
-        time: replyTimeStr,
-        timestamp: replyTime,
-        isRead: false,
-      };
-      setMessages(prev => [...prev, replyMessage]);
-    }, 2000);
+    setSending(true);
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: selectedClientId, text, channel: sendChannel }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessages(prev => [...prev, toChatMessage(data.message)]);
+        setSelectedFile(null);
+      } else {
+        setChatInput(text);
+        alert(data.error ?? "Не удалось отправить сообщение");
+      }
+    } catch {
+      setChatInput(text);
+      alert("Не удалось связаться с сервером");
+    } finally {
+      setSending(false);
+    }
   };
 
-  const formatDuration = (totalSeconds: number) => {
-    const m = Math.floor(totalSeconds / 60);
-    const s = totalSeconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
+  // Открывает выбор материала из базы знаний для вставки в сообщение
+  // клиенту — тот же паттерн, что и в /clients/[id].
+  const openAttachPicker = async () => {
+    setShowAttachPicker(true);
+    if (attachItems.length > 0 || attachLoading) return;
+    setAttachLoading(true);
+    setAttachError(null);
+    try {
+      const res = await fetch("/api/knowledge");
+      const data = await res.json();
+      if (!res.ok) {
+        setAttachError(data?.error ?? "Не удалось загрузить материалы");
+        return;
+      }
+      setAttachItems(data.items ?? []);
+    } catch {
+      setAttachError("Не удалось связаться с сервером");
+    } finally {
+      setAttachLoading(false);
+    }
   };
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setRecordSeconds(0);
-    recordIntervalRef.current = setInterval(() => {
-      setRecordSeconds(prev => prev + 1);
-    }, 1000);
-  };
-
-  const cancelRecording = () => {
-    if (recordIntervalRef.current) clearInterval(recordIntervalRef.current);
-    setIsRecording(false);
-    setRecordSeconds(0);
-  };
-
-  const sendRecording = () => {
-    if (recordIntervalRef.current) clearInterval(recordIntervalRef.current);
-    const duration = recordSeconds;
-    setIsRecording(false);
-    setRecordSeconds(0);
-
-    if (duration < 1) return;
-
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: "psychologist",
-      text: "",
-      time: timeStr,
-      timestamp: now,
-      isRead: true,
-      voice: { duration: formatDuration(duration) },
-    };
-    setMessages(prev => [...prev, newMessage]);
-
-    setTimeout(() => {
-      const replyTime = new Date();
-      const replyTimeStr = replyTime.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: "client",
-        text: "Спасибо за голосовое, послушаю и напишу!",
-        time: replyTimeStr,
-        timestamp: replyTime,
-        isRead: false,
-      }]);
-    }, 2000);
-  };
-
-  const toggleReaction = (messageId: string, emoji: string) => {
-    setMessages(prev => prev.map(msg => {
-      if (msg.id !== messageId) return msg;
-      const current = msg.reactions ?? [];
-      const has = current.includes(emoji);
-      return { ...msg, reactions: has ? current.filter(r => r !== emoji) : [...current, emoji] };
-    }));
-    setReactionMenuFor(null);
-  };
-
-  const loadTestsOrHomework = (type: "tests" | "homework") => {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-    const loadedText = type === "tests"
-      ? `📊 Загружены тесты клиента:\n• GAD-7: 15/21\n• Депрессия: Умеренная\n• Тревога: Высокая`
-      : `✅ Загружены задания:\n• Вести дневник эмоций\n• Упражнения релаксации\n• Анализ триггеров`;
-
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: "psychologist",
-      text: loadedText,
-      time: timeStr,
-      timestamp: now,
-      isRead: true,
-    };
-
-    setMessages(prev => [...prev, newMessage]);
+  // Вставляет текст материала в поле ввода — психолог может
+  // отредактировать перед отправкой.
+  const attachMaterial = (item: KnowledgeAttachItem) => {
+    setChatInput(prev => (prev ? `${prev}\n\n${item.content}` : item.content));
+    setShowAttachPicker(false);
   };
 
   const resetNewClientForm = () => {
@@ -527,7 +510,12 @@ function ClientsPageInner() {
             justifyContent: "space-between",
             flex: "0 0 auto",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <motion.div
+              onClick={() => router.push(`/clients/${selectedClient.id}`)}
+              whileHover={{ opacity: 0.75 }}
+              style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
+              title="Открыть полную карточку клиента"
+            >
               <div style={{
                 position: "relative",
               }}>
@@ -566,50 +554,7 @@ function ClientsPageInner() {
                   {clientStatus.online ? "онлайн" : `был(а) ${clientStatus.lastSeen}`}
                 </div>
               </div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Link href={`/clients/${selectedClient.id}`} style={{ textDecoration: "none" }}>
-                <button
-                  style={{
-                    padding: "0 14px",
-                    height: 36,
-                    background: "#2D6A5C",
-                    border: "none",
-                    borderRadius: 6,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    cursor: "pointer",
-                    color: "#FFFFFF",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    fontFamily: "var(--font-sans)",
-                  }}
-                  title="Открыть полную карточку клиента"
-                >
-                  Полная карточка
-                </button>
-              </Link>
-              <button
-                onClick={() => setShowProfile(!showProfile)}
-                style={{
-                  width: 36,
-                  height: 36,
-                  background: "#F5F3EF",
-                  border: "1px solid #E5DFD5",
-                  borderRadius: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  color: "#2D6A5C",
-                  transition: "all 0.2s",
-                }}
-                title="Быстрый профиль"
-              >
-                <User size={18} />
-              </button>
-            </div>
+            </motion.div>
           </div>
 
           {/* Чат */}
@@ -617,6 +562,12 @@ function ClientsPageInner() {
             <CardContent style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: 16, boxSizing: "border-box" }}>
               {/* Сообщения */}
               <div style={{ flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                {messagesLoading && (
+                  <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Загрузка переписки…</p>
+                )}
+                {!messagesLoading && messages.length === 0 && (
+                  <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Переписки пока нет</p>
+                )}
                 {messages.map((msg) => {
                   const isMine = msg.role === "psychologist";
                   return (
@@ -631,169 +582,38 @@ function ClientsPageInner() {
                       gap: 6,
                     }}
                   >
-                    {isMine && (
-                      <span style={{
-                        fontSize: 12,
-                        color: msg.isRead ? "#2D6A5C" : "#8C7355",
-                      }}>
-                        {msg.isRead ? "✓✓" : "✓"}
-                      </span>
-                    )}
                     <div
-                      style={{ position: "relative" }}
-                      onMouseEnter={() => {}}
-                      onMouseLeave={() => setReactionMenuFor(prev => (prev === msg.id ? null : prev))}
+                      className="chat-bubble-hover"
+                      style={{
+                        maxWidth: 340,
+                        padding: "10px 14px",
+                        borderRadius: 8,
+                        background: isMine ? "#2D6A5C" : "#F5F3EF",
+                        color: isMine ? "#fff" : "#1C1C1E",
+                        fontSize: 13,
+                        lineHeight: "1.5",
+                        whiteSpace: "pre-wrap",
+                        wordWrap: "break-word",
+                        position: "relative",
+                      }}
                     >
-                      <div
-                        className="chat-bubble-hover"
-                        style={{
-                          maxWidth: 340,
-                          padding: msg.voice ? "10px 14px" : "10px 14px",
-                          borderRadius: 8,
-                          background: isMine ? "#2D6A5C" : "#F5F3EF",
-                          color: isMine ? "#fff" : "#1C1C1E",
-                          fontSize: 13,
-                          lineHeight: "1.5",
-                          whiteSpace: "pre-wrap",
-                          wordWrap: "break-word",
-                          position: "relative",
-                        }}
-                      >
-                        {/* Кнопка "реакция" — появляется по наведению */}
-                        <button
-                          onClick={() => setReactionMenuFor(prev => (prev === msg.id ? null : msg.id))}
-                          className="chat-reaction-trigger"
-                          style={{
-                            position: "absolute",
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            [isMine ? "left" : "right"]: -32,
-                            width: 24,
-                            height: 24,
-                            borderRadius: "50%",
-                            border: "1px solid #E5DFD5",
-                            background: "#FFFFFF",
-                            color: "#8C7355",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            cursor: "pointer",
-                            opacity: 0,
-                            transition: "opacity 0.15s",
-                          } as React.CSSProperties}
-                          title="Поставить реакцию"
-                        >
-                          <Smile size={13} />
-                        </button>
-
-                        {/* Меню выбора эмодзи */}
-                        <AnimatePresence>
-                          {reactionMenuFor === msg.id && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 6, scale: 0.9 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: 6, scale: 0.9 }}
-                              style={{
-                                position: "absolute",
-                                bottom: "100%",
-                                marginBottom: 6,
-                                [isMine ? "right" : "left"]: 0,
-                                background: "#FFFFFF",
-                                border: "1px solid #E5DFD5",
-                                borderRadius: 20,
-                                padding: "6px 8px",
-                                display: "flex",
-                                gap: 4,
-                                boxShadow: "0 8px 20px rgba(15,22,41,0.12)",
-                                zIndex: 10,
-                              } as React.CSSProperties}
-                            >
-                              {REACTION_EMOJIS.map(emoji => (
-                                <button
-                                  key={emoji}
-                                  onClick={() => toggleReaction(msg.id, emoji)}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    fontSize: 16,
-                                    padding: 2,
-                                    lineHeight: 1,
-                                  }}
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-
-                        {msg.voice ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 160 }}>
-                            <button
-                              onClick={() => setPlayingVoiceId(prev => (prev === msg.id ? null : msg.id))}
-                              style={{
-                                width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
-                                border: "none", cursor: "pointer",
-                                background: isMine ? "rgba(255,255,255,0.2)" : "#FFFFFF",
-                                color: isMine ? "#fff" : "#2D6A5C",
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                              }}
-                            >
-                              {playingVoiceId === msg.id ? <Pause size={13} /> : <Play size={13} style={{ marginLeft: 1 }} />}
-                            </button>
-                            <div style={{ display: "flex", alignItems: "center", gap: 2, flex: 1 }}>
-                              {Array.from({ length: 22 }).map((_, i) => (
-                                <span
-                                  key={i}
-                                  style={{
-                                    width: 2,
-                                    height: 4 + ((i * 37) % 16),
-                                    borderRadius: 1,
-                                    background: isMine ? "rgba(255,255,255,0.6)" : "#8C7355",
-                                    opacity: playingVoiceId === msg.id ? 1 : 0.6,
-                                  }}
-                                />
-                              ))}
-                            </div>
-                            <span style={{ fontSize: 11, opacity: 0.75, flexShrink: 0 }}>{msg.voice.duration}</span>
-                          </div>
-                        ) : (
-                          <p style={{ margin: 0 }}>{msg.text}</p>
-                        )}
-                        {msg.file && (
-                          <div style={{ fontSize: 11, opacity: 0.7, marginTop: 6 }}>
-                            📎 {msg.file.name} ({msg.file.size})
-                          </div>
-                        )}
-                        <span style={{ fontSize: 10, opacity: 0.65, marginTop: 6, display: "block" }}>
-                          {formatMessageTime(msg.timestamp)}
-                        </span>
-                      </div>
-
-                      {msg.reactions && msg.reactions.length > 0 && (
-                        <div style={{
-                          display: "flex", gap: 3, marginTop: 4,
-                          justifyContent: isMine ? "flex-end" : "flex-start",
-                        }}>
-                          {msg.reactions.map(emoji => (
-                            <button
-                              key={emoji}
-                              onClick={() => toggleReaction(msg.id, emoji)}
-                              style={{
-                                fontSize: 12,
-                                background: "#FFFFFF",
-                                border: "1px solid #E5DFD5",
-                                borderRadius: 10,
-                                padding: "1px 6px",
-                                cursor: "pointer",
-                              }}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
+                      <p style={{ margin: 0 }}>{msg.text}</p>
+                      {msg.file && (
+                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 6 }}>
+                          📎 {msg.file.name} ({msg.file.size})
                         </div>
                       )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                        <span style={{ fontSize: 10, opacity: 0.65 }}>
+                          {formatMessageTime(msg.timestamp)}
+                        </span>
+                        {isMine && msg.status === "pending" && (
+                          <span style={{ fontSize: 10, opacity: 0.75 }} title={msg.errorMessage ?? "Клиент ещё не подключил чат"}>· не доставлено</span>
+                        )}
+                        {isMine && msg.status === "failed" && (
+                          <span style={{ fontSize: 10, color: "#FCA5A5" }} title={msg.errorMessage ?? ""}>· ошибка отправки</span>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                   );
@@ -801,55 +621,27 @@ function ClientsPageInner() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Инпут с файлами / режим записи ГС */}
-              {isRecording ? (
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  marginTop: 12, padding: "10px 14px",
-                  background: "#FEF3E2", border: "1px solid #F59E0B40", borderRadius: 6,
-                }}>
-                  <motion.div
-                    animate={{ opacity: [1, 0.3, 1] }}
-                    transition={{ duration: 1, repeat: Infinity }}
-                    style={{ width: 10, height: 10, borderRadius: "50%", background: "#EF4444", flexShrink: 0 }}
-                  />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E", flexShrink: 0 }}>
-                    Запись голосового {formatDuration(recordSeconds)}
-                  </span>
-                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 2, overflow: "hidden" }}>
-                    {Array.from({ length: 40 }).map((_, i) => (
-                      <motion.span
-                        key={i}
-                        animate={{ height: [4, 4 + ((i * 53) % 18), 4] }}
-                        transition={{ duration: 0.6 + (i % 5) * 0.1, repeat: Infinity, ease: "easeInOut" }}
-                        style={{ width: 2, borderRadius: 1, background: "#F59E0B", flexShrink: 0 }}
-                      />
-                    ))}
-                  </div>
-                  <button
-                    onClick={cancelRecording}
-                    style={{
-                      width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                      background: "#FFFFFF", border: "1px solid #E5DFD5", color: "#8C7355",
-                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-                    }}
-                    title="Отменить запись"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                  <button
-                    onClick={sendRecording}
-                    style={{
-                      width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                      background: "#2D6A5C", border: "none", color: "#FFFFFF",
-                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-                    }}
-                    title="Отправить голосовое"
-                  >
-                    <Send size={14} />
-                  </button>
+              {messengerLinks.length > 1 && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  {messengerLinks.map(l => (
+                    <button
+                      key={l.platform}
+                      onClick={() => setSendChannel(l.platform)}
+                      style={{
+                        padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                        border: sendChannel === l.platform ? "1px solid #2D6A5C" : "1px solid #E5DFD5",
+                        background: sendChannel === l.platform ? "#E8F2EF" : "#fff",
+                        color: sendChannel === l.platform ? "#2D6A5C" : "#6B6058",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {l.platform === "telegram" ? "Telegram" : "ВКонтакте"}
+                    </button>
+                  ))}
                 </div>
-              ) : (
+              )}
+
+              {/* Инпут */}
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flex: "0 0 auto", marginTop: 12 }}>
                 <div style={{ flex: 1 }}>
                   <textarea
@@ -903,7 +695,7 @@ function ClientsPageInner() {
                 </div>
                 <div style={{ display: "flex", gap: 12, alignItems: "center", flex: "0 0 auto" }}>
                   <button
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={openAttachPicker}
                     style={{
                       width: 36,
                       height: 36,
@@ -918,59 +710,13 @@ function ClientsPageInner() {
                       transition: "all 0.2s",
                       flexShrink: 0,
                     }}
-                    title="Добавить файл"
+                    title="Прикрепить материал из базы знаний"
                   >
                     <Paperclip size={18} />
                   </button>
                   <button
-                    onClick={() => {
-                      const menu = document.createElement('div');
-                      menu.innerHTML = `
-                        <button style="padding: 8px 12px; background: #2D6A5C; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;">Тесты</button>
-                        <button style="padding: 8px 12px; background: #1BAF7A; color: #fff; border: none; border-radius: 4px; cursor: pointer;">ДЗ</button>
-                      `;
-                    }}
-                    style={{
-                      width: 36,
-                      height: 36,
-                      background: "#F5F3EF",
-                      border: "1px solid #E5DFD5",
-                      borderRadius: 6,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      color: "#6B6058",
-                      transition: "all 0.2s",
-                      flexShrink: 0,
-                    }}
-                    title="Загрузить тесты или ДЗ"
-                  >
-                    <FileText size={18} />
-                  </button>
-                  <button
-                    onClick={startRecording}
-                    style={{
-                      width: 36,
-                      height: 36,
-                      background: "#F5F3EF",
-                      border: "1px solid #E5DFD5",
-                      borderRadius: 6,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      color: "#6B6058",
-                      transition: "all 0.2s",
-                      flexShrink: 0,
-                    }}
-                    title="Записать голосовое сообщение"
-                  >
-                    <Mic size={18} />
-                  </button>
-                  <button
                     onClick={sendMessage}
-                    disabled={!chatInput.trim() && !selectedFile}
+                    disabled={sending || !chatInput.trim()}
                     style={{
                       width: 36,
                       height: 36,
@@ -980,8 +726,8 @@ function ClientsPageInner() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      cursor: (chatInput.trim() || selectedFile) ? "pointer" : "not-allowed",
-                      opacity: (chatInput.trim() || selectedFile) ? 1 : 0.5,
+                      cursor: (sending || !chatInput.trim()) ? "not-allowed" : "pointer",
+                      opacity: (sending || !chatInput.trim()) ? 0.5 : 1,
                       color: "#FFFFFF",
                       transition: "all 0.2s",
                       flexShrink: 0,
@@ -992,7 +738,6 @@ function ClientsPageInner() {
                   </button>
                 </div>
               </div>
-              )}
 
               <input
                 ref={fileInputRef}
@@ -1069,198 +814,97 @@ function ClientsPageInner() {
         </div>
       )}
 
-      {/* Модальное окно профиля */}
+      {/* Выбор материала из базы знаний для вставки в сообщение клиенту */}
       <AnimatePresence>
-        {showProfile && selectedClient && (
-          <>
+        {showAttachPicker && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowAttachPicker(false)}
+            style={{
+              position: "fixed", inset: 0, background: "rgba(28,28,30,0.4)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              zIndex: 100, padding: 24,
+            }}
+          >
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowProfile(false)}
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
               style={{
-                position: "fixed",
-                inset: 0,
-                background: "rgba(0, 0, 0, 0.3)",
-                zIndex: 30,
-              }}
-            />
-            <motion.div
-              initial={{ x: 600, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 600, opacity: 0 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              style={{
-                position: "fixed",
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: "600px",
-                background: "#FFFFFF",
-                boxShadow: "-4px 0 16px rgba(0, 0, 0, 0.1)",
-                display: "flex",
-                flexDirection: "column",
-                zIndex: 35,
-                overflowY: "auto",
+                background: "#FFFFFF", borderRadius: 16, width: "100%", maxWidth: 520,
+                maxHeight: "80vh", display: "flex", flexDirection: "column",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden",
               }}
             >
-              {/* Заголовок профиля */}
               <div style={{
-                padding: "16px 20px",
-                borderBottom: "1px solid #E5DFD5",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flex: "0 0 auto",
+                padding: "18px 20px", borderBottom: "1px solid #EFEAE0",
+                display: "flex", alignItems: "center", justifyContent: "space-between",
               }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>Профиль</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <BookOpen size={16} style={{ color: "#2D6A5C" }} />
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
+                    Прикрепить материал
+                  </h3>
+                </div>
                 <button
-                  onClick={() => setShowProfile(false)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color: "#8C7355",
-                    padding: "12px 12px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "all 0.2s",
-                    borderRadius: 6,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "#1C1C1E";
-                    e.currentTarget.style.background = "#F5F3EF";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = "#8C7355";
-                    e.currentTarget.style.background = "none";
-                  }}
+                  onClick={() => setShowAttachPicker(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}
                 >
-                  <X size={24} />
+                  <X size={18} />
                 </button>
               </div>
 
-              {/* Вкладки */}
-              <div style={{
-                display: "flex",
-                gap: 0,
-                borderBottom: "1px solid #E5DFD5",
-                paddingLeft: 16,
-              }}>
-                <button
-                  onClick={() => setProfileTab("profile")}
-                  style={{
-                    padding: "12px 12px",
-                    background: "none",
-                    border: "none",
-                    borderBottom: profileTab === "profile" ? "2px solid #2D6A5C" : "2px solid transparent",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: profileTab === "profile" ? "#2D6A5C" : "#8C7355",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  Профиль
-                </button>
-                <button
-                  onClick={() => setProfileTab("progress")}
-                  style={{
-                    padding: "12px 12px",
-                    background: "none",
-                    border: "none",
-                    borderBottom: profileTab === "progress" ? "2px solid #2D6A5C" : "2px solid transparent",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: profileTab === "progress" ? "#2D6A5C" : "#8C7355",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  Прогресс
-                </button>
-              </div>
-
-              {/* Содержимое профиля */}
-              <div style={{ padding: "16px", flex: 1, overflowY: "auto" }}>
-                {profileTab === "profile" && (
-                  <>
-                    <div style={{ marginBottom: 20 }}>
-                      <div style={{
-                        width: 64,
-                        height: 64,
-                        background: avatarColors[clients.indexOf(selectedClient) % avatarColors.length],
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 24,
-                        fontWeight: 700,
-                        color: "#fff",
-                        marginBottom: 12,
+              <div style={{ overflowY: "auto", padding: "8px 12px", flex: 1 }}>
+                {attachLoading && (
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                    Загрузка материалов...
+                  </div>
+                )}
+                {attachError && !attachLoading && (
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#C0392B" }}>
+                    {attachError}
+                  </div>
+                )}
+                {!attachLoading && !attachError && attachItems.length === 0 && (
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                    В базе знаний пока нет материалов
+                  </div>
+                )}
+                {!attachLoading && !attachError && attachItems.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => attachMaterial(item)}
+                    style={{
+                      width: "100%", textAlign: "left", background: "none", border: "none",
+                      borderBottom: "1px solid #F5F1E8", padding: "12px 8px", cursor: "pointer",
+                      display: "flex", flexDirection: "column", gap: 4, fontFamily: "var(--font-sans)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, color: "#2D6A5C", background: "#E8F2EF",
+                        padding: "2px 6px", borderRadius: 4, flexShrink: 0,
                       }}>
-                        {selectedClient.initials}
-                      </div>
-                      <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: "0 0 4px 0" }}>
-                        {selectedClient.name}
-                      </h3>
-                      <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
-                        {[selectedClient.age ? `${selectedClient.age} лет` : null, selectedClient.gender === "female" ? "Женский" : selectedClient.gender === "male" ? "Мужской" : null].filter(Boolean).join(" · ") || "Данные не указаны"}
-                      </p>
+                        {ATTACH_SOURCE_TYPE_LABELS[item.source_type] ?? item.source_type}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
+                        {item.title ?? "Без названия"}
+                      </span>
                     </div>
-
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 6 }}>Запрос</div>
-                      <div style={{ fontSize: 12, color: "#1C1C1E", lineHeight: "1.4" }}>{selectedClient.request}</div>
-                    </div>
-
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 6 }}>Подход</div>
-                      <div style={{ fontSize: 12, color: "#1C1C1E" }}>{APPROACH_LABELS[selectedClient.approach as Approach] ?? selectedClient.approach}</div>
-                    </div>
-
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 6 }}>Триггеры</div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {(selectedClient.triggers ?? EMPTY_TRIGGERS).length === 0 && (
-                          <span style={{ fontSize: 12, color: "#8C7355" }}>Пока не отмечены</span>
-                        )}
-                        {(selectedClient.triggers ?? EMPTY_TRIGGERS).map((trigger, i) => (
-                          <span key={i} style={{
-                            padding: "4px 8px",
-                            background: "#E8F2EF",
-                            color: "#2D6A5C",
-                            borderRadius: 4,
-                            fontSize: 11,
-                            fontWeight: 500,
-                          }}>
-                            {trigger}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 6 }}>Последний тест</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
-                        {selectedClient.lastTest
-                          ? `${selectedClient.lastTest.name}: ${selectedClient.lastTest.score}`
-                          : "Тесты ещё не проводились"}
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {profileTab === "progress" && (
-                  <ClientProgressScale
-                    clientName={selectedClient.name}
-                    progress={selectedClient.progress ?? EMPTY_PROGRESS}
-                  />
-                )}
+                    <p style={{
+                      fontSize: 12, color: "#6B6058", margin: 0, lineHeight: 1.5,
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                    }}>
+                      {item.content}
+                    </p>
+                  </button>
+                ))}
               </div>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
 
