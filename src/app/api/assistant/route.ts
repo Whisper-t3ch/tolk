@@ -105,7 +105,15 @@ export async function POST(request: NextRequest) {
     psychologistProfile?.approach ?? null
   );
 
-  const systemPrompt = [approachBlock, AGENT_SYSTEM_PROMPT, promptAdditions].filter(Boolean).join("\n\n");
+  // Текущая дата/время психолога — без этого модель не может надёжно
+  // посчитать "завтра", "через час", "в пятницу" и т.п. при вызове
+  // create_session/find_available_slots (обучающие данные не содержат
+  // сегодняшнюю дату). Часовой пояс сервера — тот же, в котором
+  // хранятся даты сессий в БД (без отдельного per-психолог TZ пока).
+  const now = new Date();
+  const dateTimeBlock = `Текущая дата и время: ${now.toLocaleDateString("ru", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })} (ISO: ${now.toISOString()}). Используй это как точку отсчёта для "завтра", "через неделю", "в пятницу" и подобных относительных формулировок времени — никогда не угадывай и не бери дату из своих обучающих данных.`;
+
+  const systemPrompt = [approachBlock, AGENT_SYSTEM_PROMPT, dateTimeBlock, promptAdditions].filter(Boolean).join("\n\n");
 
   // Подгружаем историю переписки этой agent_session — без этого каждое
   // сообщение психолога обрабатывается моделью в полном отрыве от
