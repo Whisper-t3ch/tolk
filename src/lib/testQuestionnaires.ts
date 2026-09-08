@@ -30,12 +30,31 @@ export interface InterpretationRange {
   label: string;
 }
 
+/** Один пункт для ранжирования (методики типа Рокич — расставить по значимости, не Likert-шкала). */
+export interface RankingItem {
+  id: string;
+  text: string;
+}
+
 export interface QuestionnaireSchema {
-  /** Общая шкала ответов для всех вопросов, если не переопределена в вопросе. */
+  /**
+   * "likert" (по умолчанию, если не указано) — обычный опросник с
+   * шкалой ответов и суммированием/усреднением баллов. "ranking" —
+   * клиент расставляет пункты по порядку значимости (нет единого
+   * "правильного" балла и диапазонов интерпретации — результат это
+   * сам порядок, который психолог обсуждает с клиентом).
+   */
+  type?: "likert" | "ranking";
+  /** Общая шкала ответов для всех вопросов, если не переопределена в вопросе. Только для type="likert". */
   responseScale?: ResponseOption[];
-  questions: QuestionnaireQuestion[];
+  /** Вопросы опросника — только для type="likert" (или не указан). */
+  questions?: QuestionnaireQuestion[];
+  /** Пункты для ранжирования — только для type="ranking". */
+  rankingItems?: RankingItem[];
+  /** Название группы пунктов для ranking-опросника с несколькими группами (например, терминальные/инструментальные ценности Рокича). */
+  rankingGroups?: Array<{ key: string; label: string; items: RankingItem[] }>;
   subscales?: Array<{ key: string; label: string }>;
-  scoring: "sum" | "average";
+  scoring: "sum" | "average" | "ranking";
   ranges: InterpretationRange[];
   subscaleRanges?: Record<string, InterpretationRange[]>;
 }
@@ -45,6 +64,8 @@ export interface QuestionnaireResult {
   maxScore: number;
   interpretation: string;
   subscaleScores?: Record<string, { score: number; maxScore: number; interpretation: string }>;
+  /** Для ranking-опросников — итоговый порядок пунктов (id) по группам, от самого значимого к наименее. */
+  rankingResult?: Record<string, string[]>;
 }
 
 /**
@@ -54,14 +75,21 @@ export interface QuestionnaireResult {
  * Бросает Error, если какой-то вопрос не отвечен — вызывающий код
  * (POST /api/public/test/[token]/submit) должен проверить это
  * заранее и вернуть понятную 400-ошибку клиенту.
+ *
+ * Для type="ranking" передайте answers как { groupKey: string[] } —
+ * см. scoreRankingQuestionnaire ниже, эта функция для ranking не подходит.
  */
 export function scoreQuestionnaire(
   schema: QuestionnaireSchema,
   answers: Record<string, number>
 ): QuestionnaireResult {
   const perQuestion: Array<{ q: QuestionnaireQuestion; raw: number; max: number }> = [];
+  const questions = schema.questions ?? [];
+  if (questions.length === 0) {
+    throw new Error("У опросника нет вопросов (возможно, это ranking-опросник — используйте scoreRankingQuestionnaire)");
+  }
 
-  for (const q of schema.questions) {
+  for (const q of questions) {
     const scale = q.responseScale ?? schema.responseScale;
     if (!scale || scale.length === 0) {
       throw new Error(`Вопрос ${q.id} не имеет шкалы ответов`);
@@ -113,6 +141,42 @@ function interpretByRanges(score: number, ranges: InterpretationRange[]): string
   const sorted = [...ranges].sort((a, b) => a.upTo - b.upTo);
   const found = sorted.find(r => score <= r.upTo);
   return found?.label ?? sorted[sorted.length - 1]?.label ?? "";
+}
+
+/**
+ * Обрабатывает ответ на ranking-опросник (например, методика ценностных
+ * ориентаций Рокича) — клиент присылает не баллы, а порядок пунктов по
+ * каждой группе: answers = { groupKey: ["item3", "item1", "item2", ...] }.
+ * В отличие от scoreQuestionnaire, здесь нет единого "балла" и диапазонов
+ * интерпретации — сам порядок и есть результат, который психолог
+ * анализирует вместе с клиентом. Функция только проверяет полноту и
+ * корректность ответа (все пункты каждой группы присутствуют ровно
+ * один раз) и возвращает порядок как есть.
+ */
+export function scoreRankingQuestionnaire(
+  schema: QuestionnaireSchema,
+  answers: Record<string, string[]>
+): QuestionnaireResult {
+  const groups = schema.rankingGroups ?? (schema.rankingItems ? [{ key: "default", label: "", items: schema.rankingItems }] : []);
+  if (groups.length === 0) {
+    throw new Error("У опросника нет пунктов для ранжирования");
+  }
+
+  const rankingResult: Record<string, string[]> = {};
+  for (const group of groups) {
+    const order = answers[group.key];
+    if (!Array.isArray(order)) {
+      throw new Error(`Нет порядка для группы "${group.key}"`);
+    }
+    const expectedIds = new Set(group.items.map(i => i.id));
+    const gotIds = new Set(order);
+    if (order.length !== group.items.length || expectedIds.size !== gotIds.size || [...expectedIds].some(id => !gotIds.has(id))) {
+      throw new Error(`Порядок для группы "${group.key}" должен содержать каждый пункт ровно один раз`);
+    }
+    rankingResult[group.key] = order;
+  }
+
+  return { score: 0, maxScore: 0, interpretation: "Результат — порядок пунктов, см. rankingResult", rankingResult };
 }
 
 /** Генерирует случайный URL-safe токен для публичной ссылки на тест. */

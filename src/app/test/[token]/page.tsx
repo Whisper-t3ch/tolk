@@ -14,6 +14,17 @@ interface Question {
   responseScale?: ResponseOption[];
 }
 
+interface RankingItem {
+  id: string;
+  text: string;
+}
+
+interface RankingGroup {
+  key: string;
+  label: string;
+  items: RankingItem[];
+}
+
 export default function PublicTestPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
 
@@ -22,10 +33,14 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
   const [alreadyCompleted, setAlreadyCompleted] = useState(false);
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState<string | null>(null);
+  const [testType, setTestType] = useState<"likert" | "ranking">("likert");
   const [responseScale, setResponseScale] = useState<ResponseOption[] | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [rankingGroups, setRankingGroups] = useState<RankingGroup[]>([]);
 
   const [answers, setAnswers] = useState<Record<string, number>>({});
+  // Для ranking: groupKey -> порядок id пунктов, от самого значимого к наименее.
+  const [rankingAnswers, setRankingAnswers] = useState<Record<string, string[]>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<{ score: number; maxScore: number; interpretation: string } | null>(null);
@@ -49,8 +64,14 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
         }
         setTitle(data.title ?? "Тест");
         setInstructions(data.instructions ?? null);
-        setResponseScale(data.responseScale ?? null);
-        setQuestions(data.questions ?? []);
+        if (data.type === "ranking") {
+          setTestType("ranking");
+          setRankingGroups(data.rankingGroups ?? []);
+        } else {
+          setTestType("likert");
+          setResponseScale(data.responseScale ?? null);
+          setQuestions(data.questions ?? []);
+        }
       } catch {
         if (!cancelled) setError("Не удалось загрузить тест — проверьте соединение");
       } finally {
@@ -64,16 +85,29 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
 
   const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
   const allAnswered = questions.length > 0 && answeredCount === questions.length;
+  const allRanked = rankingGroups.length > 0 && rankingGroups.every(g => (rankingAnswers[g.key]?.length ?? 0) === g.items.length);
+  const canSubmit = testType === "ranking" ? allRanked : allAnswered;
+
+  // Клик по пункту в ranking-группе — добавляет его следующим номером в
+  // порядке значимости; повторный клик по уже выбранному пункту снимает
+  // выбор (и сдвигает номера следующих за ним вверх).
+  function toggleRankingItem(groupKey: string, itemId: string) {
+    setRankingAnswers(prev => {
+      const current = prev[groupKey] ?? [];
+      const next = current.includes(itemId) ? current.filter(id => id !== itemId) : [...current, itemId];
+      return { ...prev, [groupKey]: next };
+    });
+  }
 
   async function submit() {
-    if (!allAnswered || submitting) return;
+    if (!canSubmit || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
       const res = await fetch(`/api/public/test/${token}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers }),
+        body: JSON.stringify(testType === "ranking" ? { rankingAnswers } : { answers }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -179,7 +213,95 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
           </motion.div>
         )}
 
-        {!loading && !error && !alreadyCompleted && !result && (
+        {!loading && !error && !alreadyCompleted && !result && testType === "ranking" && (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
+              {rankingGroups.map(group => {
+                const order = rankingAnswers[group.key] ?? [];
+                return (
+                  <div key={group.key} style={{ background: "#fff", borderRadius: 14, border: "1px solid #E5DFD5", padding: 16 }}>
+                    {group.label && (
+                      <p style={{ fontSize: 13.5, fontWeight: 700, color: "#1C1C1E", marginBottom: 6 }}>{group.label}</p>
+                    )}
+                    <p style={{ fontSize: 12, color: "#8C7355", marginBottom: 12, lineHeight: 1.5 }}>
+                      Нажимайте на пункты по порядку — от самого важного для вас к наименее важному.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {group.items.map(item => {
+                        const rank = order.indexOf(item.id);
+                        const selected = rank !== -1;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => toggleRankingItem(group.key, item.id)}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 10,
+                              textAlign: "left", padding: "9px 12px", borderRadius: 8, cursor: "pointer",
+                              fontSize: 13, fontFamily: "var(--font-sans)",
+                              border: selected ? "1.5px solid #2D6A5C" : "1px solid #E5DFD5",
+                              background: selected ? "#E8F2EF" : "#fff",
+                              color: selected ? "#2D6A5C" : "#1C1C1E",
+                              fontWeight: selected ? 700 : 400,
+                            }}
+                          >
+                            <span style={{
+                              width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 11, fontWeight: 700,
+                              background: selected ? "#2D6A5C" : "#E5DFD5",
+                              color: selected ? "#fff" : "#8C7355",
+                            }}>
+                              {selected ? rank + 1 : ""}
+                            </span>
+                            {item.text}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <AnimatePresence>
+              {rankingGroups.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  style={{
+                    position: "sticky", bottom: 16, background: "#fff",
+                    borderRadius: 14, border: "1px solid #E5DFD5", padding: 14,
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#6B6058" }}>
+                    <ClipboardList size={14} style={{ color: "#2D6A5C" }} />
+                    {allRanked ? "Все пункты расставлены" : "Расставьте все пункты по порядку"}
+                  </div>
+                  <button
+                    onClick={submit}
+                    disabled={!canSubmit || submitting}
+                    style={{
+                      padding: "10px 18px", borderRadius: 10, border: "none",
+                      background: canSubmit ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)" : "#E5DFD5",
+                      color: canSubmit ? "#fff" : "#8C7355",
+                      fontSize: 13.5, fontWeight: 700, cursor: canSubmit ? "pointer" : "default",
+                      fontFamily: "var(--font-sans)", whiteSpace: "nowrap",
+                      opacity: submitting ? 0.7 : 1,
+                    }}
+                  >
+                    {submitting ? "Отправляю..." : "Отправить ответы"}
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {submitError && (
+              <p style={{ fontSize: 12.5, color: "#EF4444", marginTop: 10, textAlign: "center" }}>{submitError}</p>
+            )}
+          </>
+        )}
+
+        {!loading && !error && !alreadyCompleted && !result && testType === "likert" && (
           <>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
               {questions.map((q, idx) => {

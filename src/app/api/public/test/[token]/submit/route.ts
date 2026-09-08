@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { scoreQuestionnaire, type QuestionnaireSchema } from "@/lib/testQuestionnaires";
+import { scoreQuestionnaire, scoreRankingQuestionnaire, type QuestionnaireSchema } from "@/lib/testQuestionnaires";
 
 // POST /api/public/test/[token]/submit
-// Body: { answers: Record<string, number> }
+// Body: { answers: Record<string, number> } для обычных опросников, или
+//       { rankingAnswers: Record<string, string[]> } для ranking-опросников
+//       (schema.type === "ranking", например методика Рокича).
 //
 // Публичный роут — БЕЗ авторизации. Принимает ответы клиента, считает
 // балл по ключу опросника (test_questionnaires.schema, включая
@@ -15,13 +17,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { token } = await params;
   const supabase = createAdminClient();
 
-  let body: { answers?: Record<string, number> };
+  let body: { answers?: Record<string, number>; rankingAnswers?: Record<string, string[]> };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Некорректное тело запроса" }, { status: 400 });
   }
-  if (!body.answers || typeof body.answers !== "object") {
+  if ((!body.answers || typeof body.answers !== "object") && (!body.rankingAnswers || typeof body.rankingAnswers !== "object")) {
     return NextResponse.json({ error: "Не переданы ответы" }, { status: 400 });
   }
 
@@ -44,9 +46,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (qError) return NextResponse.json({ error: qError.message }, { status: 500 });
   if (!questionnaire) return NextResponse.json({ error: "Опросник не найден" }, { status: 404 });
 
+  const schema = questionnaire.schema as QuestionnaireSchema;
+  const isRanking = schema.type === "ranking";
+
   let result;
   try {
-    result = scoreQuestionnaire(questionnaire.schema as QuestionnaireSchema, body.answers);
+    result = isRanking
+      ? scoreRankingQuestionnaire(schema, body.rankingAnswers ?? {})
+      : scoreQuestionnaire(schema, body.answers ?? {});
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Не удалось посчитать результат — проверьте, что отвечены все вопросы" },
@@ -60,7 +67,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       score: result.score,
       max_score: result.maxScore,
       interpretation: result.interpretation,
-      answers: { raw: body.answers, subscales: result.subscaleScores ?? null },
+      answers: isRanking
+        ? { ranking: result.rankingResult }
+        : { raw: body.answers, subscales: result.subscaleScores ?? null },
       status: "completed",
       completed_at: new Date().toISOString(),
     })
