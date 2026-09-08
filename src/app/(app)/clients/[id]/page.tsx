@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Send, ChevronLeft, FileText, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
-  Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen,
+  Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen, Search,
 } from "lucide-react";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
 import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
@@ -143,6 +143,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [attachItems, setAttachItems] = useState<KnowledgeAttachItem[]>([]);
   const [attachLoading, setAttachLoading] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [attachSearch, setAttachSearch] = useState("");
+  const [attachTypeFilter, setAttachTypeFilter] = useState<string>("");
   const [activeTab, setActiveTab] = useState<TabId>("sessions");
   const [exportingTranscripts, setExportingTranscripts] = useState(false);
   const [showPeriodSummary, setShowPeriodSummary] = useState(false);
@@ -298,6 +300,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   // или материал платформы, кроме ручного набора текста заново.
   const openAttachPicker = async () => {
     setShowAttachPicker(true);
+    setAttachSearch("");
+    setAttachTypeFilter("");
     if (attachItems.length > 0 || attachLoading) return;
     setAttachLoading(true);
     setAttachError(null);
@@ -324,6 +328,22 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     setChatInput(prev => (prev ? `${prev}\n\n${item.content}` : item.content));
     setShowAttachPicker(false);
   };
+
+  const filteredAttachItems = useMemo(() => {
+    const query = attachSearch.trim().toLowerCase();
+    return attachItems.filter(item => {
+      const matchesType = !attachTypeFilter || item.source_type === attachTypeFilter;
+      const matchesSearch = !query
+        || (item.title ?? "").toLowerCase().includes(query)
+        || item.content.toLowerCase().includes(query);
+      return matchesType && matchesSearch;
+    });
+  }, [attachItems, attachSearch, attachTypeFilter]);
+
+  const attachAvailableTypes = useMemo(
+    () => Array.from(new Set(attachItems.map(i => i.source_type))),
+    [attachItems]
+  );
 
   const loadInviteLink = async () => {
     setInviteError(null);
@@ -800,6 +820,53 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 </button>
               </div>
 
+              {!attachLoading && !attachError && attachItems.length > 0 && (
+                <div style={{ padding: "12px 20px 8px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ position: "relative" }}>
+                    <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#8C7355" }} />
+                    <input
+                      value={attachSearch}
+                      onChange={e => setAttachSearch(e.target.value)}
+                      placeholder="Поиск по базе знаний..."
+                      style={{
+                        width: "100%", padding: "8px 10px 8px 32px", border: "1px solid #E5DFD5",
+                        borderRadius: 8, fontSize: 13, color: "#1C1C1E", boxSizing: "border-box",
+                        fontFamily: "var(--font-sans)",
+                      }}
+                    />
+                  </div>
+                  {attachAvailableTypes.length > 1 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button
+                        onClick={() => setAttachTypeFilter("")}
+                        style={{
+                          padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer",
+                          fontSize: 11, fontWeight: 600, fontFamily: "var(--font-sans)",
+                          background: attachTypeFilter === "" ? "#2D6A5C" : "#F5F3EF",
+                          color: attachTypeFilter === "" ? "#FFFFFF" : "#6B6058",
+                        }}
+                      >
+                        Все
+                      </button>
+                      {attachAvailableTypes.map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setAttachTypeFilter(prev => (prev === type ? "" : type))}
+                          style={{
+                            padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer",
+                            fontSize: 11, fontWeight: 600, fontFamily: "var(--font-sans)",
+                            background: attachTypeFilter === type ? "#2D6A5C" : "#F5F3EF",
+                            color: attachTypeFilter === type ? "#FFFFFF" : "#6B6058",
+                          }}
+                        >
+                          {ATTACH_SOURCE_TYPE_LABELS[type] ?? type}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ overflowY: "auto", padding: "8px 12px", flex: 1 }}>
                 {attachLoading && (
                   <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
@@ -816,7 +883,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                     В базе знаний пока нет материалов
                   </div>
                 )}
-                {!attachLoading && !attachError && attachItems.map(item => (
+                {!attachLoading && !attachError && attachItems.length > 0 && filteredAttachItems.length === 0 && (
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                    Ничего не найдено
+                  </div>
+                )}
+                {!attachLoading && !attachError && filteredAttachItems.map(item => (
                   <button
                     key={item.id}
                     onClick={() => attachMaterial(item)}
