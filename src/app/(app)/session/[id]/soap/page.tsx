@@ -253,13 +253,37 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
     }
   }
 
-  function handlePdf() {
+  async function handlePdf() {
+    if (!protocolExists) {
+      setNotification("Сначала сохраните протокол — без этого нечего экспортировать");
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
     setPdfLoading(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/soap/pdf`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setNotification(data.error ?? "Не удалось сформировать PDF");
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? "protokol.pdf";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setNotification("Не удалось сформировать PDF — проверьте соединение");
+      setTimeout(() => setNotification(null), 3000);
+    } finally {
       setPdfLoading(false);
-      setNotification("PDF готов и сохранён в карточку клиента");
-      setTimeout(() => setNotification(null), 2500);
-    }, 1500);
+    }
   }
 
   const selectedTemplate = useMemo(
