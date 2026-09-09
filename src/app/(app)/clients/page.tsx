@@ -105,7 +105,6 @@ function ClientsPageInner() {
   const [messengerLinks, setMessengerLinks] = useState<MessengerLink[]>([]);
   const [sendChannel, setSendChannel] = useState<"telegram" | "vk">("telegram");
   const [chatInput, setChatInput] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [showAttachPicker, setShowAttachPicker] = useState(false);
   const [attachItems, setAttachItems] = useState<KnowledgeAttachItem[]>([]);
@@ -121,7 +120,6 @@ function ClientsPageInner() {
   const [newClientGender, setNewClientGender] = useState<"male" | "female">("female");
   const [creatingClient, setCreatingClient] = useState(false);
   const [createClientError, setCreateClientError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const selectedClient = selectedClientId ? clients.find(c => c.id === selectedClientId) : null;
@@ -193,7 +191,6 @@ function ClientsPageInner() {
       const data = await res.json();
       if (res.ok) {
         setMessages(prev => [...prev, toChatMessage(data.message)]);
-        setSelectedFile(null);
       } else {
         setChatInput(text);
         alert(data.error ?? "Не удалось отправить сообщение");
@@ -676,30 +673,6 @@ function ClientsPageInner() {
                     }}
                     rows={2}
                   />
-                  {selectedFile && (
-                    <div style={{
-                      fontSize: 11,
-                      color: "#2D6A5C",
-                      marginTop: 4,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}>
-                      📎 {selectedFile.name}
-                      <button
-                        onClick={() => setSelectedFile(null)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#8C7355",
-                          cursor: "pointer",
-                          fontSize: 12,
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
                 </div>
                 <div style={{ display: "flex", gap: 12, alignItems: "center", flex: "0 0 auto" }}>
                   <button
@@ -746,17 +719,6 @@ function ClientsPageInner() {
                   </button>
                 </div>
               </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={e => {
-                  if (e.target.files?.[0]) {
-                    setSelectedFile(e.target.files[0]);
-                  }
-                }}
-                style={{ display: "none" }}
-              />
 
               {/* Точка входа в ИИ-ассистента — внизу страницы справа, не поверх чата */}
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, flex: "0 0 auto" }}>
