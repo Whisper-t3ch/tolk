@@ -144,6 +144,26 @@ export default function DashboardPage() {
     return Math.round(total / clients.length);
   }, [clients, sessionCountByClient]);
 
+  // Раньше оба блока ниже (ДЗ и статус клиентов) были захардкожены
+  // прямо в JSX ("9 / 16 заданий", "3 активных / 1 на паузе / 0 завершено")
+  // — не менялись независимо от реальных данных психолога. Теперь
+  // считаются от clients из ClientsContext (hwTotal/hwCompleted/status
+  // уже приходят из БД, см. src/lib/data/clients.ts).
+  const homeworkTotals = useMemo(() => {
+    const totalAssigned = clients.reduce((sum, c) => sum + (c.hwTotal ?? 0), 0);
+    const totalCompleted = clients.reduce((sum, c) => sum + (c.hwCompleted ?? 0), 0);
+    const pct = totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
+    const clientsFullyDone = clients.filter(c => (c.hwTotal ?? 0) > 0 && c.hwCompleted >= c.hwTotal).length;
+    const clientsInProgress = clients.filter(c => (c.hwTotal ?? 0) > 0 && c.hwCompleted < c.hwTotal).length;
+    return { totalAssigned, totalCompleted, pct, clientsFullyDone, clientsInProgress };
+  }, [clients]);
+
+  const clientsByStatus = useMemo(() => ({
+    active: clients.filter(c => c.status === "active").length,
+    pause: clients.filter(c => c.status === "pause").length,
+    completed: clients.filter(c => c.status === "completed").length,
+  }), [clients]);
+
   return (
     <div style={{ maxWidth: 1200, width: "100%", margin: "0 auto" }}>
       {/* Заголовок */}
@@ -448,28 +468,36 @@ export default function DashboardPage() {
               <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 8 }}>
                 Выполнение ДЗ
               </h3>
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12 }}>
-                  <span style={{ color: "#6B6058" }}>9 / 16 заданий</span>
-                  <span style={{ color: "#1BAF7A", fontWeight: 600 }}>56%</span>
-                </div>
-                <div style={{
-                  height: 8,
-                  background: "rgba(27, 175, 122, 0.1)",
-                  borderRadius: 4,
-                  overflow: "hidden",
-                }}>
-                  <div style={{
-                    width: "56%",
-                    height: "100%",
-                    background: "linear-gradient(90deg, #1BAF7A 0%, #1a9b6d 100%)",
-                    borderRadius: 4,
-                  }} />
-                </div>
-              </div>
-              <p style={{ fontSize: 12, color: "#8C7355" }}>
-                9 клиентов завершили, 7 в работе
-              </p>
+              {homeworkTotals.totalAssigned === 0 ? (
+                <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
+                  Пока нет назначенных домашних заданий
+                </p>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12 }}>
+                      <span style={{ color: "#6B6058" }}>{homeworkTotals.totalCompleted} / {homeworkTotals.totalAssigned} заданий</span>
+                      <span style={{ color: "#1BAF7A", fontWeight: 600 }}>{homeworkTotals.pct}%</span>
+                    </div>
+                    <div style={{
+                      height: 8,
+                      background: "rgba(27, 175, 122, 0.1)",
+                      borderRadius: 4,
+                      overflow: "hidden",
+                    }}>
+                      <div style={{
+                        width: `${homeworkTotals.pct}%`,
+                        height: "100%",
+                        background: "linear-gradient(90deg, #1BAF7A 0%, #1a9b6d 100%)",
+                        borderRadius: 4,
+                      }} />
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
+                    {homeworkTotals.clientsFullyDone} клиентов завершили, {homeworkTotals.clientsInProgress} в работе
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -482,15 +510,15 @@ export default function DashboardPage() {
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", gap: 12 }}>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#1BAF7A" }}>3</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#1BAF7A" }}>{clientsByStatus.active}</div>
                     <div style={{ fontSize: 11, color: "#8C7355" }}>Активных</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#F59E0B" }}>1</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#F59E0B" }}>{clientsByStatus.pause}</div>
                     <div style={{ fontSize: 11, color: "#8C7355" }}>На паузе</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#8C7355" }}>0</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#8C7355" }}>{clientsByStatus.completed}</div>
                     <div style={{ fontSize: 11, color: "#8C7355" }}>Завершено</div>
                   </div>
                 </div>
