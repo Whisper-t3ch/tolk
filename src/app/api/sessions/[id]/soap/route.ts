@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { data: soapNote, error: soapError } = await supabase
     .from("soap_notes")
-    .select("id, s_subjective, o_objective, a_assessment, p_plan, client_summary, client_summary_sent_at, created_at, updated_at")
+    .select("id, s_subjective, o_objective, a_assessment, p_plan, client_summary, client_summary_sent_at, protocol_template_id, created_at, updated_at")
     .eq("session_id", sessionId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -43,6 +43,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (soapError) {
     return NextResponse.json({ error: soapError.message }, { status: 500 });
   }
+
+  // Список доступных шаблонов протоколов для выбора на странице —
+  // тот же источник, что вкладка "Шаблоны протоколов" в базе знаний
+  // (закрывает обрыв: шаблоны существовали, но не применялись к реальной
+  // заметке сессии, см. migration_017_soap_protocol_template.sql).
+  const { data: templates } = await supabase
+    .from("knowledge_base")
+    .select("id, title, content")
+    .eq("psychologist_id", user.id)
+    .eq("source_type", "protocol")
+    .order("created_at", { ascending: true });
 
   const clientRel = Array.isArray(session.clients) ? session.clients[0] : session.clients;
   const roomName = (session.jitsi_room_name as string | null) || buildJitsiRoomName(session.id as string);
@@ -67,10 +78,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           p: soapNote.p_plan ?? "",
           clientSummary: soapNote.client_summary,
           clientSummarySentAt: soapNote.client_summary_sent_at,
+          protocolTemplateId: soapNote.protocol_template_id,
           createdAt: soapNote.created_at,
           updatedAt: soapNote.updated_at,
         }
       : null,
+    templates: templates ?? [],
   });
 }
 
@@ -90,7 +103,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  let body: { s?: string; o?: string; a?: string; p?: string };
+  let body: { s?: string; o?: string; a?: string; p?: string; protocol_template_id?: string | null };
   try {
     body = await request.json();
   } catch {
@@ -125,19 +138,25 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: existingError.message }, { status: 500 });
   }
 
-  const patch = {
+  const patch: Record<string, unknown> = {
     s_subjective: body.s ?? "",
     o_objective: body.o ?? "",
     a_assessment: body.a ?? "",
     p_plan: body.p ?? "",
   };
+  // protocol_template_id обновляем только если явно передан ключ в body —
+  // undefined означает "не трогай", а не "сбрось на NULL" (иначе обычное
+  // сохранение текста полей молча стирало бы уже выбранный шаблон).
+  if ("protocol_template_id" in body) {
+    patch.protocol_template_id = body.protocol_template_id ?? null;
+  }
 
   if (existing) {
     const { data: updated, error: updateError } = await supabase
       .from("soap_notes")
       .update(patch)
       .eq("id", existing.id)
-      .select("id, s_subjective, o_objective, a_assessment, p_plan, updated_at")
+      .select("id, s_subjective, o_objective, a_assessment, p_plan, protocol_template_id, updated_at")
       .single();
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -152,7 +171,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       ...patch,
       ai_generated: false,
     })
-    .select("id, s_subjective, o_objective, a_assessment, p_plan, updated_at")
+    .select("id, s_subjective, o_objective, a_assessment, p_plan, protocol_template_id, updated_at")
     .single();
   if (createError) {
     return NextResponse.json({ error: createError.message }, { status: 500 });
@@ -166,6 +185,7 @@ function mapSoapRow(row: {
   o_objective: string | null;
   a_assessment: string | null;
   p_plan: string | null;
+  protocol_template_id: string | null;
   updated_at: string;
 }) {
   return {
@@ -174,6 +194,7 @@ function mapSoapRow(row: {
     o: row.o_objective ?? "",
     a: row.a_assessment ?? "",
     p: row.p_plan ?? "",
+    protocolTemplateId: row.protocol_template_id,
     updatedAt: row.updated_at,
   };
 }

@@ -32,6 +32,15 @@ export interface SoapGenerationInput {
   previousSessionsSummary?: string;
   clientName: string;
   sessionNumber: number;
+  /**
+   * Текст выбранного психологом шаблона протокола из базы знаний
+   * (knowledge_base, source_type=protocol) — если указан, модель должна
+   * ориентироваться на структуру/акценты именно этого шаблона при
+   * распределении информации по блокам s/o/a/p (схема БД не меняется,
+   * это только влияет на СОДЕРЖАНИЕ каждого поля).
+   */
+  templateContent?: string;
+  templateTitle?: string;
 }
 
 export interface SoapResult {
@@ -85,6 +94,13 @@ export function buildSoapUserMessage(input: SoapGenerationInput): string {
 
   parts.push(`Клиент: ${input.clientName}`);
   parts.push(`Сессия №${input.sessionNumber}`);
+
+  if (input.templateContent) {
+    parts.push(
+      `\n--- Выбранный психологом шаблон/формат протокола: "${input.templateTitle ?? "без названия"}" ---\n${input.templateContent}\n` +
+      `Ориентируйся на акценты и структуру этого шаблона при распределении информации по блокам s/o/a/p ниже — но JSON-контракт с четырьмя полями s/o/a/p остаётся обязательным независимо от формата шаблона.`
+    );
+  }
 
   if (input.previousSessionsSummary) {
     parts.push(`\n--- Резюме предыдущих сессий ---\n${input.previousSessionsSummary}`);

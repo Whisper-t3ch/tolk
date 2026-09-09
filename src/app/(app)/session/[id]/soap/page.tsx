@@ -1,5 +1,5 @@
 "use client";
-import { use, useState, useEffect, useCallback } from "react";
+import { use, useState, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Download, Copy, FileOutput, CheckCircle, Sparkles, Send, X, Loader2, AlertTriangle } from "lucide-react";
@@ -59,6 +59,12 @@ interface SoapContent {
 
 const EMPTY_SOAP: SoapContent = { s: "", o: "", a: "", p: "" };
 
+interface ProtocolTemplate {
+  id: string;
+  title: string | null;
+  content?: string;
+}
+
 export default function SOAPPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = use(params);
 
@@ -68,6 +74,8 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   const [soapNoteId, setSoapNoteId] = useState<string | null>(null);
   const [content, setContent] = useState<SoapContent>(EMPTY_SOAP);
   const [protocolExists, setProtocolExists] = useState(false);
+  const [templates, setTemplates] = useState<ProtocolTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -100,10 +108,12 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         durationMinutes: data.session.durationMinutes,
         recordingStatus: data.session.recordingStatus ?? "none",
       });
+      setTemplates(data.templates ?? []);
       if (data.soapNote) {
         setSoapNoteId(data.soapNote.id);
         setContent({ s: data.soapNote.s, o: data.soapNote.o, a: data.soapNote.a, p: data.soapNote.p });
         setProtocolExists(true);
+        setSelectedTemplateId(data.soapNote.protocolTemplateId ?? "");
       } else {
         setSoapNoteId(null);
         setContent(EMPTY_SOAP);
@@ -127,7 +137,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
       const res = await fetch(`/api/sessions/${sessionId}/soap`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(content),
+        body: JSON.stringify({ ...content, protocol_template_id: selectedTemplateId || null }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -149,7 +159,11 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
     setGenerating(true);
     setGenerateError(null);
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/soap/generate`, { method: "POST" });
+      const res = await fetch(`/api/sessions/${sessionId}/soap/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template_id: selectedTemplateId || undefined }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setGenerateError(data.error ?? "Не удалось сгенерировать протокол");
@@ -248,6 +262,11 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
     }, 1500);
   }
 
+  const selectedTemplate = useMemo(
+    () => templates.find(t => t.id === selectedTemplateId) ?? null,
+    [templates, selectedTemplateId]
+  );
+
   function handleCopy() {
     const fullText = PROTOCOL_BLOCKS.map(b => `${b.label}\n${content[b.key]}`).join("\n\n");
     navigator.clipboard?.writeText(fullText);
@@ -299,6 +318,50 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Выбор формата протокола — подставляет текст шаблона из базы знаний
+          (source_type=protocol) как ориентир при ручном заполнении и как
+          инструкцию для AI-генерации (см. lib/prompts/soap.ts). Раньше
+          шаблоны протоколов существовали в БЗ, но никак не применялись
+          к реальной заметке сессии — это тот самый недостающий мостик. */}
+      {!loading && templates.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ marginBottom: 20 }}
+        >
+          <Card>
+            <CardContent className="pt-6">
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
+                Формат протокола
+              </label>
+              <select
+                value={selectedTemplateId}
+                onChange={e => setSelectedTemplateId(e.target.value)}
+                style={{
+                  width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5",
+                  borderRadius: 8, fontSize: 13, color: "#1C1C1E", fontFamily: "var(--font-sans)", background: "#FFFFFF",
+                }}
+              >
+                <option value="">Базовый формат (без шаблона)</option>
+                {templates.map(t => (
+                  <option key={t.id} value={t.id}>{t.title ?? "Без названия"}</option>
+                ))}
+              </select>
+              {selectedTemplate && (
+                <p style={{ fontSize: 12, color: "#6B6058", marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
+                  {selectedTemplate.content && selectedTemplate.content.length > 260
+                    ? `${selectedTemplate.content.slice(0, 260)}…`
+                    : selectedTemplate.content}
+                </p>
+              )}
+              <p style={{ fontSize: 11.5, color: "#8C7355", marginTop: 8, marginBottom: 0 }}>
+                Структура заметки (4 блока ниже) не меняется, но выбранный формат используется как ориентир при генерации по записи сессии и как подсказка при ручном заполнении.
+              </p>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {!loading && !protocolExists && !loadError && (
         <motion.div

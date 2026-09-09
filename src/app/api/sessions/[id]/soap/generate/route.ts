@@ -8,6 +8,12 @@ import {
 } from "@/lib/prompts/soap";
 
 // POST /api/sessions/[id]/soap/generate
+// Body (опционально): { template_id?: string } — id материала из
+// knowledge_base (source_type=protocol), выбранного психологом на
+// странице протокола. Если указан, его текст передаётся модели как
+// ориентир структуры/акцентов для блоков s/o/a/p (см. lib/prompts/soap.ts)
+// и сохраняется в soap_notes.protocol_template_id — без него используется
+// базовый формат по умолчанию, как раньше.
 //
 // Генерирует протокол сессии через YandexGPT Pro из транскрипта (если
 // готов) и краткого контекста предыдущих сессий, сохраняет результат
@@ -35,6 +41,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  }
+
+  let body: { template_id?: string } = {};
+  try {
+    body = await request.json();
+  } catch {
+    // Тело необязательно — генерация без выбранного шаблона (базовый формат).
+  }
+
+  let template: { id: string; title: string | null; content: string } | null = null;
+  if (body.template_id) {
+    const { data: templateRow, error: templateError } = await supabase
+      .from("knowledge_base")
+      .select("id, title, content")
+      .eq("id", body.template_id)
+      .eq("psychologist_id", user.id)
+      .eq("source_type", "protocol")
+      .maybeSingle();
+    if (templateError) {
+      return NextResponse.json({ error: templateError.message }, { status: 500 });
+    }
+    if (!templateRow) {
+      return NextResponse.json({ error: "Выбранный шаблон протокола не найден" }, { status: 404 });
+    }
+    template = templateRow;
   }
 
   const { data: session, error: sessionError } = await supabase
@@ -111,6 +142,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     previousSessionsSummary,
     clientName,
     sessionNumber,
+    templateContent: template?.content,
+    templateTitle: template?.title ?? undefined,
   });
 
   let result: SoapResult;
@@ -130,6 +163,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     a_assessment: result.a ?? "",
     p_plan: result.p ?? "",
     ai_generated: true,
+    protocol_template_id: template?.id ?? null,
   };
 
   const { data: existing } = await supabase
