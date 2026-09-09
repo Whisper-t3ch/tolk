@@ -27,16 +27,11 @@ const formatMessageTime = (date: Date): string => {
   }
 };
 
-const getClientStatus = (): { online: boolean; lastSeen: string } => {
-  // Симуляция статуса клиента
-  const isOnline = Math.random() > 0.6;
-  const lastSeenMinutes = Math.floor(Math.random() * 120) + 5;
-  const lastSeen = lastSeenMinutes < 60
-    ? `${lastSeenMinutes} мин назад`
-    : `${Math.floor(lastSeenMinutes / 60)} ч назад`;
-
-  return { online: isOnline, lastSeen };
-};
+// Раньше здесь была симуляция статуса "онлайн"/"был(а) N мин назад" через
+// Math.random() — платформа не имеет доступа к реальному presence-статусу
+// клиента в Telegram/VK (боты этого не видят), поэтому такой индикатор
+// был чистой выдумкой, выглядящей как настоящие данные. Единственный
+// реально известный факт — привязан ли у клиента мессенджер вообще.
 
 interface ChatMessage {
   id: string;
@@ -118,7 +113,6 @@ function ClientsPageInner() {
   const [attachError, setAttachError] = useState<string | null>(null);
   const [attachSearch, setAttachSearch] = useState("");
   const [attachTypeFilter, setAttachTypeFilter] = useState<string>("");
-  const [clientStatus, setClientStatus] = useState({ online: true, lastSeen: "сейчас" });
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [newClientRequest, setNewClientRequest] = useState("");
@@ -130,17 +124,8 @@ function ClientsPageInner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    // Инициализируем статус только на клиенте
-    setClientStatus(getClientStatus());
-    // Обновляем статус каждые 30 секунд
-    const interval = setInterval(() => {
-      setClientStatus(getClientStatus());
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
   const selectedClient = selectedClientId ? clients.find(c => c.id === selectedClientId) : null;
+  const hasMessengerLink = messengerLinks.length > 0;
 
   const filtered = useMemo(() => {
     const cutoff = new Date("2026-08-16T00:00:00");
@@ -556,7 +541,7 @@ function ClientsPageInner() {
                 }}>
                   {selectedClient.initials}
                 </div>
-                {clientStatus.online && (
+                {hasMessengerLink && (
                   <div style={{
                     position: "absolute",
                     bottom: 0,
@@ -566,15 +551,15 @@ function ClientsPageInner() {
                     background: "#1BAF7A",
                     borderRadius: "50%",
                     border: "2px solid #fff",
-                  }} />
+                  }} title="Мессенджер подключён" />
                 )}
               </div>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
                   {selectedClient.name}
                 </div>
-                <div style={{ fontSize: 10, color: clientStatus.online ? "#1BAF7A" : "#8C7355" }}>
-                  {clientStatus.online ? "онлайн" : `был(а) ${clientStatus.lastSeen}`}
+                <div style={{ fontSize: 10, color: hasMessengerLink ? "#1BAF7A" : "#8C7355" }}>
+                  {hasMessengerLink ? "мессенджер подключён" : "мессенджер не подключён"}
                 </div>
               </div>
             </motion.div>
