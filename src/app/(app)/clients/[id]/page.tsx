@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Send, ChevronLeft, FileText, Download,
+  Send, ChevronLeft, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
   Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen, Search,
 } from "lucide-react";
@@ -86,17 +86,10 @@ function toChatMessage(raw: {
   };
 }
 
-const MOCK_FILES = [
-  { name: "Дневник_ситуаций_неделя_6.pdf", size: "214 KB", date: "12 авг", uploadedBy: "client" as const },
-  { name: "GAD-7_результаты.pdf", size: "88 KB", date: "12 авг", uploadedBy: "psychologist" as const },
-  { name: "Протокол_сессии_7.docx", size: "45 KB", date: "5 авг", uploadedBy: "psychologist" as const },
-];
-
 const TABS = [
   { id: "sessions", label: "Сессии" },
   { id: "summary", label: "Сводка" },
   { id: "analytics", label: "Аналитика" },
-  { id: "files", label: "Файлы" },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -1125,43 +1118,6 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             </CardContent>
           </Card>
         </div>
-      )}
-
-      {/* ФАЙЛЫ */}
-      {activeTab === "files" && (
-        <Card>
-          <CardContent className="pt-6">
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>
-              Файлы клиента
-            </h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {MOCK_FILES.map((f, i) => (
-                <div key={i} style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "12px 14px", background: "#F5F3EF", borderRadius: 8,
-                }}>
-                  <FileText size={18} style={{ color: "#2D6A5C", flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {f.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#8C7355" }}>
-                      {f.size} · {f.date} · {f.uploadedBy === "client" ? "от клиента" : "от вас"}
-                    </div>
-                  </div>
-                  <button style={{
-                    width: 32, height: 32, background: "#FFFFFF",
-                    border: "1px solid #E5DFD5", borderRadius: 6,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer", color: "#6B6058", flexShrink: 0,
-                  }} title="Скачать">
-                    <Download size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       {/* Модалка "Срез за период" */}
