@@ -71,10 +71,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     };
   }, [sessionId]);
 
+  // Таймер запускается только когда звонок реально показан (jitsiReady),
+  // а не с момента открытия страницы — раньше он тикал даже пока клиент
+  // читал заметки или ждал, пока подключится видео.
+  const jitsiReady = Boolean(data?.videoRoomUrl);
   useEffect(() => {
+    if (!jitsiReady) return;
     const interval = setInterval(() => setSeconds(s => s + 1), 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [jitsiReady]);
 
   const saveNotes = useCallback(async (text: string) => {
     try {
@@ -128,8 +133,6 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       </div>
     );
   }
-
-  const jitsiReady = Boolean(data.videoRoomUrl);
 
   return (
     <div style={{ display: "flex", height: "calc(100vh - 120px)", gap: 16, padding: "0 24px 24px" }}>
