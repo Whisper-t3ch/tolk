@@ -160,6 +160,41 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
 // стоимость для психолога. Результат всё же сохраняется в
 // period_summaries, чтобы срез был виден в истории вне зависимости от
 // того, вызван он через кнопку в UI или через ассистента.
+// Результаты психодиагностических методик клиента. Раньше ассистент не
+// имел доступа к test_results ни одним инструментом: психолог назначал
+// тест, клиент проходил, балл считался — а на вопрос «какие результаты
+// тестов у Анны Петровой» ассистент честно отвечал, что таких данных у
+// него нет. Название методики берём из справочника test_questionnaires,
+// потому что в test_type лежит ключ вроде PRIKHOZHAN.
+async function getTestResults(ctx: ExecutorContext, args: { client_id: string }) {
+  const { data, error } = await ctx.supabase
+    .from("test_results")
+    .select("test_type, score, max_score, interpretation, status, created_at, test_questionnaires ( title )")
+    .eq("client_id", args.client_id)
+    .eq("psychologist_id", ctx.psychologistId)
+    .eq("status", "completed")
+    .order("created_at", { ascending: true });
+
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) {
+    return { results: [], note: "У клиента пока нет завершённых тестов." };
+  }
+
+  return {
+    results: data.map(row => {
+      const rel = row.test_questionnaires as { title?: string } | { title?: string }[] | null;
+      const questionnaire = Array.isArray(rel) ? rel[0] : rel;
+      return {
+        test: questionnaire?.title ?? row.test_type,
+        score: row.score,
+        max_score: row.max_score,
+        interpretation: row.interpretation,
+        date: (row.created_at as string).slice(0, 10),
+      };
+    }),
+  };
+}
+
 async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string; date_from: string; date_to: string }) {
   const { data: sessions, error: sessionsError } = await ctx.supabase
     .from("sessions")
@@ -645,6 +680,8 @@ export async function executeAgentTool(
       return updateClient(ctx, args as { client_id: string; fields: Record<string, unknown> });
     case "search_client_history":
       return searchClientHistory(ctx, args as { client_id: string; query: string });
+    case "get_test_results":
+      return getTestResults(ctx, args as { client_id: string });
     case "get_period_summary":
       return getPeriodSummary(ctx, args as { client_id: string; date_from: string; date_to: string });
     case "search_knowledge_base":

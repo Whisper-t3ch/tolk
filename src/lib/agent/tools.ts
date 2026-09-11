@@ -1,5 +1,5 @@
 // ============================================================
-// Определения 17 инструментов AI-агента: схемы для YandexGPT
+// Определения 18 инструментов AI-агента: схемы для YandexGPT
 // function calling + типы аргументов на TypeScript-стороне.
 // Реализация вызовов — в src/lib/agent/executor.ts.
 //
@@ -18,6 +18,7 @@ export type AgentToolName =
   | "create_client"
   | "update_client"
   | "search_client_history"
+  | "get_test_results"
   | "get_period_summary"
   | "search_knowledge_base"
   | "get_schedule"
@@ -133,6 +134,23 @@ export const AGENT_TOOLS: YandexGptTool[] = [
           query: { type: "string", description: "Поисковый запрос (например, «делегирование задач»)" },
         },
         required: ["client_id", "query"],
+      },
+    },
+  },
+  {
+    function: {
+      name: "get_test_results",
+      description:
+        "Возвращает результаты психодиагностических методик клиента: название методики, балл, максимум, интерпретацию и дату. " +
+        "Используй это всегда, когда психолог спрашивает про тесты, баллы, шкалы или динамику состояния клиента по методикам " +
+        "(«что по тревожности», «какие результаты тестов», «динамика по шкале»). Результаты идут от старых к новым, " +
+        "поэтому по ним видно динамику.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+        },
+        required: ["client_id"],
       },
     },
   },
@@ -306,8 +324,8 @@ export const AGENT_SYSTEM_PROMPT = `Ты профессиональный асс
 Учитывай предпочтения психолога при планировании.
 
 Инструменты чтения (get_clients, find_client_by_name, get_client_info,
-search_client_history, get_period_summary, search_knowledge_base, get_schedule,
-get_preferences, find_available_slots) НЕ требуют подтверждения психолога —
+search_client_history, get_test_results, get_period_summary, search_knowledge_base,
+get_schedule, get_preferences, find_available_slots) НЕ требуют подтверждения психолога —
 вызывай их сразу, как только у тебя есть нужные параметры (например, client_id).
 НИКОГДА не спрашивай текстом "подтвердите, что вы хотите..." или "продолжить?"
 перед вызовом инструмента чтения — это не действие, которое можно отменить,
