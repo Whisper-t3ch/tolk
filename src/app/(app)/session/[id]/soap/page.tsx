@@ -291,6 +291,15 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
     [templates, selectedTemplateId]
   );
 
+  // Разводим два разных по смыслу вида записей source_type=protocol:
+  // форматы записи протокола («… — шаблон протокола») и клинические
+  // протоколы вмешательства («Экспозиционная терапия» и т.п.).
+  const templateGroups = useMemo(() => {
+    const formats = templates.filter(t => /шаблон протокола/i.test(t.title ?? ""));
+    const clinical = templates.filter(t => !/шаблон протокола/i.test(t.title ?? ""));
+    return { formats, clinical };
+  }, [templates]);
+
   function handleCopy() {
     const fullText = PROTOCOL_BLOCKS.map(b => `${b.label}\n${content[b.key]}`).join("\n\n");
     navigator.clipboard?.writeText(fullText);
@@ -368,9 +377,25 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 }}
               >
                 <option value="">Базовый формат (без шаблона)</option>
-                {templates.map(t => (
-                  <option key={t.id} value={t.id}>{t.title ?? "Без названия"}</option>
-                ))}
+                {/* В knowledge_base под source_type=protocol лежат две разные
+                    по смыслу вещи: форматы записи протокола сессии и
+                    терапевтические протоколы вмешательства. В одном плоском
+                    списке из 30 позиций психолог не понимал, что выбирает,
+                    поэтому разводим их по группам. */}
+                {templateGroups.formats.length > 0 && (
+                  <optgroup label="Форматы записи протокола">
+                    {templateGroups.formats.map(t => (
+                      <option key={t.id} value={t.id}>{t.title ?? "Без названия"}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {templateGroups.clinical.length > 0 && (
+                  <optgroup label="Терапевтические протоколы (структура под интервенцию)">
+                    {templateGroups.clinical.map(t => (
+                      <option key={t.id} value={t.id}>{t.title ?? "Без названия"}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               {selectedTemplate && (
                 <p style={{ fontSize: 12, color: "#6B6058", marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>

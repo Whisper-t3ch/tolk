@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Calendar, Clock, ArrowRight, Video, Link2, Check } from "lucide-react";
+import { Calendar, Clock, ArrowRight, FileText, Link2, Check } from "lucide-react";
 import { useSession, type PlannedSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -34,7 +34,11 @@ export default function SessionsPage() {
     return idx === -1 ? 0 : idx;
   }
 
-  const today = "2026-08-16";
+  // Реальная сегодняшняя дата в локальном времени (sv-SE даёт формат
+  // YYYY-MM-DD, как в session.date) — раньше здесь стояла захардкоженная
+  // "2026-08-16", из-за чего давно прошедшие сессии продолжали висеть
+  // во вкладке «Предстоящие».
+  const today = useMemo(() => new Date().toLocaleDateString("sv-SE"), []);
 
   const { upcoming, past } = useMemo(() => {
     const sorted = [...sessions].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
@@ -42,7 +46,7 @@ export default function SessionsPage() {
       upcoming: sorted.filter(s => s.date >= today),
       past: sorted.filter(s => s.date < today).reverse(),
     };
-  }, [sessions]);
+  }, [sessions, today]);
 
   const list = filter === "upcoming" ? upcoming : past;
 
@@ -193,10 +197,14 @@ export default function SessionsPage() {
                             </Button>
                           </Link>
                         ) : (
-                          <Link href={`/clients/${session.clientId}`} style={{ textDecoration: "none", flexShrink: 0 }}>
+                          /* Для прошедшей сессии главное действие — протокол.
+                             Раньше кнопка вела на карточку клиента, дублируя
+                             клик по самой строке сессии (см. Link выше), и
+                             попасть в протокол из списка сессий было нельзя. */
+                          <Link href={`/session/${session.id}/soap`} style={{ textDecoration: "none", flexShrink: 0 }}>
                             <Button variant="secondary" size="sm">
-                              <Video size={14} style={{ marginRight: 6 }} />
-                              Карточка
+                              <FileText size={14} style={{ marginRight: 6 }} />
+                              Протокол
                             </Button>
                           </Link>
                         )}

@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // pdf-lib и @pdf-lib/fontkit (генерация PDF-протокола сессии) —
+  // CommonJS-пакеты, которые бандлер ломает при сборке серверного кода:
+  // route /api/sessions/[id]/soap/pdf падал с пустым 500 ещё на этапе
+  // загрузки модуля. Грузим их нативно средствами Node вместо бандлинга.
+  serverExternalPackages: ["pdf-lib", "@pdf-lib/fontkit"],
 };
 
 export default nextConfig;

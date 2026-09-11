@@ -255,7 +255,10 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     () => sessions.filter(s => s.clientId === id).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)),
     [sessions, id]
   );
-  const today = "2026-08-16";
+  // Реальная сегодняшняя дата в локальном времени (sv-SE даёт YYYY-MM-DD,
+  // как в session.date) — раньше здесь стояла захардкоженная "2026-08-16",
+  // из-за чего прошедшие сессии клиента показывались как предстоящие.
+  const today = useMemo(() => new Date().toLocaleDateString("sv-SE"), []);
   const upcomingSessions = clientSessions.filter(s => s.date >= today);
   const pastSessions = clientSessions.filter(s => s.date < today).reverse();
 

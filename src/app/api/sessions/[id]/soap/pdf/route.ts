@@ -7,6 +7,20 @@ import { generateSoapPdf } from "@/lib/pdf/soapPdf";
 // кнопка "PDF" на странице /session/[id]/soap была фейковой заглушкой
 // (setTimeout + уведомление "PDF готов" без реального файла).
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    return await handleGet(request, params);
+  } catch (e) {
+    // Без этой обёртки любое исключение отдавалось как пустой 500 без тела,
+    // и на фронте причина была не видна вообще.
+    console.error("[soap/pdf] Необработанная ошибка:", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? `${e.message}` : String(e) },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleGet(request: NextRequest, params: Promise<{ id: string }>) {
   const { id: sessionId } = await params;
   const supabase = await createClient();
 
@@ -57,28 +71,49 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const clientRel = Array.isArray(session.clients) ? session.clients[0] : session.clients;
   const clientName = (clientRel as { name?: string } | null)?.name ?? "Клиент";
 
-  const pdfBytes = await generateSoapPdf({
-    clientName,
-    scheduledAt: session.scheduled_at as string,
-    durationMinutes: session.duration_minutes as number,
-    templateTitle,
-    blocks: [
-      { label: "Жалоба и запрос клиента", text: soapNote.s_subjective ?? "" },
-      { label: "Контекст и наблюдения", text: soapNote.o_objective ?? "" },
-      { label: "Гипотеза психолога", text: soapNote.a_assessment ?? "" },
-      { label: "Договорённости и план", text: soapNote.p_plan ?? "" },
-    ],
-  });
+  // Сборка PDF — единственное место здесь, где может упасть что-то
+  // внешнее (чтение встроенных шрифтов, embed через fontkit). Без
+  // try/catch Next отдавал голый 500 с пустым телом, и на фронте
+  // пользователь видел просто «Не удалось сформировать PDF» без причины.
+  let pdfBytes: Uint8Array;
+  try {
+    pdfBytes = await generateSoapPdf({
+      clientName,
+      scheduledAt: session.scheduled_at as string,
+      durationMinutes: session.duration_minutes as number,
+      templateTitle,
+      blocks: [
+        { label: "Жалоба и запрос клиента", text: soapNote.s_subjective ?? "" },
+        { label: "Контекст и наблюдения", text: soapNote.o_objective ?? "" },
+        { label: "Гипотеза психолога", text: soapNote.a_assessment ?? "" },
+        { label: "Договорённости и план", text: soapNote.p_plan ?? "" },
+      ],
+    });
+  } catch (e) {
+    console.error("[soap/pdf] Не удалось собрать PDF:", e);
+    return NextResponse.json(
+      { error: `Не удалось собрать PDF: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 500 }
+    );
+  }
 
   const dateSlug = new Date(session.scheduled_at as string).toISOString().slice(0, 10);
-  const filenameSafeName = clientName.replace(/[^\p{L}\p{N}_-]+/gu, "_");
-  const filename = `protokol_${filenameSafeName}_${dateSlug}.pdf`;
+
+  // HTTP-заголовки — это ByteString (только latin1), поэтому имя файла с
+  // кириллицей нельзя класть в filename= напрямую: Response падал с
+  // «Cannot convert argument to a ByteString…» на первой же букве имени
+  // клиента, и PDF не отдавался вообще ни для одного русского имени.
+  // По RFC 5987 отдаём два варианта: ASCII-fallback и UTF-8 percent-encoded.
+  const unicodeName = `protokol_${clientName.replace(/[^\p{L}\p{N}_-]+/gu, "_")}_${dateSlug}.pdf`;
+  const asciiName = `protokol_${dateSlug}.pdf`;
 
   return new NextResponse(Buffer.from(pdfBytes), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition":
+        `attachment; filename="${asciiName}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(unicodeName)}`,
     },
   });
 }
