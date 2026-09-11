@@ -111,14 +111,12 @@ function buildSeedEvents(): PersonalEvent[] {
 function loadFromStorage(): PersonalEvent[] {
   if (typeof window === "undefined") return [];
   try {
-    const alreadySeeded = window.localStorage.getItem(SEEDED_FLAG_KEY);
+    // Календарь больше не засеивается демо-распорядком (Йога / Завтрак /
+    // Обед / Врач): для бета-психолога это чужие выдуманные события,
+    // которые он не создавал и вынужден разбирать вручную. Начинаем с
+    // пустого календаря — свои события психолог добавляет сам.
+    // buildSeedEvents() оставлена для демонстрационных показов.
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw && !alreadySeeded) {
-      const seeded = buildSeedEvents();
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
-      window.localStorage.setItem(SEEDED_FLAG_KEY, "1");
-      return seeded;
-    }
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];

@@ -22,11 +22,30 @@ export default function AIAssistant() {
     return () => window.removeEventListener("tolk:open-assistant", handler);
   }, []);
 
-  // Show welcome toast after 10 seconds
+  // Приветственная подсказка показывается ОДИН раз за всё время, а не
+  // каждые 10 секунд на каждой странице: она висит поверх интерфейса и
+  // перекрывает рабочие элементы (кнопки «Открыть» в списке клиентов,
+  // карточки тестов, строки сессий). После первого показа запоминаем
+  // это в localStorage — дальше ассистент вызывается кнопкой в углу.
+  const TOAST_SHOWN_KEY = "tolk:assistant-hint-shown";
+
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    let alreadyShown = false;
+    try {
+      alreadyShown = window.localStorage.getItem(TOAST_SHOWN_KEY) === "1";
+    } catch {
+      // приватный режим / заблокированное хранилище — просто не показываем
+      alreadyShown = true;
+    }
+    if (alreadyShown || isOpen || hideFloatingButton) return;
+
     const timer = setTimeout(() => {
-      if (!isOpen && !hideFloatingButton) {
-        setShowToast(true);
+      setShowToast(true);
+      try {
+        window.localStorage.setItem(TOAST_SHOWN_KEY, "1");
+      } catch {
+        // не критично: в худшем случае подсказка появится ещё раз
       }
     }, 10000);
     return () => clearTimeout(timer);

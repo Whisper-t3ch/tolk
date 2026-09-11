@@ -10,7 +10,9 @@ const FORMATS = [
   { id: "telegram", label: "Telegram-канал", icon: "📱" },
   { id: "vk", label: "ВКонтакте", icon: "🔵" },
   { id: "reels", label: "Reels-сценарий", icon: "🎬" },
-  { id: "pdf", label: "PDF-гайд", icon: "📄" },
+  // Формат отдаёт готовый текст гайда для копирования, PDF-файл не
+  // создаётся — поэтому в названии нет слова PDF, чтобы не обещать файл.
+  { id: "pdf", label: "Гайд", icon: "📄" },
 ];
 
 export default function ContentPage() {
