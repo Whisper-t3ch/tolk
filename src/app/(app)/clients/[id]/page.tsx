@@ -62,12 +62,29 @@ interface MessengerLink {
 
 interface TestResult {
   id: string;
-  test_type: TestType;
+  // Не TestType: там лежат только пять старых клинических шкал, а в
+  // test_type реально приходит ключ любой из 22 методик справочника
+  // (PRIKHOZHAN, ZUNG, TAS26 и т.д.).
+  test_type: string;
   score: number;
   max_score: number;
   interpretation: string | null;
   status: "pending" | "completed";
   created_at: string;
+  // Название методики из test_questionnaires — источник подписи для
+  // методик, которых нет в TEST_SCALES.
+  title?: string | null;
+}
+
+// Человекочитаемое название методики: сначала то, что пришло из
+// справочника, затем подпись старой клинической шкалы, и в крайнем
+// случае — сам ключ. Раньше здесь было прямое обращение
+// TEST_SCALES[test_type].label, и карточка клиента падала целиком,
+// стоило клиенту пройти любую методику вне старой пятёрки.
+function testDisplayName(test: { test_type: string; title?: string | null }): string {
+  if (test.title) return test.title;
+  const scale = TEST_SCALES[test.test_type as TestType];
+  return scale?.label ?? test.test_type;
 }
 
 // Приводит запись из таблицы messages (API-формат) к формату чата на экране.
@@ -419,7 +436,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const latestCompletedTest = completedTests.length > 0 ? completedTests[completedTests.length - 1] : null;
   const lastTest = latestCompletedTest
     ? {
-        name: TEST_SCALES[latestCompletedTest.test_type].label,
+        name: testDisplayName(latestCompletedTest),
         score: latestCompletedTest.score,
         maxScore: latestCompletedTest.max_score,
         date: new Date(latestCompletedTest.created_at).toLocaleDateString("ru", { day: "numeric", month: "short" }),
