@@ -142,7 +142,19 @@ function ClientsPageInner() {
   }, [clients, search, statusFilter, specialFilter]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const end = messagesEndRef.current;
+    if (!end) return;
+    // Прокручиваем сам контейнер в requestAnimationFrame, а не
+    // scrollIntoView({behavior:"smooth"}) — плавная анимация стартовала
+    // раньше, чем длинные сообщения получали финальную высоту, и
+    // останавливалась, не дойдя до низа: последнее сообщение оставалось
+    // обрезанным при каждом открытии чата.
+    const container = end.parentElement;
+    const raf = requestAnimationFrame(() => {
+      if (container) container.scrollTop = container.scrollHeight;
+      else end.scrollIntoView({ block: "end" });
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messages]);
 
   // Загружаем реальную историю переписки при выборе клиента — эффект
@@ -237,10 +249,17 @@ function ClientsPageInner() {
     setShowAttachPicker(false);
   };
 
+  // Фильтруем и дедуплицируем по подписи, а не по source_type: article и
+  // manual оба показываются как «Материал», из-за чего в пикере рисовались
+  // две визуально одинаковые кнопки-фильтра, каждая со своей половиной
+  // материалов — психолог не мог понять, чем они отличаются.
+  const attachLabelOf = (sourceType: string) =>
+    ATTACH_SOURCE_TYPE_LABELS[sourceType] ?? sourceType;
+
   const filteredAttachItems = useMemo(() => {
     const query = attachSearch.trim().toLowerCase();
     return attachItems.filter(item => {
-      const matchesType = !attachTypeFilter || item.source_type === attachTypeFilter;
+      const matchesType = !attachTypeFilter || attachLabelOf(item.source_type) === attachTypeFilter;
       const matchesSearch = !query
         || (item.title ?? "").toLowerCase().includes(query)
         || item.content.toLowerCase().includes(query);
@@ -249,7 +268,7 @@ function ClientsPageInner() {
   }, [attachItems, attachSearch, attachTypeFilter]);
 
   const attachAvailableTypes = useMemo(
-    () => Array.from(new Set(attachItems.map(i => i.source_type))),
+    () => Array.from(new Set(attachItems.map(i => attachLabelOf(i.source_type)))),
     [attachItems]
   );
 
