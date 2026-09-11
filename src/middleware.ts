@@ -3,10 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Пути, доступные без авторизации
 const PUBLIC_PATHS = ["/", "/login"];
-// Префиксы, доступные без авторизации целиком (публичная страница
-// бронирования /book/[slug] — её открывают клиенты психолога, у
-// которых нет и не будет аккаунта; /api/public/* — её backend).
-const PUBLIC_PATH_PREFIXES = ["/book/", "/api/public/"];
+// Префиксы, доступные без авторизации целиком — их открывают клиенты
+// психолога, у которых нет и не будет аккаунта:
+//   /book/[slug]  — публичная запись на консультацию,
+//   /test/[token] — прохождение назначенной методики по ссылке,
+//   /api/public/* — backend для обеих (booking + test).
+const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/api/public/"];
 
 /**
  * Middleware выполняется на каждый запрос: обновляет сессию Supabase
