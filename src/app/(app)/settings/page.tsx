@@ -4,20 +4,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
   User, Bell, Plug, CreditCard, Palette, ShieldCheck, AlertTriangle,
-  ExternalLink, Sun, Moon, Monitor, CalendarClock,
+  ExternalLink, Sun, CalendarClock,
 } from "lucide-react";
 import { useProfile } from "@/lib/ProfileContext";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
 
-// Настройки уведомлений пока не хранятся в БД (нет отдельной таблицы/
-// колонки) — форма ниже честно работает как локальный переключатель с
-// разумными дефолтами вместо значений конкретного мок-психолога.
-const DEFAULT_NOTIFICATIONS = {
-  sessionReminders: true,
-  clientMessages: true,
-  homeworkUpdates: true,
-  productNews: false,
-};
+// Заявки на опасные действия (удаление аккаунта и т.п.) пока обрабатываются
+// вручную через почту поддержки — отдельного API для этого ещё нет.
+const SUPPORT_EMAIL = "support@tolk.pro";
 
 const SECTIONS = [
   { id: "notifications", label: "Уведомления", icon: Bell },
@@ -33,12 +27,9 @@ type SectionId = typeof SECTIONS[number]["id"];
 export default function SettingsPage() {
   const { profile } = useProfile();
   const [activeSection, setActiveSection] = useState<SectionId>("notifications");
-  const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
-  const [theme, setTheme] = useState<"light" | "dark" | "system">("light");
   const [extraCredits, setExtraCredits] = useState(0);
   const [notification, setNotification] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteText, setDeleteText] = useState("");
 
   // Лимит запросов к ассистенту — реальные данные из /api/assistant/limit,
   // а не мок currentPsychologist.plan.assistantRequests (в проде used/limit
@@ -180,33 +171,10 @@ export default function SettingsPage() {
     setTimeout(() => setNotification(null), 2500);
   };
 
-  const toggleNotification = (key: keyof typeof notifications) => {
-    setNotifications(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
   function buyCredits() {
     setExtraCredits(prev => prev + 100);
     notify("Добавлено 100 запросов к лимиту тарифа");
   }
-
-  const Toggle = ({ checked, onChange }: { checked: boolean; onChange: () => void }) => (
-    <button
-      onClick={onChange}
-      style={{
-        width: 40, height: 22, borderRadius: 11, border: "none", cursor: "pointer",
-        background: checked ? "#2D6A5C" : "#E5DFD5", position: "relative", transition: "background 0.2s", flexShrink: 0,
-      }}
-    >
-      <motion.div
-        animate={{ x: checked ? 20 : 2 }}
-        transition={{ duration: 0.15 }}
-        style={{
-          width: 18, height: 18, borderRadius: "50%", background: "#FFFFFF",
-          position: "absolute", top: 2, boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-        }}
-      />
-    </button>
-  );
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 24px" }}>
@@ -267,15 +235,17 @@ export default function SettingsPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Уведомления</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Что присылать вам в приложение и на почту</p>
+                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>
+                      Настройка уведомлений (email/push) появится в одном из ближайших обновлений. Пока в приложении доступны:
+                    </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {[
-                        { key: "sessionReminders" as const, label: "Напоминания о сессиях", desc: "За 15 минут до начала" },
-                        { key: "clientMessages" as const, label: "Сообщения от клиентов", desc: "Новые сообщения в чате" },
-                        { key: "homeworkUpdates" as const, label: "Выполнение домашних заданий", desc: "Когда клиент отмечает ДЗ выполненным" },
-                        { key: "productNews" as const, label: "Новости продукта", desc: "Обновления и новые функции ТОЛК" },
+                        { label: "Напоминания о сессиях", desc: "За 15 минут до начала" },
+                        { label: "Сообщения от клиентов", desc: "Новые сообщения в чате" },
+                        { label: "Выполнение домашних заданий", desc: "Когда клиент отмечает ДЗ выполненным" },
+                        { label: "Новости продукта", desc: "Обновления и новые функции ТОЛК" },
                       ].map(item => (
-                        <div key={item.key} style={{
+                        <div key={item.label} style={{
                           display: "flex", alignItems: "center", justifyContent: "space-between",
                           padding: "12px 0", borderBottom: "1px solid #F5F3EF",
                         }}>
@@ -283,7 +253,7 @@ export default function SettingsPage() {
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{item.label}</div>
                             <div style={{ fontSize: 12, color: "#8C7355" }}>{item.desc}</div>
                           </div>
-                          <Toggle checked={notifications[item.key]} onChange={() => toggleNotification(item.key)} />
+                          <Badge variant="muted">Скоро</Badge>
                         </div>
                       ))}
                     </div>
@@ -588,29 +558,17 @@ export default function SettingsPage() {
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Внешний вид</h3>
                     <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Тема интерфейса приложения</p>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                      {[
-                        { id: "light" as const, label: "Светлая", icon: Sun },
-                        { id: "dark" as const, label: "Тёмная", icon: Moon },
-                        { id: "system" as const, label: "Как в системе", icon: Monitor },
-                      ].map(opt => (
-                        <button
-                          key={opt.id}
-                          onClick={() => { setTheme(opt.id); notify(opt.id === "light" ? "Светлая тема применена" : "Эта тема появится в одном из ближайших обновлений"); }}
-                          style={{
-                            display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                            padding: "18px 12px",
-                            border: theme === opt.id ? "2px solid #2D6A5C" : "1px solid #E5DFD5",
-                            borderRadius: 10, cursor: "pointer",
-                            background: theme === opt.id ? "#E8F2EF" : "#FFFFFF",
-                            fontFamily: "var(--font-sans)",
-                          }}
-                        >
-                          <opt.icon size={20} style={{ color: theme === opt.id ? "#2D6A5C" : "#8C7355" }} />
-                          <span style={{ fontSize: 12, fontWeight: 600, color: theme === opt.id ? "#2D6A5C" : "#6B6058" }}>{opt.label}</span>
-                        </button>
-                      ))}
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "14px 16px", border: "2px solid #2D6A5C", borderRadius: 10,
+                      background: "#E8F2EF", maxWidth: 200,
+                    }}>
+                      <Sun size={20} style={{ color: "#2D6A5C" }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#2D6A5C" }}>Светлая</span>
                     </div>
+                    <p style={{ fontSize: 12, color: "#8C7355", marginTop: 10 }}>
+                      Тёмная тема и тема «как в системе» появятся в одном из ближайших обновлений.
+                    </p>
                   </CardContent>
                 </Card>
               )}
@@ -667,7 +625,7 @@ export default function SettingsPage() {
           <>
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => { setShowDeleteConfirm(false); setDeleteText(""); }}
+              onClick={() => setShowDeleteConfirm(false)}
               style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 40 }}
             />
             <motion.div
@@ -683,30 +641,21 @@ export default function SettingsPage() {
                 <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Удалить аккаунт?</h3>
               </div>
               <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.5, marginBottom: 16 }}>
-                Это действие необратимо. Все клиенты, протоколы сессий и история будут удалены безвозвратно. Введите <strong>УДАЛИТЬ</strong>, чтобы подтвердить.
+                Удаление аккаунта — необратимая операция, которую мы пока обрабатываем вручную, чтобы точно ничего не удалить по ошибке. Напишите нам на{" "}
+                <strong>{SUPPORT_EMAIL}</strong> с темой «Удаление аккаунта» — подтвердим личность и удалим аккаунт вместе со всеми данными клиентов.
               </p>
-              <input
-                value={deleteText}
-                onChange={e => setDeleteText(e.target.value)}
-                placeholder="УДАЛИТЬ"
-                style={{
-                  width: "100%", padding: "8px 14px", border: "1px solid #E5DFD5", borderRadius: 8,
-                  fontSize: 14, fontFamily: "var(--font-sans)", color: "#1C1C1E", boxSizing: "border-box",
-                }}
-              />
-              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <div style={{ display: "flex", gap: 8 }}>
                 <Button
-                  onClick={() => { setShowDeleteConfirm(false); setDeleteText(""); }}
+                  onClick={() => setShowDeleteConfirm(false)}
                   variant="secondary" className="w-full"
                 >
                   Отмена
                 </Button>
                 <Button
-                  onClick={() => { setShowDeleteConfirm(false); setDeleteText(""); notify("Заявка на удаление аккаунта принята"); }}
+                  onClick={() => { window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Удаление аккаунта")}`; setShowDeleteConfirm(false); }}
                   variant="danger" className="w-full"
-                  disabled={deleteText !== "УДАЛИТЬ"}
                 >
-                  Удалить навсегда
+                  Написать в поддержку
                 </Button>
               </div>
             </motion.div>
