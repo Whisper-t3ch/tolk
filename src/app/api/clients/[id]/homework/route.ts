@@ -12,6 +12,38 @@ import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 // этом простом действии. Переиспользует ту же логику доставки, что и
 // агентский цикл (tryDeliverMessage внутри executeAgentTool), чтобы не
 // дублировать код отправки в двух местах.
+// GET /api/clients/[id]/homework
+// Список выданных клиенту домашних заданий. Отправленные ДЗ пишутся в
+// messages с kind='homework' (см. sendHomework в agent/executor.ts) —
+// отдельной таблицы под них нет. Без этого маршрута психолог, отправив
+// задание, нигде не мог увидеть, что именно он задал: в карточке клиента
+// стоял счётчик из clients.hw_total, который ничто никогда не заполняет.
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id: clientId } = await params;
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id, text, status, created_at, sent_at, error_message")
+    .eq("client_id", clientId)
+    .eq("psychologist_id", user.id)
+    .eq("kind", "homework")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ homework: data ?? [] });
+}
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: clientId } = await params;
   const supabase = await createClient();

@@ -76,6 +76,16 @@ interface TestResult {
   title?: string | null;
 }
 
+// Отправленное клиенту домашнее задание. Хранится как сообщение с
+// kind='homework' (см. sendHomework в agent/executor.ts), отдельной
+// таблицы под ДЗ нет.
+interface HomeworkItem {
+  id: string;
+  text: string;
+  status: string;
+  created_at: string;
+}
+
 // Человекочитаемое название методики: сначала то, что пришло из
 // справочника, затем подпись старой клинической шкалы, и в крайнем
 // случае — сам ключ. Раньше здесь было прямое обращение
@@ -163,6 +173,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [periodSummaryResult, setPeriodSummaryResult] = useState<string | null>(null);
   const [periodSummaryError, setPeriodSummaryError] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
+  const [homeworkList, setHomeworkList] = useState<HomeworkItem[]>([]);
   const [testsLoading, setTestsLoading] = useState(true);
   const [showSendTestForm, setShowSendTestForm] = useState(false);
   const [newTestType, setNewTestType] = useState<TestType>("GAD7");
@@ -194,6 +205,23 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       }
     }
     loadMessages();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // Отправленные клиенту домашние задания — без этого запроса карточка
+  // показывала только счётчик из clients.hw_*, который никогда не
+  // заполняется, и назначенные ДЗ нигде не были видны.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/clients/${id}/homework`);
+        const data = await res.json();
+        if (!cancelled && res.ok) setHomeworkList(data.homework ?? []);
+      } catch {
+        // молча: блок ДЗ покажет пустое состояние
+      }
+    })();
     return () => { cancelled = true; };
   }, [id]);
 
@@ -1009,17 +1037,34 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           <Card>
             <CardContent className="pt-6">
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>
-                Домашние задания ({hwCompleted}/{hwTotal})
+                Домашние задания ({homeworkList.length})
               </h3>
-              <div style={{ height: 8, background: "rgba(79,126,255,0.1)", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
-                <div style={{
-                  width: `${hwPct}%`,
-                  height: "100%", background: "#2D6A5C", borderRadius: 4,
-                }} />
-              </div>
-              <p style={{ fontSize: 12, color: "#8C7355" }}>
-                Подробный список заданий и их статус синхронизируются из Telegram-бота клиента.
-              </p>
+              {/* Раньше здесь был счётчик hwCompleted/hwTotal из колонок
+                  clients.hw_*, которые ничто не заполняет — он всегда
+                  показывал 0/0, даже сразу после отправки задания, и
+                  психолог нигде не видел, что именно задал. Показываем
+                  реальные отправленные ДЗ (messages.kind='homework'). */}
+              {homeworkList.length === 0 ? (
+                <p style={{ fontSize: 12.5, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                  Заданий пока нет. Отправить можно из раздела «База знаний» → «Шаблоны ДЗ»
+                  или попросить ассистента.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {homeworkList.map(hw => (
+                    <div key={hw.id} style={{ padding: "10px 12px", background: "#F5F3EF", borderRadius: 8 }}>
+                      <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                        {hw.text.length > 220 ? `${hw.text.slice(0, 220)}…` : hw.text}
+                      </div>
+                      <div style={{ fontSize: 11, color: hw.status === "sent" ? "#1BAF7A" : "#8C7355", marginTop: 6 }}>
+                        {new Date(hw.created_at).toLocaleDateString("ru", { day: "numeric", month: "long" })}
+                        {" · "}
+                        {hw.status === "sent" ? "доставлено" : "не доставлено — у клиента не подключён мессенджер"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

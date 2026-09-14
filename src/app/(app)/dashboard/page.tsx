@@ -1,7 +1,7 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { useProfile } from "@/lib/ProfileContext";
@@ -144,19 +144,34 @@ export default function DashboardPage() {
     return Math.round(total / clients.length);
   }, [clients, sessionCountByClient]);
 
-  // Раньше оба блока ниже (ДЗ и статус клиентов) были захардкожены
-  // прямо в JSX ("9 / 16 заданий", "3 активных / 1 на паузе / 0 завершено")
-  // — не менялись независимо от реальных данных психолога. Теперь
-  // считаются от clients из ClientsContext (hwTotal/hwCompleted/status
-  // уже приходят из БД, см. src/lib/data/clients.ts).
-  const homeworkTotals = useMemo(() => {
-    const totalAssigned = clients.reduce((sum, c) => sum + (c.hwTotal ?? 0), 0);
-    const totalCompleted = clients.reduce((sum, c) => sum + (c.hwCompleted ?? 0), 0);
-    const pct = totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
-    const clientsFullyDone = clients.filter(c => (c.hwTotal ?? 0) > 0 && c.hwCompleted >= c.hwTotal).length;
-    const clientsInProgress = clients.filter(c => (c.hwTotal ?? 0) > 0 && c.hwCompleted < c.hwTotal).length;
-    return { totalAssigned, totalCompleted, pct, clientsFullyDone, clientsInProgress };
-  }, [clients]);
+  // Раньше оба блока ниже (ДЗ и статус клиентов) были захардкожены прямо
+  // в JSX ("9 / 16 заданий", "3 активных / 1 на паузе / 0 завершено").
+  // Статус клиентов считается от ClientsContext, а вот ДЗ пришлось брать
+  // отдельным запросом: колонки clients.hw_total / hw_completed остались
+  // из ранней схемы и в коде нигде не заполняются, поэтому счёт по ним
+  // всегда давал ноль. Реальные задания лежат в messages с kind='homework'.
+  interface HomeworkSummary {
+    totalSent: number;
+    sentLast30Days: number;
+    clientsWithHomework: number;
+    delivered: number;
+    undelivered: number;
+  }
+  const [homeworkSummary, setHomeworkSummary] = useState<HomeworkSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/homework/summary");
+        const data = await res.json();
+        if (!cancelled && res.ok) setHomeworkSummary(data);
+      } catch {
+        // молча: блок покажет пустое состояние
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const clientsByStatus = useMemo(() => ({
     active: clients.filter(c => c.status === "active").length,
@@ -465,36 +480,39 @@ export default function DashboardPage() {
           {/* ДЗ выполнено */}
           <Card>
             <CardContent className="pt-6">
+              {/* Раньше блок назывался «Выполнение ДЗ» и показывал процент
+                  из clients.hw_completed/hw_total — эти колонки никогда не
+                  заполняются, поэтому там всегда было «Пока нет назначенных
+                  домашних заданий». Отметки о выполнении в системе нет
+                  вообще (клиент не может отметить задание сделанным), так
+                  что показываем то, что действительно известно: сколько
+                  заданий отправлено и сколько из них дошло до мессенджера. */}
               <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 8 }}>
-                Выполнение ДЗ
+                Домашние задания
               </h3>
-              {homeworkTotals.totalAssigned === 0 ? (
+              {!homeworkSummary || homeworkSummary.totalSent === 0 ? (
                 <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
-                  Пока нет назначенных домашних заданий
+                  Пока не отправлено ни одного задания
                 </p>
               ) : (
                 <>
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12 }}>
-                      <span style={{ color: "#6B6058" }}>{homeworkTotals.totalCompleted} / {homeworkTotals.totalAssigned} заданий</span>
-                      <span style={{ color: "#1BAF7A", fontWeight: 600 }}>{homeworkTotals.pct}%</span>
-                    </div>
-                    <div style={{
-                      height: 8,
-                      background: "rgba(27, 175, 122, 0.1)",
-                      borderRadius: 4,
-                      overflow: "hidden",
-                    }}>
-                      <div style={{
-                        width: `${homeworkTotals.pct}%`,
-                        height: "100%",
-                        background: "linear-gradient(90deg, #1BAF7A 0%, #1a9b6d 100%)",
-                        borderRadius: 4,
-                      }} />
-                    </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 26, fontWeight: 700, color: "#1C1C1E" }}>
+                      {homeworkSummary.sentLast30Days}
+                    </span>
+                    <span style={{ fontSize: 12, color: "#6B6058" }}>за последние 30 дней</span>
                   </div>
-                  <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
-                    {homeworkTotals.clientsFullyDone} клиентов завершили, {homeworkTotals.clientsInProgress} в работе
+                  <p style={{ fontSize: 12, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                    Всего {homeworkSummary.totalSent} для {homeworkSummary.clientsWithHomework}{" "}
+                    {homeworkSummary.clientsWithHomework === 1 ? "клиента" : "клиентов"}
+                    {homeworkSummary.undelivered > 0 && (
+                      <>
+                        {" · "}
+                        <span style={{ color: "#B45309" }}>
+                          {homeworkSummary.undelivered} не доставлено (нет мессенджера)
+                        </span>
+                      </>
+                    )}
                   </p>
                 </>
               )}
