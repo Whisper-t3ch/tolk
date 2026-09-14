@@ -125,6 +125,41 @@ function ClientsPageInner() {
   const selectedClient = selectedClientId ? clients.find(c => c.id === selectedClientId) : null;
   const hasMessengerLink = messengerLinks.length > 0;
 
+  // Ссылка-приглашение в бота: по ней клиент привязывает свой мессенджер
+  // к карточке. Без неё психолог не может начать переписку вообще.
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  // При переключении клиента ссылка предыдущего не должна оставаться.
+  useEffect(() => {
+    setInviteUrl(null);
+    setInviteError(null);
+    setInviteCopied(false);
+  }, [selectedClientId]);
+
+  const loadInviteLink = async () => {
+    if (!selectedClientId) return;
+    setInviteError(null);
+    setInviteUrl(null);
+    try {
+      const res = await fetch(`/api/clients/${selectedClientId}/messenger-link?platform=telegram`);
+      const data = await res.json();
+      if (data.linked) return;
+      if (data.invite_url) {
+        setInviteUrl(data.invite_url);
+        return;
+      }
+      // Частый случай у нового психолога: своего бота он ещё не подключал,
+      // поэтому ссылки-приглашения физически нет. Ответ приходит с
+      // linked:false и текстом ошибки — показываем этот текст, иначе
+      // нажатие на «Получить ссылку» выглядит так, будто ничего не произошло.
+      setInviteError(data.error ?? "Не удалось получить ссылку-приглашение");
+    } catch {
+      setInviteError("Не удалось связаться с сервером");
+    }
+  };
+
   const filtered = useMemo(() => {
     const cutoff = new Date("2026-08-16T00:00:00");
     cutoff.setDate(cutoff.getDate() - 30);
@@ -584,6 +619,46 @@ function ClientsPageInner() {
           {/* Чат */}
           <Card style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
             <CardContent style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: 16, boxSizing: "border-box" }}>
+              {/* Привязка мессенджера. Сразу после создания клиента психолог
+                  попадает именно сюда, а не в отдельную карточку, и раньше
+                  видел только надпись «мессенджер не подключён» — без
+                  единого способа это исправить: ссылка-приглашение была
+                  доступна только на странице /clients/[id]. */}
+              {!messagesLoading && selectedClientId && !hasMessengerLink && (
+                <div style={{
+                  padding: "10px 12px", background: "#FEF3C7", borderRadius: 8,
+                  marginBottom: 10, fontSize: 12, color: "#92400E",
+                }}>
+                  {inviteUrl ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ wordBreak: "break-all" }}>{inviteUrl}</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard?.writeText(inviteUrl);
+                          setInviteCopied(true);
+                          setTimeout(() => setInviteCopied(false), 2000);
+                        }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#92400E", fontWeight: 600, fontSize: 12 }}
+                      >
+                        {inviteCopied ? "Скопировано" : "Скопировать"}
+                      </button>
+                    </div>
+                  ) : inviteError ? (
+                    <span>{inviteError}</span>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span>Клиент пока не подключил мессенджер — сообщения сохранятся, но не дойдут.</span>
+                      <button
+                        onClick={loadInviteLink}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#92400E", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
+                      >
+                        Получить ссылку →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Сообщения */}
               <div style={{ flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
                 {messagesLoading && (
