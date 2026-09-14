@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
           embedding: number[];
           source_type: string;
           approach: string;
+          questionnaire_key: string | null;
         }> = [];
         for (const item of seedItems) {
           const embedding = await yandexGptEmbed(item.content, "doc");
@@ -120,6 +121,12 @@ export async function POST(request: NextRequest) {
             // психолога — иначе фильтр по подходу в базе знаний покажет
             // тесты как принадлежащие, например, гештальту.
             approach: approachItems.includes(item) ? approach : "other",
+            // Ключ интерактивного опросника: без него карточка теста не
+            // считается заполняемой, кнопка «Отправить как тест клиенту»
+            // не появляется и назначить методику невозможно. В seed-данных
+            // ключ есть (questionnaireKey), но при вставке он терялся —
+            // у психолога тесты оседали как обычные текстовые материалы.
+            questionnaire_key: item.questionnaireKey ?? null,
           });
         }
         const { error: insertError } = await supabase.from("knowledge_base").insert(rows);
