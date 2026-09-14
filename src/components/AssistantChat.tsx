@@ -152,9 +152,14 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
 
   const fontSize = compact ? 12 : 13;
 
-  const voiceSupported =
-    typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  // Поддержку распознавания речи проверяем только после монтирования.
+  // Раньше условие вычислялось прямо при рендере: на сервере window нет,
+  // поэтому SSR рисовал одну кнопку, а браузер — другую, и React падал с
+  // ошибкой гидрации, выбрасывая и перерисовывая всё поддерево чата.
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  useEffect(() => {
+    setVoiceSupported("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
