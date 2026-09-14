@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
+import { isValidTimeZone, normalizeTimeZone } from "@/lib/timezone";
 
 // GET /api/booking-settings — настройки публичной записи текущего
 // психолога (null, если ещё не создавались — на UI это означает
@@ -26,7 +27,19 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ settings: data });
+  // Часовой пояс лежит в профиле психолога (он нужен не только записи),
+  // но настраивается вместе с рабочими часами — отдаём его тем же
+  // запросом, чтобы страница настроек не делала второй вызов.
+  const { data: profile } = await supabase
+    .from("psychologists")
+    .select("timezone")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  return NextResponse.json({
+    settings: data,
+    timezone: normalizeTimeZone(profile?.timezone as string | undefined),
+  });
 }
 
 interface WorkingHoursInput {
@@ -46,6 +59,8 @@ interface BookingSettingsBody {
   min_notice_hours?: number;
   max_advance_days?: number;
   is_active?: boolean;
+  /** IANA-идентификатор, например "Europe/Moscow". Пишется в psychologists.timezone. */
+  timezone?: string;
 }
 
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -131,6 +146,22 @@ async function upsertHandler(request: NextRequest) {
   }
   if (body.max_advance_days !== undefined && ![7, 14, 30, 60].includes(body.max_advance_days)) {
     return NextResponse.json({ error: "max_advance_days должен быть одним из: 7, 14, 30, 60" }, { status: 400 });
+  }
+
+  // Часовой пояс живёт в профиле психолога, а не в booking_settings —
+  // от него зависит и расписание, и трактовка рабочих часов при
+  // бронировании. Пишем отдельным запросом.
+  if (body.timezone !== undefined) {
+    if (!isValidTimeZone(body.timezone)) {
+      return NextResponse.json({ error: "Неизвестный часовой пояс" }, { status: 400 });
+    }
+    const { error: tzError } = await supabase
+      .from("psychologists")
+      .update({ timezone: body.timezone })
+      .eq("id", user.id);
+    if (tzError) {
+      return NextResponse.json({ error: tzError.message }, { status: 500 });
+    }
   }
 
   const { data: existing } = await supabase

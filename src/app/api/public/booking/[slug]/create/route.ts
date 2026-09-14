@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSlotAvailable, type WorkingHours } from "@/lib/booking";
+import { normalizeTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 
 // POST /api/public/booking/[slug]/create
 // Body: { date: "YYYY-MM-DD", time: "HH:MM", client_name: string, client_telegram: string }
@@ -51,6 +52,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Страница бронирования не найдена" }, { status: 404 });
   }
   const psychologistId = settings.psychologist_id as string;
+
+  // Часовой пояс психолога — в нём заданы рабочие часы и в нём клиент
+  // выбирал слот. Без него «15:00» превращалось в 15:00 UTC, и сессия
+  // появлялась в кабинете психолога со сдвигом на его смещение от UTC.
+  const { data: profile } = await supabase
+    .from("psychologists")
+    .select("timezone")
+    .eq("id", psychologistId)
+    .maybeSingle();
+  const timeZone = normalizeTimeZone(profile?.timezone as string | undefined);
 
   // Rate limiting: не более 3 попыток брони с одного telegram за 10 минут.
   // Считаем по уже созданным sessions с этим booked_via/telegram, без
@@ -104,6 +115,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     minNoticeHours: settings.min_notice_hours,
     maxAdvanceDays: settings.max_advance_days,
     occupied,
+    timeZone,
   });
   if (!available) {
     return NextResponse.json(
@@ -141,7 +153,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     clientId = newClient.id as string;
   }
 
-  const scheduledAt = new Date(`${date}T${time}:00Z`).toISOString();
+  // Время слота — местное время психолога, переводим в UTC для хранения.
+  const scheduledAt = zonedDateTimeToUtc(date, time, timeZone).toISOString();
 
   const { data: session, error: createError } = await supabase
     .from("sessions")

@@ -4,7 +4,11 @@
 // доступных слотов), и в POST /api/public/booking/[slug]/create
 // (повторная проверка "слот всё ещё свободен" перед созданием сессии —
 // защита от race condition, см. комментарий в create/route.ts).
+//
+// Рабочие часы психолога заданы в ЕГО часовом поясе, а scheduled_at
+// хранится в UTC — преобразование делает zonedDateTimeToUtc.
 // ------------------------------------------------------------
+import { zonedDateTimeToUtc, DEFAULT_TIMEZONE } from "@/lib/timezone";
 
 export interface WorkingHours {
   mon?: [string, string] | null;
@@ -66,6 +70,8 @@ export function generateAvailableSlots(params: {
   minNoticeHours: number;
   occupied: ExistingSessionWindow[];
   now?: Date;
+  /** Часовой пояс психолога — в нём заданы рабочие часы. */
+  timeZone?: string;
 }): BookingSlot[] {
   const {
     fromDate,
@@ -76,14 +82,17 @@ export function generateAvailableSlots(params: {
     minNoticeHours,
     occupied,
     now = new Date(),
+    timeZone = DEFAULT_TIMEZONE,
   } = params;
 
   const step = sessionDurationMinutes + bufferMinutes;
   const minStart = new Date(now.getTime() + minNoticeHours * 60 * 60 * 1000);
 
   const slots: BookingSlot[] = [];
-  const cursor = new Date(fromDate + "T00:00:00Z");
-  const end = new Date(toDate + "T00:00:00Z");
+  // Курсор — календарная дата, а не момент времени: берём полдень UTC,
+  // чтобы прибавление суток не съезжало на границе часовых поясов.
+  const cursor = new Date(fromDate + "T12:00:00Z");
+  const end = new Date(toDate + "T12:00:00Z");
 
   while (cursor.getTime() <= end.getTime()) {
     const dateStr = cursor.toISOString().slice(0, 10);
@@ -96,7 +105,11 @@ export function generateAvailableSlots(params: {
       const endMin = parseTimeToMinutes(endTime);
 
       for (let slotStart = startMin; slotStart + sessionDurationMinutes <= endMin; slotStart += step) {
-        const slotStartDate = new Date(`${dateStr}T${minutesToTime(slotStart)}:00Z`);
+        // Рабочие часы психолог задаёт в своём местном времени, поэтому
+        // «15:00» превращаем в момент времени через его часовой пояс, а
+        // не трактуем как 15:00 UTC (из-за этого бронь на 15:00 попадала
+        // в кабинет на 21:00 при GMT+6).
+        const slotStartDate = zonedDateTimeToUtc(dateStr, minutesToTime(slotStart), timeZone);
         const slotEndDate = new Date(slotStartDate.getTime() + sessionDurationMinutes * 60 * 1000);
 
         if (slotStartDate.getTime() < minStart.getTime()) continue;
@@ -129,9 +142,12 @@ export function isSlotAvailable(params: {
   maxAdvanceDays: number;
   occupied: ExistingSessionWindow[];
   now?: Date;
+  /** Часовой пояс психолога — тот же, что при генерации слотов. */
+  timeZone?: string;
 }): boolean {
   const { date, time, ...rest } = params;
   const now = params.now ?? new Date();
+  const timeZone = params.timeZone ?? DEFAULT_TIMEZONE;
   const maxDate = new Date(now.getTime() + params.maxAdvanceDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   if (date > maxDate) return false;
 
@@ -144,6 +160,7 @@ export function isSlotAvailable(params: {
     minNoticeHours: rest.minNoticeHours,
     occupied: rest.occupied,
     now,
+    timeZone,
   });
   return slots.some(s => s.date === date && s.time === time);
 }

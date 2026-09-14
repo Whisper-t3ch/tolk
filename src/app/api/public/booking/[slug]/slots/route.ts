@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateAvailableSlots, type WorkingHours } from "@/lib/booking";
+import { normalizeTimeZone, todayInTimeZone, formatDateInTimeZone } from "@/lib/timezone";
 
 // GET /api/public/booking/[slug]/slots?from=YYYY-MM-DD&to=YYYY-MM-DD
 // (или ?date=YYYY-MM-DD для одного дня)
@@ -40,17 +41,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { data: profile } = await supabase
     .from("psychologists")
-    .select("specialty")
+    .select("specialty, timezone")
     .eq("id", settings.psychologist_id)
     .maybeSingle();
+
+  // Часовой пояс психолога: в нём заданы рабочие часы и в нём же клиент
+  // видит слоты. Без него «сегодня» и границы суток считались по UTC,
+  // из-за чего слоты съезжали относительно реального расписания.
+  const timeZone = normalizeTimeZone(profile?.timezone as string | undefined);
 
   const now = new Date();
   const dateParam = request.nextUrl.searchParams.get("date");
   const fromParam = request.nextUrl.searchParams.get("from");
   const toParam = request.nextUrl.searchParams.get("to");
 
-  const maxDate = new Date(now.getTime() + settings.max_advance_days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const todayStr = now.toISOString().slice(0, 10);
+  const maxDate = formatDateInTimeZone(
+    new Date(now.getTime() + settings.max_advance_days * 24 * 60 * 60 * 1000),
+    timeZone
+  );
+  const todayStr = todayInTimeZone(timeZone, now);
 
   let fromDate = dateParam ?? fromParam ?? todayStr;
   let toDate = dateParam ?? toParam ?? maxDate;
@@ -91,6 +100,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     minNoticeHours: settings.min_notice_hours,
     occupied,
     now,
+    timeZone,
   });
 
   return NextResponse.json({

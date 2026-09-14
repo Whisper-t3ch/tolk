@@ -96,9 +96,40 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .maybeSingle();
 
   const hasTranscript = Boolean(transcript?.raw_text);
-  if (!hasTranscript) {
+
+  // Заметки психолога — второй источник для генерации. Их пишут прямо во
+  // время звонка (страница /session/[id], автосохранение в
+  // soap_notes.s_subjective) или вручную в блоках протокола.
+  //
+  // Раньше запрос отбивался сразу, если нет транскрипта, а notes в
+  // промпт передавались пустой строкой — то есть готовый промпт для
+  // работы по заметкам (PROTOCOL_SYSTEM_PROMPT_MANUAL_DEGRADE) никогда
+  // не использовался, и вся ИИ-генерация протокола была недоступна, пока
+  // не подключены Jitsi и распознавание речи.
+  const { data: existingNote } = await supabase
+    .from("soap_notes")
+    .select("s_subjective, o_objective, a_assessment, p_plan")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const notes = [
+    existingNote?.s_subjective,
+    existingNote?.o_objective,
+    existingNote?.a_assessment,
+    existingNote?.p_plan,
+  ]
+    .map(v => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean)
+    .join("\n\n");
+
+  if (!hasTranscript && !notes) {
     return NextResponse.json(
-      { error: "Транскрипт для этой сессии ещё не готов. Заполните протокол вручную или дождитесь обработки записи." },
+      {
+        error:
+          "Нечего анализировать: нет ни записи сессии, ни заметок. Напишите хотя бы короткие тезисы в блоках ниже — по ним получится собрать протокол.",
+      },
       { status: 409 }
     );
   }
@@ -137,8 +168,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const systemPrompt = selectSoapSystemPrompt(hasTranscript);
   const userMessage = buildSoapUserMessage({
-    transcript: transcript!.raw_text as string,
-    notes: "",
+    transcript: hasTranscript ? (transcript!.raw_text as string) : undefined,
+    notes,
     previousSessionsSummary,
     clientName,
     sessionNumber,

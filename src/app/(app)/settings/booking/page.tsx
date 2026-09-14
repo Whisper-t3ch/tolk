@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Copy, Check, Link as LinkIcon } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/lib/timezone";
 
 interface WorkingHours {
   mon: [string, string] | null;
@@ -59,6 +60,7 @@ export default function BookingSettingsPage() {
   const [buffer, setBuffer] = useState(10);
   const [minNotice, setMinNotice] = useState(2);
   const [maxAdvance, setMaxAdvance] = useState(30);
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +68,9 @@ export default function BookingSettingsPage() {
       try {
         const res = await fetch("/api/booking-settings");
         const data = await res.json();
-        if (!cancelled && res.ok && data.settings) {
+        if (cancelled || !res.ok) return;
+        if (data.timezone) setTimezone(data.timezone);
+        if (data.settings) {
           const s: BookingSettings = data.settings;
           setSlug(s.public_slug);
           setIsActive(s.is_active);
@@ -85,6 +89,13 @@ export default function BookingSettingsPage() {
     };
   }, []);
 
+  // Пояс, в котором сейчас физически находится психолог — если он
+  // расходится с сохранённым, показываем подсказку: расхождение как раз
+  // и приводит к тому, что время сессии «уезжает».
+  const browserTimeZone = typeof Intl !== "undefined"
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone
+    : null;
+
   async function save(patch: Partial<{
     working_hours: WorkingHours;
     session_duration_minutes: number;
@@ -92,6 +103,7 @@ export default function BookingSettingsPage() {
     min_notice_hours: number;
     max_advance_days: number;
     is_active: boolean;
+    timezone: string;
   }>) {
     setSaving(true);
     setError(null);
@@ -228,6 +240,40 @@ export default function BookingSettingsPage() {
               </motion.div>
             )}
           </AnimatePresence>
+        </CardContent>
+      </Card>
+
+      {/* Часовой пояс — рабочие часы ниже трактуются именно в нём */}
+      <Card className="mb-4">
+        <CardContent className="pt-6">
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 6 }}>Часовой пояс</h3>
+          <p style={{ fontSize: 12.5, color: "#8C7355", marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>
+            В нём указаны рабочие часы ниже и в нём клиент видит свободное время.
+            Если пояс указан неверно, сессия запишется не на то время.
+          </p>
+          <select
+            value={timezone}
+            onChange={e => {
+              const tz = e.target.value;
+              setTimezone(tz);
+              save({ timezone: tz });
+            }}
+            disabled={saving}
+            style={{
+              width: "100%", maxWidth: 420, padding: "9px 12px", border: "1px solid #E5DFD5",
+              borderRadius: 8, fontSize: 13, color: "#1C1C1E", fontFamily: "var(--font-sans)", background: "#FFFFFF",
+            }}
+          >
+            {TIMEZONE_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          {browserTimeZone && browserTimeZone !== timezone && (
+            <p style={{ fontSize: 12, color: "#92400E", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
+              На этом устройстве часовой пояс — {browserTimeZone}, а в настройках указан другой.
+              Если вы работаете отсюда, выберите пояс этого устройства.
+            </p>
+          )}
         </CardContent>
       </Card>
 
