@@ -1,5 +1,5 @@
 "use client";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { useSession } from "@/lib/SessionContext";
@@ -352,12 +352,15 @@ export default function DashboardPage() {
                   </span>
                 </div>
 
-                <AnimatePresence mode="wait">
+                {/* Тот же случай, что и на странице настроек: с
+                    AnimatePresence mode="wait" (framer-motion 11 + React 19)
+                    выходящий блок зависал на opacity: 0, а новый не
+                    монтировался — список событий замирал на ранее выбранном
+                    дне и больше не реагировал на выбор даты в календаре. */}
                   <motion.div
                     key={selectedDateStr}
                     initial={{ opacity: 0, x: 8 }}
                     animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -8 }}
                     transition={{ duration: 0.15 }}
                     style={{ maxHeight: 340, overflowY: "auto", paddingRight: 4 }}
                   >
@@ -441,7 +444,6 @@ export default function DashboardPage() {
                       </div>
                     )}
                   </motion.div>
-                </AnimatePresence>
                 <Link href="/calendar" style={{ textDecoration: "none" }}>
                   <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: "#2D6A5C", textAlign: "center" }}>
                     Открыть полный календарь, чтобы добавить своё событие →

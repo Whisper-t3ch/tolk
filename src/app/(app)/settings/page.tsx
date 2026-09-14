@@ -223,12 +223,18 @@ export default function SettingsPage() {
 
         {/* Контент раздела */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <AnimatePresence mode="wait">
+          {/* Без AnimatePresence mode="wait": в связке framer-motion 11 +
+              React 19 выходящий блок зависал в состоянии opacity: 0, так и не
+              завершив exit-анимацию, а новый раздел из-за режима "wait" вообще
+              не монтировался. Панель намертво застревала на «Уведомлениях», и
+              до интеграций (подключение Telegram/VK), тарифа, приватности и
+              удаления аккаунта было не добраться ни кликом, ни по якорю
+              вида /settings#integrations. Смена key сама размонтирует старый
+              раздел и проигрывает появление нового — анимация сохраняется. */}
             <motion.div
               key={activeSection}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
               {activeSection === "notifications" && (
@@ -615,7 +621,6 @@ export default function SettingsPage() {
                 </Card>
               )}
             </motion.div>
-          </AnimatePresence>
         </div>
       </div>
 

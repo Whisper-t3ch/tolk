@@ -503,6 +503,22 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               Действия
             </h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {/* Генерация доступна и когда протокол уже существует. Карточка
+                  «Протокол не создан» выше показывается только при пустом
+                  протоколе, а заметки, написанные прямо во время сессии,
+                  сразу сохраняются как протокол — то есть ровно в основном
+                  сценарии (психолог набросал тезисы и хочет развернуть их в
+                  связный текст) кнопка исчезала и ИИ-генерация по заметкам
+                  становилась недостижимой. */}
+              {protocolExists && (
+                <Button onClick={handleGenerate} variant="secondary" disabled={generating}>
+                  {generating ? (
+                    <><Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} /> Генерирую…</>
+                  ) : (
+                    <><Sparkles size={14} style={{ marginRight: 6 }} /> Сгенерировать протокол</>
+                  )}
+                </Button>
+              )}
               <Link href={`/content?session=${sessionId}`} style={{ textDecoration: "none" }}>
                 <Button variant="primary">
                   <FileOutput size={14} style={{ marginRight: 6 }} /> Сгенерировать контент
@@ -519,6 +535,15 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 <Send size={14} style={{ marginRight: 6 }} /> Отправить резюме клиенту
               </Button>
             </div>
+            {/* Ошибку генерации показываем и здесь: карточка «Протокол не
+                создан», где она выводилась раньше, при заполненном протоколе
+                скрыта — иначе неудачная генерация выглядела бы как полное
+                отсутствие реакции на нажатие. */}
+            {protocolExists && generateError && (
+              <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginTop: 12, marginBottom: 0 }}>
+                {generateError}
+              </p>
+            )}
           </CardContent>
         </Card>
       </motion.div>
