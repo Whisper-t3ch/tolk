@@ -5,11 +5,14 @@ import Link from "next/link";
 import { LogoMark } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/client";
 
-// Регистрация новых аккаунтов временно закрыта (беста-набор завершён).
-// Настоящая блокировка — на уровне Supabase Auth (Dashboard → Authentication →
-// Settings → Allow new users to sign up: выключено). Этот флаг в UI —
-// дополнительный барьер, чтобы форма даже не пыталась вызвать signUp.
-const REGISTRATION_OPEN = false;
+// Регистрация новых аккаунтов. Настоящая блокировка — на уровне Supabase
+// Auth (Dashboard → Authentication → Settings → Allow new users to sign up),
+// этот флаг в UI лишь скрывает форму, чтобы она не пыталась вызвать signUp
+// и не показывала пользователю ошибку сервера.
+//
+// Открыто на время бета-набора: новые психологи регистрируются сами.
+// Чтобы снова закрыть набор — выключить оба места, флаг и настройку Supabase.
+const REGISTRATION_OPEN = true;
 
 function LoginForm() {
   const searchParams = useSearchParams();

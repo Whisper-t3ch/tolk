@@ -89,7 +89,17 @@ export async function POST(request: NextRequest) {
         .eq("psychologist_id", user.id);
 
       if (!count || count === 0) {
-        const seedItems = APPROACH_SEED_KNOWLEDGE[approach];
+        // К материалам выбранного подхода добавляем общий набор "other".
+        // Там лежат все психодиагностические методики и кросс-подходные
+        // протоколы: раньше их получал только психолог, выбравший
+        // "Другой подход", а КПТ-терапевту или гештальтисту не доставалось
+        // ни одного теста — вкладка «Тесты» была пустой и отправить
+        // клиенту методику он не мог в принципе. Тест не принадлежит
+        // школе: шкала депрессии Цунга нужна одинаково всем.
+        const approachItems = APPROACH_SEED_KNOWLEDGE[approach] ?? [];
+        const sharedItems = approach === "other" ? [] : (APPROACH_SEED_KNOWLEDGE.other ?? []);
+        const seedItems = [...approachItems, ...sharedItems];
+
         const rows: Array<{
           psychologist_id: string;
           title: string;
@@ -106,7 +116,10 @@ export async function POST(request: NextRequest) {
             content: item.content,
             embedding,
             source_type: item.source_type,
-            approach,
+            // Универсальные материалы помечаем как "other", а не подходом
+            // психолога — иначе фильтр по подходу в базе знаний покажет
+            // тесты как принадлежащие, например, гештальту.
+            approach: approachItems.includes(item) ? approach : "other",
           });
         }
         const { error: insertError } = await supabase.from("knowledge_base").insert(rows);

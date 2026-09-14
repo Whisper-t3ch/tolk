@@ -1,5 +1,6 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 // ------------------------------------------------------------
 // Личные дела в календаре (не сессии с клиентами) — например "Зал",
@@ -24,8 +25,20 @@ interface PersonalEventsContextType {
   updateEventTime: (id: string, time: string) => void;
 }
 
-const STORAGE_KEY = "tolk_personal_events_v4";
-const SEEDED_FLAG_KEY = "tolk_personal_events_seeded_v4";
+// Ключ хранения привязан к id психолога. Раньше он был общий на весь
+// домен ("tolk_personal_events_v4"), поэтому личные дела не принадлежали
+// никому конкретно: психолог, вошедший следующим на том же компьютере,
+// видел в своём календаре чужие «Йогу» и «Врача» — включая полностью
+// пустой кабинет нового пользователя.
+const STORAGE_PREFIX = "tolk_personal_events_v5";
+
+function storageKeyFor(psychologistId: string | null): string {
+  return psychologistId ? `${STORAGE_PREFIX}:${psychologistId}` : STORAGE_PREFIX;
+}
+
+// Старые общие ключи подчищаем, чтобы события прошлых версий не всплывали
+// у следующего вошедшего пользователя.
+const LEGACY_KEYS = ["tolk_personal_events_v4", "tolk_personal_events_seeded_v4"];
 
 const PersonalEventsContext = createContext<PersonalEventsContextType | undefined>(undefined);
 
@@ -108,15 +121,16 @@ function buildSeedEvents(): PersonalEvent[] {
   return events;
 }
 
-function loadFromStorage(): PersonalEvent[] {
+function loadFromStorage(psychologistId: string | null): PersonalEvent[] {
   if (typeof window === "undefined") return [];
   try {
-    // Календарь больше не засеивается демо-распорядком (Йога / Завтрак /
-    // Обед / Врач): для бета-психолога это чужие выдуманные события,
-    // которые он не создавал и вынужден разбирать вручную. Начинаем с
-    // пустого календаря — свои события психолог добавляет сам.
+    // Календарь не засеивается демо-распорядком (Йога / Завтрак / Обед /
+    // Врач): для психолога это чужие выдуманные события, которые он не
+    // создавал. Начинаем с пустого календаря — события добавляет он сам.
     // buildSeedEvents() оставлена для демонстрационных показов.
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    for (const legacy of LEGACY_KEYS) window.localStorage.removeItem(legacy);
+
+    const raw = window.localStorage.getItem(storageKeyFor(psychologistId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -128,20 +142,38 @@ function loadFromStorage(): PersonalEvent[] {
 export function PersonalEventsProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<PersonalEvent[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const [psychologistId, setPsychologistId] = useState<string | null>(null);
 
+  // Узнаём, чей это кабинет: события хранятся отдельно для каждого
+  // психолога, иначе следующий вошедший на том же компьютере увидит
+  // чужой календарь.
   useEffect(() => {
-    setEvents(loadFromStorage());
-    setHydrated(true);
+    let cancelled = false;
+    (async () => {
+      let id: string | null = null;
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        id = data.user?.id ?? null;
+      } catch {
+        id = null;
+      }
+      if (cancelled) return;
+      setPsychologistId(id);
+      setEvents(loadFromStorage(id));
+      setHydrated(true);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     if (!hydrated) return; // не перезаписываем storage пустым массивом до первой загрузки
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+      window.localStorage.setItem(storageKeyFor(psychologistId), JSON.stringify(events));
     } catch {
       // localStorage может быть недоступен (приватный режим и т.п.) — не критично.
     }
-  }, [events, hydrated]);
+  }, [events, hydrated, psychologistId]);
 
   const addEvent = useCallback((event: Omit<PersonalEvent, "id">) => {
     setEvents(prev => [...prev, { ...event, id: `pe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }]);
