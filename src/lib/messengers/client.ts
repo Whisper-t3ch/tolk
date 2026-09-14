@@ -67,14 +67,41 @@ export async function setTelegramWebhook(botToken: string, webhookUrl: string, s
   return data.result;
 }
 
+// Telegram и VK отвечают на ошибки по-английски и техническим языком
+// («User authorization failed: invalid access_token (4).»,
+// «Unauthorized»). Психолог, подключающий бота по инструкции, из такого
+// текста не поймёт, что именно сделал не так, — переводим самые частые
+// случаи в понятные подсказки, остальное отдаём как есть.
+function explainTelegramError(raw: string | undefined): string {
+  const text = (raw ?? "").toLowerCase();
+  if (text.includes("unauthorized") || text.includes("not found")) {
+    return "Telegram не принял этот токен. Проверьте, что скопировали его целиком из сообщения @BotFather — вместе с цифрами до двоеточия.";
+  }
+  if (text.includes("too many requests")) {
+    return "Telegram временно ограничил запросы к этому боту. Попробуйте через пару минут.";
+  }
+  return raw ?? "Неверный токен бота — Telegram не смог его подтвердить";
+}
+
+function explainVkError(raw: string | undefined, code: number | undefined): string {
+  const text = (raw ?? "").toLowerCase();
+  if (code === 5 || text.includes("invalid access_token") || text.includes("authorization failed")) {
+    return "ВКонтакте не принял этот ключ доступа. Убедитесь, что создали ключ именно сообщества (Управление → Работа с API → Ключи доступа), а не личный ключ страницы.";
+  }
+  if (code === 15 || text.includes("access denied")) {
+    return "У ключа не хватает прав. При создании ключа сообщества отметьте доступ к сообщениям сообщества.";
+  }
+  if (code === 27 || code === 28) {
+    return "Ключ сообщества истёк или был отозван. Создайте новый в настройках сообщества и вставьте его сюда.";
+  }
+  return raw ?? "Неверный токен сообщества — VK не смог его подтвердить";
+}
+
 export async function getTelegramBotInfo(botToken: string): Promise<{ username: string; id: number }> {
   const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
   const data = await res.json();
   if (!res.ok || !data.ok) {
-    throw new MessengerSendError(
-      data?.description ?? "Неверный токен бота — Telegram не смог его подтвердить",
-      "telegram"
-    );
+    throw new MessengerSendError(explainTelegramError(data?.description), "telegram");
   }
   return { username: data.result.username, id: data.result.id };
 }
@@ -120,7 +147,7 @@ export async function getVkGroupInfo(groupAccessToken: string): Promise<{ name: 
   const data = await res.json();
   if (data.error) {
     throw new MessengerSendError(
-      data.error.error_msg ?? "Неверный токен сообщества — VK не смог его подтвердить",
+      explainVkError(data.error.error_msg, data.error.error_code),
       "vk"
     );
   }
