@@ -182,22 +182,26 @@ export async function updateClientRecord(id: string, input: UpdateClientInput): 
 }
 
 // Мягкое удаление — соответствует soft-delete паттерну схемы (deleted_at)
+// Удаление идёт через RPC, а не через обычный UPDATE, и это вынужденно:
+// SELECT-политика на clients включает `deleted_at is null`, поэтому
+// строка, которой только что проставили дату удаления, становится
+// невидимой — а PostgREST выполняет UPDATE с RETURNING и отвергает
+// обновление, результат которого не может прочитать (42501). Подробный
+// разбор — в outputs/backend/migration_028_soft_delete_client_rpc.sql.
+// Функция soft_delete_client объявлена SECURITY DEFINER и сама
+// проверяет, что клиент принадлежит вызывающему психологу.
 export async function softDeleteClient(id: string): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase
-    .from("clients")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id);
-  // Supabase возвращает PostgrestError — обычный объект, а не Error,
+  const { error } = await supabase.rpc("soft_delete_client", { p_client_id: id });
+  // Supabase отдаёт PostgrestError — обычный объект, а не Error,
   // поэтому вызывающий код с проверкой `e instanceof Error` показывал
   // психологу общую фразу вместо причины. Заворачиваем в настоящий
-  // Error и отдельно объясняем 42501: это отказ RLS, то есть проблема
-  // настройки базы, а не «что-то пошло не так» — по общей фразе такое
-  // не отличить от сетевого сбоя, и чинится оно совсем иначе.
+  // Error и отдельно объясняем отсутствие самой функции: это
+  // непринятая миграция, а не сбой сети, и чинится совсем иначе.
   if (error) {
-    if (error.code === "42501") {
+    if (error.code === "PGRST202" || /function .*soft_delete_client.* does not exist/i.test(error.message ?? "")) {
       throw new Error(
-        "База данных не разрешает архивировать клиента: не применена миграция прав доступа (migration_027). Сообщите в поддержку."
+        "В базе нет функции удаления клиента — не применена миграция 028. Сообщите в поддержку."
       );
     }
     throw new Error(error.message || "Не удалось удалить клиента");

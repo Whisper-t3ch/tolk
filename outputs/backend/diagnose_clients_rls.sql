@@ -1,20 +1,16 @@
 -- ============================================================
--- diagnose_clients_rls.sql — НЕ миграция, просто диагностика.
+-- diagnose_clients_rls.sql — НЕ миграция, только чтение.
 --
--- migration_027 применилась, но PATCH с deleted_at по-прежнему
--- возвращает 42501 «new row violates row-level security policy».
--- Значит на clients осталась ещё одна политика, которая мешает, и её
--- надо увидеть, а не угадывать.
+-- CHECK-ограничения уже посмотрели: на clients их два (gender и
+-- status), к deleted_at отношения не имеют — значит 42501 приходит
+-- именно от RLS, и нужно увидеть политики.
 --
--- Выполнить в Supabase SQL Editor и прислать результат (обе таблицы).
--- Ничего не меняет, только читает.
+-- Здесь один запрос, чтобы SQL Editor показал именно его результат
+-- (при нескольких запросов подряд он выводит только последний).
+--
+-- Выполнить в Supabase SQL Editor и прислать таблицу целиком.
 -- ============================================================
 
--- 1) Все политики на clients: команда, permissive/restrictive, условия.
---    polcmd: r = SELECT, a = INSERT, w = UPDATE, d = DELETE, * = ALL
---    polpermissive: true = PERMISSIVE (складываются через OR),
---                   false = RESTRICTIVE (складываются через AND —
---                   такая политика может в одиночку заблокировать всё)
 select
   polname                                  as "политика",
   case polcmd
@@ -31,11 +27,10 @@ from pg_policy
 where polrelid = 'public.clients'::regclass
 order by polcmd, polname;
 
--- 2) Заодно: есть ли на таблице триггеры или CHECK-ограничения,
---    которые могли бы вмешиваться в запись deleted_at.
-select
-  conname                    as "ограничение",
-  pg_get_constraintdef(oid)  as "определение"
-from pg_constraint
-where conrelid = 'public.clients'::regclass
-  and contype = 'c';
+-- Что ищем:
+--   • строку с типом RESTRICTIVE — такие складываются через AND, и одна
+--     такая политика блокирует запись, сколько бы разрешающих ни было;
+--   • политику с командой ALL — migration_027 снимала только UPDATE
+--     (polcmd = 'w'), поэтому FOR ALL могла уцелеть;
+--   • любое упоминание deleted_at в колонке with_check — именно оно и
+--     запрещает проставить дату удаления.
