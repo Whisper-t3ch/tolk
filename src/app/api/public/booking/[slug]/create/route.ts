@@ -63,6 +63,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .maybeSingle();
   const timeZone = normalizeTimeZone(profile?.timezone as string | undefined);
 
+  // Подключён ли Telegram-бот — от этого зависит текст payment_instructions
+  // ниже. Раньше он безусловно обещал «психолог свяжется в Telegram»,
+  // даже когда бот не подключён вообще.
+  const { data: telegramIntegration } = await supabase
+    .from("messenger_integrations")
+    .select("status")
+    .eq("psychologist_id", psychologistId)
+    .eq("platform", "telegram")
+    .maybeSingle();
+  const telegramConnected = telegramIntegration?.status === "connected";
+
   // Rate limiting: не более 3 попыток брони с одного telegram за 10 минут.
   // Считаем по уже созданным sessions с этим booked_via/telegram, без
   // отдельной таблицы — этого достаточно, чтобы отсечь простой спам
@@ -183,7 +194,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     scheduled_at: session.scheduled_at,
     duration_minutes: session.duration_minutes,
     status: session.status,
-    payment_instructions:
-      "Бронь создана. Психолог свяжется с вами в Telegram для подтверждения и оплаты сессии.",
+    // Пояс психолога — без него фронтенд форматирует scheduled_at (UTC)
+    // в поясе УСТРОЙСТВА КЛИЕНТА. Проверено на проде: выбран слот 16:00
+    // (пояс психолога Europe/Moscow), клиент из Asia/Omsk на экране
+    // подтверждения видел «19:00» — притом что в БД слот записан верно.
+    timezone: timeZone,
+    payment_instructions: telegramConnected
+      ? "Бронь создана. Психолог свяжется с вами в Telegram для подтверждения и оплаты сессии."
+      : "Бронь создана. Психолог свяжется с вами для подтверждения и оплаты сессии.",
   });
 }

@@ -11,6 +11,8 @@ export interface Profile {
   name: string;
   email: string | null;
   specialty: string;
+  /** IANA-идентификатор (например "Europe/Moscow") — см. src/lib/timezone.ts. */
+  timezone: string;
   avatarInitials: string;
   memberSince: string;
   handle: string;

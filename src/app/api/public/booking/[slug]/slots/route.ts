@@ -45,6 +45,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .eq("id", settings.psychologist_id)
     .maybeSingle();
 
+  // Подключён ли у психолога Telegram-бот — публичная страница обещала
+  // клиенту «подтверждение придёт в Telegram» безусловно, даже когда
+  // бот не подключён вообще. Тогда клиент ждёт сообщение, которое
+  // физически некому отправить.
+  const { data: telegramIntegration } = await supabase
+    .from("messenger_integrations")
+    .select("status")
+    .eq("psychologist_id", settings.psychologist_id)
+    .eq("platform", "telegram")
+    .maybeSingle();
+  const telegramConnected = telegramIntegration?.status === "connected";
+
   // Часовой пояс психолога: в нём заданы рабочие часы и в нём же клиент
   // видит слоты. Без него «сегодня» и границы суток считались по UTC,
   // из-за чего слоты съезжали относительно реального расписания.
@@ -107,5 +119,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     slots,
     psychologist: { name: psychologistName, specialty: profile?.specialty ?? null },
     session_duration_minutes: settings.session_duration_minutes,
+    telegram_connected: telegramConnected,
   });
 }

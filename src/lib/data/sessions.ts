@@ -1,6 +1,7 @@
 "use client";
 import { createClient } from "@/lib/supabase/client";
 import { buildJitsiRoomName, buildJitsiUrl } from "@/lib/jitsi";
+import { formatDateInTimeZone, formatTimeInTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 
 // ------------------------------------------------------------
 // Сессия (встреча психолога с клиентом) — реальная запись из Supabase
@@ -30,15 +31,24 @@ interface SessionRow {
   clients: { name: string } | { name: string }[] | null;
 }
 
-function splitScheduledAt(scheduledAt: string): { date: string; time: string } {
+// БЫЛО: getFullYear()/getHours() и т.п. — разбирали scheduled_at (UTC) в
+// часовом поясе БРАУЗЕРА, а не психолога. Психолог из Омска (UTC+3 к
+// Москве) видел все свои сессии сдвинутыми на 3 часа — забронированный
+// клиентом слот 16:00 показывался как 19:00 и на экране подтверждения
+// клиенту, и в кабинете самого психолога (см. задачи по часовым поясам).
+// zonedDateTimeToUtc в booking.ts чинил только ЗАПИСЬ времени в БД, но
+// не чтение/отображение — отсюда и бралось ощущение, что баг «уже
+// исправлен», хотя ломался именно этот слой.
+function splitScheduledAt(scheduledAt: string, timeZone: string): { date: string; time: string } {
   const d = new Date(scheduledAt);
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return { date, time };
+  return {
+    date: formatDateInTimeZone(d, timeZone),
+    time: formatTimeInTimeZone(d, timeZone),
+  };
 }
 
-function mapRow(row: SessionRow): DbSession {
-  const { date, time } = splitScheduledAt(row.scheduled_at);
+function mapRow(row: SessionRow, timeZone: string): DbSession {
+  const { date, time } = splitScheduledAt(row.scheduled_at, timeZone);
   const clientRel = Array.isArray(row.clients) ? row.clients[0] : row.clients;
   const roomName = row.jitsi_room_name || buildJitsiRoomName(row.id);
   return {
@@ -55,7 +65,11 @@ function mapRow(row: SessionRow): DbSession {
 
 const SESSION_COLUMNS = "id, client_id, scheduled_at, status, booked_via, jitsi_room_name, clients ( name )";
 
-export async function fetchSessions(): Promise<DbSession[]> {
+// timeZone — IANA-идентификатор психолога (Profile.timezone /
+// psychologists.timezone). Параметр обязателен: без него легко случайно
+// вернуться к чтению в поясе браузера. Вызывающий код (SessionContext)
+// не должен грузить сессии, пока не известен пояс психолога.
+export async function fetchSessions(timeZone: string): Promise<DbSession[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("sessions")
@@ -63,7 +77,7 @@ export async function fetchSessions(): Promise<DbSession[]> {
     .order("scheduled_at", { ascending: true });
 
   if (error) throw error;
-  return (data as unknown as SessionRow[]).map(mapRow);
+  return (data as unknown as SessionRow[]).map(row => mapRow(row, timeZone));
 }
 
 export interface NewSessionInput {
@@ -73,13 +87,18 @@ export interface NewSessionInput {
   time: string;
 }
 
-export async function createSessionRecord(input: NewSessionInput): Promise<DbSession> {
+export async function createSessionRecord(input: NewSessionInput, timeZone: string): Promise<DbSession> {
   const supabase = createClient();
   const { data: userData } = await supabase.auth.getUser();
   const psychologistId = userData.user?.id;
   if (!psychologistId) throw new Error("Не авторизован");
 
-  const scheduledAt = new Date(`${input.date}T${input.time}:00`).toISOString();
+  // БЫЛО: new Date(`${date}T${time}:00`) — интерпретирует введённое время
+  // как локальное для БРАУЗЕРА психолога, а не для его настроенного пояса.
+  // Психолог, ставящий сессию с устройства в другом регионе (в поездке),
+  // записал бы её не на то время. zonedDateTimeToUtc всегда переводит из
+  // пояса психолога, независимо от того, где физически открыт браузер.
+  const scheduledAt = zonedDateTimeToUtc(input.date, input.time, timeZone).toISOString();
   // id генерируется заранее, чтобы имя Jitsi-комнаты было известно до
   // insert (тот же паттерн, что и в agent/executor.ts::createSession).
   const sessionId = crypto.randomUUID();
@@ -98,7 +117,7 @@ export async function createSessionRecord(input: NewSessionInput): Promise<DbSes
     .single();
 
   if (error) throw error;
-  return mapRow(data as unknown as SessionRow);
+  return mapRow(data as unknown as SessionRow, timeZone);
 }
 
 /**
@@ -107,7 +126,7 @@ export async function createSessionRecord(input: NewSessionInput): Promise<DbSes
  * автоматического СБП — психолог сам нажимает эту кнопку в UI сессии
  * после того, как клиент оплатил вне платформы.
  */
-export async function confirmSessionPayment(id: string): Promise<DbSession> {
+export async function confirmSessionPayment(id: string, timeZone: string): Promise<DbSession> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("sessions")
@@ -117,5 +136,5 @@ export async function confirmSessionPayment(id: string): Promise<DbSession> {
     .single();
 
   if (error) throw error;
-  return mapRow(data as unknown as SessionRow);
+  return mapRow(data as unknown as SessionRow, timeZone);
 }

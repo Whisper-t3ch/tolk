@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAssistantLimitStatus, PLAN_LIMITS } from "@/lib/assistantLimits";
+import { normalizeTimeZone } from "@/lib/timezone";
 
 const PLAN_LABELS: Record<string, string> = {
   beta: "Бета",
@@ -45,7 +46,7 @@ export async function GET() {
 
   const { data: psychologist } = await supabase
     .from("psychologists")
-    .select("specialty, plan_name")
+    .select("specialty, plan_name, timezone")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -64,6 +65,12 @@ export async function GET() {
     name,
     email: user.email ?? null,
     specialty: psychologist?.specialty ?? "",
+    // Часовой пояс психолога — единый источник для всего клиентского кода,
+    // который показывает или создаёт время сессий (SessionContext,
+    // календарь, дашборд, боковая панель). Раньше это время читалось через
+    // getHours()/new Date(...) браузера, то есть в поясе устройства, а не
+    // психолога — см. миграцию 023 и src/lib/timezone.ts.
+    timezone: normalizeTimeZone(psychologist?.timezone),
     avatarInitials: initialsFromName(name),
     memberSince: formatMemberSince(user.created_at),
     handle,

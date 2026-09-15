@@ -1,6 +1,8 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { fetchSessions, createSessionRecord, confirmSessionPayment, type NewSessionInput } from "@/lib/data/sessions";
+import { useProfile } from "@/lib/ProfileContext";
+import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 
 export interface PlannedSession {
   id: string;
@@ -30,17 +32,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Пояс психолога — из общего ProfileContext (в дереве layout.tsx он
+  // монтируется снаружи SessionProvider). Пока профиль ещё не загрузился,
+  // используем DEFAULT_TIMEZONE только как временное значение для первого
+  // рендера — как только профиль придёт, эффект ниже перечитает сессии
+  // с настоящим поясом психолога.
+  const { profile } = useProfile();
+  const timeZone = profile?.timezone ?? DEFAULT_TIMEZONE;
+
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const data = await fetchSessions();
+      const data = await fetchSessions(timeZone);
       setSessions(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось загрузить сессии");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [timeZone]);
 
   useEffect(() => {
     refresh();
@@ -53,15 +63,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       date: session.date,
       time: session.time,
     };
-    const created = await createSessionRecord(input);
+    const created = await createSessionRecord(input, timeZone);
     setSessions(prev => [...prev, created]);
     return created;
-  }, []);
+  }, [timeZone]);
 
   const confirmPayment = useCallback(async (sessionId: string) => {
-    const updated = await confirmSessionPayment(sessionId);
+    const updated = await confirmSessionPayment(sessionId, timeZone);
     setSessions(prev => prev.map(s => (s.id === sessionId ? updated : s)));
-  }, []);
+  }, [timeZone]);
 
   return (
     <SessionContext.Provider value={{ sessions, loading, error, addSession, confirmPayment, refresh }}>

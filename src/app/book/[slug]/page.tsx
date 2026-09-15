@@ -2,6 +2,36 @@
 import { useState, useEffect, use, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Clock, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { formatDateInTimeZone, formatTimeInTimeZone, DEFAULT_TIMEZONE, TIMEZONE_OPTIONS } from "@/lib/timezone";
+
+function timeZoneShortLabel(tz: string): string {
+  const found = TIMEZONE_OPTIONS.find(o => o.value === tz);
+  // Из "Москва, Санкт-Петербург (МСК)" достаём только "(МСК)" —
+  // остального клиенту знать не нужно, важно лишь смещение.
+  const match = found?.label.match(/\(([^)]+)\)/);
+  return match ? `по ${match[1]}` : `часовой пояс: ${tz}`;
+}
+
+// Склонение имени психолога в дательный падеж для заголовка «Запись к
+// Антону Имершону» — раньше подставлялось как есть («Запись к Антон
+// Имершон»), потому что psychologist.name хранится в именительном
+// падеже (auth user_metadata). Полноценный морфологический разбор для
+// этого явно избыточен — покрываем самые частые окончания русских имён
+// и фамилий, а нераспознанное имя (иностранное, редкое) оставляем как
+// есть, лучше без склонения, чем с ошибочным.
+function toDativeCase(fullName: string): string {
+  return fullName
+    .split(/\s+/)
+    .map(word => {
+      if (/ий$/i.test(word)) return word.replace(/ий$/i, "ию"); // Юрий -> Юрию, Дмитрий -> Дмитрию
+      if (/ей$/i.test(word)) return word.replace(/ей$/i, "ею"); // Сергей -> Сергею, Андрей -> Андрею
+      if (/[бвгджзклмнпрстфхцчшщ]а$/i.test(word)) return word.replace(/а$/i, "е"); // Анна -> Анне, Ирина -> Ирине
+      if (/я$/i.test(word)) return word.replace(/я$/i, "е"); // Мария -> Марие (не идеально, но лучше исходного)
+      if (/[бвгджзйклмнпрстфхцчшщ]$/i.test(word)) return word + "у"; // Антон -> Антону, Имершон -> Имершону
+      return word; // не распознали окончание — не портим ошибочным склонением
+    })
+    .join(" ");
+}
 
 interface Slot {
   date: string;
@@ -34,6 +64,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
   const [error, setError] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [psychologist, setPsychologist] = useState<{ name: string; specialty: string | null } | null>(null);
+  const [telegramConnected, setTelegramConnected] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
@@ -41,7 +72,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
   const [telegram, setTelegram] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState<{ scheduledAt: string; message: string } | null>(null);
+  const [confirmed, setConfirmed] = useState<{ scheduledAt: string; message: string; timezone: string } | null>(null);
 
   const [weekOffset, setWeekOffset] = useState(0);
 
@@ -57,6 +88,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
           if (res.ok) {
             setSlots(data.slots ?? []);
             setPsychologist(data.psychologist ?? null);
+            setTelegramConnected(Boolean(data.telegram_connected));
           } else {
             setError(data.error ?? "Страница бронирования не найдена");
           }
@@ -118,7 +150,11 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
       });
       const data = await res.json();
       if (res.ok) {
-        setConfirmed({ scheduledAt: data.scheduled_at, message: data.payment_instructions });
+        setConfirmed({
+          scheduledAt: data.scheduled_at,
+          message: data.payment_instructions,
+          timezone: data.timezone ?? DEFAULT_TIMEZONE,
+        });
       } else {
         setSubmitError(data.error ?? "Не удалось создать бронь");
       }
@@ -152,11 +188,16 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
             Т
           </div>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
-            {psychologist ? `Запись к ${psychologist.name}` : "Запись на консультацию"}
+            {psychologist ? `Запись к ${toDativeCase(psychologist.name)}` : "Запись на консультацию"}
           </h1>
           <p style={{ fontSize: 13, color: "#8C7355", marginTop: 6 }}>
             {psychologist?.specialty ? `${psychologist.specialty} · ` : ""}
-            Выберите удобное время — подтверждение придёт в Telegram
+            {/* Раньше это писалось безусловно, даже когда у психолога не
+                подключён Telegram-бот — клиент бронировал и ждал
+                подтверждение, которое физически некому отправить. */}
+            {telegramConnected
+              ? "Выберите удобное время — подтверждение придёт в Telegram"
+              : "Выберите удобное время — психолог свяжется с вами для подтверждения"}
           </p>
         </div>
 
@@ -195,9 +236,19 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
               Бронь создана
             </h2>
             <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.6, marginBottom: 4 }}>
-              {new Date(confirmed.scheduledAt).toLocaleDateString("ru", { day: "numeric", month: "long" })}
+              {/* БЫЛО: toLocaleDateString/toLocaleTimeString без timeZone —
+                  форматировали scheduled_at (UTC) в поясе УСТРОЙСТВА
+                  клиента. Проверено на проде: слот 16:00 по Europe/Moscow
+                  показывался клиенту из Asia/Omsk как «19:00», хотя в БД
+                  время записано верно. Теперь используем пояс психолога,
+                  который вернул create/route.ts, и явно подписываем его —
+                  клиент из другого региона иначе не поймёт, что 16:00
+                  относится не к его собственному времени. */}
+              {formatDateLabel(formatDateInTimeZone(new Date(confirmed.scheduledAt), confirmed.timezone))}
               {" в "}
-              {new Date(confirmed.scheduledAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}
+              {formatTimeInTimeZone(new Date(confirmed.scheduledAt), confirmed.timezone)}
+              {" "}
+              {timeZoneShortLabel(confirmed.timezone)}
             </p>
             <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.6, marginTop: 12 }}>
               {confirmed.message}

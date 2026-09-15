@@ -14,6 +14,7 @@ import {
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { buildApproachContextBlock } from "@/lib/approaches";
+import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
 import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
 import { selectAssistantModel } from "@/lib/agent/modelSelection";
 import { randomUUID } from "crypto";
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
   // не заполнен — блок просто пустой, поведение как раньше.
   const { data: psychologistProfile } = await supabase
     .from("psychologists")
-    .select("approach, specialty, typical_client_request")
+    .select("approach, specialty, typical_client_request, timezone")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -108,10 +109,21 @@ export async function POST(request: NextRequest) {
   // Текущая дата/время психолога — без этого модель не может надёжно
   // посчитать "завтра", "через час", "в пятницу" и т.п. при вызове
   // create_session/find_available_slots (обучающие данные не содержат
-  // сегодняшнюю дату). Часовой пояс сервера — тот же, в котором
-  // хранятся даты сессий в БД (без отдельного per-психолог TZ пока).
+  // сегодняшнюю дату).
+  //
+  // БЫЛО: now.toLocaleDateString/toLocaleTimeString без timeZone — то
+  // есть в часовом поясе СЕРВЕРА (Vercel, регион fra1 = UTC), а не
+  // психолога. У psychologists.timezone уже есть значение (миграция 023),
+  // этот код просто не был обновлён вслед за ней. Психолог из Омска
+  // (UTC+3 к серверу), попросивший поздно вечером «запланируй на
+  // завтра», получил бы сессию на день раньше, чем ожидал — у сервера
+  // календарная дата ещё не сменилась.
   const now = new Date();
-  const dateTimeBlock = `Текущая дата и время: ${now.toLocaleDateString("ru", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })} (ISO: ${now.toISOString()}). Используй это как точку отсчёта для "завтра", "через неделю", "в пятницу" и подобных относительных формулировок времени — никогда не угадывай и не бери дату из своих обучающих данных.`;
+  const timeZone = normalizeTimeZone(psychologistProfile?.timezone);
+  const weekdayLabel = new Intl.DateTimeFormat("ru", { timeZone, weekday: "long" }).format(now);
+  const dateLabel = new Intl.DateTimeFormat("ru", { timeZone, year: "numeric", month: "long", day: "numeric" }).format(now);
+  const timeLabel = formatTimeInTimeZone(now, timeZone);
+  const dateTimeBlock = `Текущая дата и время психолога (часовой пояс ${timeZone}): ${weekdayLabel}, ${dateLabel}, ${timeLabel} (ISO: ${now.toISOString()}). Используй это как точку отсчёта для "завтра", "через неделю", "в пятницу" и подобных относительных формулировок времени — никогда не угадывай и не бери дату из своих обучающих данных.`;
 
   const systemPrompt = [approachBlock, AGENT_SYSTEM_PROMPT, dateTimeBlock, promptAdditions].filter(Boolean).join("\n\n");
 
