@@ -13,6 +13,7 @@ import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
 import { TEST_SCALES, type TestType } from "@/lib/testScales";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
+import { updateClientRecord, softDeleteClient } from "@/lib/data/clients";
 import { Button, Card, CardContent } from "@/components/ui";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
@@ -123,11 +124,79 @@ type TabId = typeof TABS[number]["id"];
 
 export default function ClientProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { clients, loading: clientsLoading } = useClients();
+  const { clients, loading: clientsLoading, refresh: refreshClients } = useClients();
   const client = clients.find(c => c.id === id);
   const { sessions, addSession } = useSession();
   const router = useRouter();
   const [startingSession, setStartingSession] = useState(false);
+
+  // Раньше карточку клиента нельзя было отредактировать или архивировать
+  // никак — ни опечатку в имени поправить, ни завершить работу с
+  // клиентом. Фильтры "На паузе"/"Завершено" на /clients при этом есть,
+  // но выставить эти статусы было неоткуда — фильтры были заведомо
+  // пустыми. updateClientRecord/softDeleteClient уже существовали на
+  // уровне data-слоя, не хватало только UI.
+  const [showEditClient, setShowEditClient] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editAge, setEditAge] = useState("");
+  const [editGender, setEditGender] = useState<"male" | "female">("female");
+  const [editRequest, setEditRequest] = useState("");
+  const [editApproach, setEditApproach] = useState("");
+  const [editStatus, setEditStatus] = useState<"active" | "pause" | "completed">("active");
+  const [savingClient, setSavingClient] = useState(false);
+  const [editClientError, setEditClientError] = useState<string | null>(null);
+  const [showDeleteClientConfirm, setShowDeleteClientConfirm] = useState(false);
+  const [deletingClient, setDeletingClient] = useState(false);
+
+  function openEditClient() {
+    if (!client) return;
+    setEditName(client.name);
+    setEditAge(client.age != null ? String(client.age) : "");
+    setEditGender(client.gender ?? "female");
+    setEditRequest(client.request);
+    setEditApproach(client.approach);
+    setEditStatus(client.status);
+    setEditClientError(null);
+    setShowEditClient(true);
+  }
+
+  async function saveClientEdits() {
+    if (!client || savingClient) return;
+    if (!editName.trim()) {
+      setEditClientError("Укажите имя");
+      return;
+    }
+    setSavingClient(true);
+    setEditClientError(null);
+    try {
+      await updateClientRecord(client.id, {
+        name: editName.trim(),
+        age: editAge.trim() ? Number(editAge) : null,
+        gender: editGender,
+        request: editRequest.trim(),
+        approach: editApproach.trim(),
+        status: editStatus,
+      });
+      await refreshClients();
+      setShowEditClient(false);
+    } catch (e) {
+      setEditClientError(e instanceof Error ? e.message : "Не удалось сохранить изменения");
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  async function confirmDeleteClient() {
+    if (!client || deletingClient) return;
+    setDeletingClient(true);
+    try {
+      await softDeleteClient(client.id);
+      await refreshClients();
+      router.push("/clients");
+    } catch {
+      setDeletingClient(false);
+    }
+  }
 
   // "Начать сессию" на карточке клиента — спонтанный звонок вне
   // расписания (в отличие от запланированной сессии из /sessions).
@@ -594,9 +663,23 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             {client.status === "active" ? "Активный" : client.status === "pause" ? "На паузе" : "Завершено"}
           </div>
         </div>
-        <Button size="md" onClick={startSessionNow} disabled={startingSession}>
-          {startingSession ? "Создаю сессию..." : <>Начать сессию <ArrowRight size={15} style={{ marginLeft: 8 }} /></>}
-        </Button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={openEditClient}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", background: "#F5F3EF",
+              border: "1px solid #E5DFD5", borderRadius: 8,
+              fontSize: 13, fontWeight: 600, color: "#1C1C1E",
+              cursor: "pointer",
+            }}
+          >
+            Редактировать
+          </button>
+          <Button size="md" onClick={startSessionNow} disabled={startingSession}>
+            {startingSession ? "Создаю сессию..." : <>Начать сессию <ArrowRight size={15} style={{ marginLeft: 8 }} /></>}
+          </Button>
+        </div>
       </div>
 
       {/* Табы */}
@@ -1286,6 +1369,185 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           </div>
         </>
       )}
+
+      {/* Редактирование клиента: раньше карточку нельзя было изменить или
+          архивировать никак — ни опечатку в имени поправить, ни завершить
+          работу с клиентом. Фильтры "На паузе"/"Завершено" на /clients
+          существовали, но выставить эти статусы было неоткуда. */}
+      <AnimatePresence>
+        {showEditClient && client && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !savingClient && setShowEditClient(false)}
+              style={{ position: "fixed", inset: 0, background: "rgba(0, 0, 0, 0.4)", zIndex: 60, backdropFilter: "blur(2px)" }}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", damping: 22, stiffness: 320 }}
+              style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 65 }}
+            >
+              <div style={{
+                background: "#FFFFFF", borderRadius: 16, boxShadow: "0 25px 80px rgba(0,0,0,0.2)",
+                width: "90%", maxWidth: 420, maxHeight: "85vh", overflowY: "auto",
+              }}>
+                <div style={{ padding: "20px 24px", borderBottom: "1px solid #E5DFD5", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Редактировать клиента</h2>
+                  <button onClick={() => !savingClient && setShowEditClient(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}>
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Имя *</label>
+                    <input
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Возраст</label>
+                      <input
+                        type="number"
+                        value={editAge}
+                        onChange={e => setEditAge(e.target.value)}
+                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Пол</label>
+                      <select
+                        value={editGender}
+                        onChange={e => setEditGender(e.target.value as "male" | "female")}
+                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, color: "#1C1C1E", fontFamily: "var(--font-sans)", background: "#FFFFFF" }}
+                      >
+                        <option value="female">Женский</option>
+                        <option value="male">Мужской</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Запрос</label>
+                    <input
+                      value={editRequest}
+                      onChange={e => setEditRequest(e.target.value)}
+                      placeholder="Например: тревожность, панические атаки"
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Подход</label>
+                    <input
+                      value={editApproach}
+                      onChange={e => setEditApproach(e.target.value)}
+                      placeholder="Например: КПТ"
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Статус</label>
+                    <select
+                      value={editStatus}
+                      onChange={e => setEditStatus(e.target.value as "active" | "pause" | "completed")}
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, color: "#1C1C1E", fontFamily: "var(--font-sans)", background: "#FFFFFF" }}
+                    >
+                      <option value="active">Активный</option>
+                      <option value="pause">На паузе</option>
+                      <option value="completed">Завершено</option>
+                    </select>
+                  </div>
+
+                  {editClientError && (
+                    <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
+                      {editClientError}
+                    </p>
+                  )}
+
+                  <button
+                    onClick={saveClientEdits}
+                    disabled={savingClient}
+                    style={{
+                      marginTop: 4, padding: "12px", background: savingClient ? "#1F4E43" : "#2D6A5C",
+                      color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600,
+                      cursor: savingClient ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {savingClient ? "Сохраняю..." : "Сохранить"}
+                  </button>
+
+                  <button
+                    onClick={() => setShowDeleteClientConfirm(true)}
+                    disabled={savingClient}
+                    style={{
+                      padding: "10px", background: "none", color: "#EF4444",
+                      border: "1px solid #FCA5A5", borderRadius: 10, fontSize: 13, fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Удалить клиента
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Подтверждение удаления — отдельный шаг, чтобы случайный клик не
+          стёр карточку клиента со всей историей сессий. */}
+      <AnimatePresence>
+        {showDeleteClientConfirm && client && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !deletingClient && setShowDeleteClientConfirm(false)}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 70 }}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              style={{
+                position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+                background: "#FFFFFF", borderRadius: 16, width: "90%", maxWidth: 380,
+                zIndex: 75, boxShadow: "0 25px 80px rgba(0,0,0,0.2)", padding: 24,
+              }}
+            >
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 8 }}>
+                Удалить {client.name}?
+              </h3>
+              <p style={{ fontSize: 13, color: "#6B6058", marginBottom: 20, lineHeight: 1.5 }}>
+                Карточка, история сессий и переписка скроются из списка клиентов. Это действие нельзя отменить из интерфейса.
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => setShowDeleteClientConfirm(false)}
+                  disabled={deletingClient}
+                  style={{ flex: 1, padding: "10px", background: "#F5F3EF", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#1C1C1E", cursor: "pointer" }}
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={confirmDeleteClient}
+                  disabled={deletingClient}
+                  style={{ flex: 1, padding: "10px", background: "#EF4444", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#fff", cursor: deletingClient ? "not-allowed" : "pointer" }}
+                >
+                  {deletingClient ? "Удаляю..." : "Удалить"}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
