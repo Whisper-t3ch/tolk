@@ -29,8 +29,14 @@ function todayDateStr() {
 
 export default function DashboardPage() {
   const [hoveredClient, setHoveredClient] = useState<string | null>(null);
-  const { sessions } = useSession();
-  const { clients } = useClients();
+  const { sessions, loading: sessionsLoading } = useSession();
+  const { clients, loading: clientsLoading } = useClients();
+  // Пока хотя бы один из источников ещё грузится, показываем плейсхолдер
+  // вместо цифр — раньше на первом рендере sessions/clients были пустыми
+  // массивами по умолчанию, и дашборд секунду-другую честно показывал
+  // «0 активных клиентов» психологу с реальными клиентами в базе,
+  // выглядело как будто данные пропали.
+  const statsLoading = sessionsLoading || clientsLoading;
   const { events: personalEvents, updateEventTime } = usePersonalEvents();
   // Вычисляем один раз при монтировании — стабильно на протяжении жизни
   // страницы, чтобы "сегодня" не съезжало ровно в полночь во время сессии.
@@ -187,7 +193,10 @@ export default function DashboardPage() {
           {psychologistName ? `Добрый день, ${psychologistName}` : "Добрый день"}
         </h1>
         <p style={{ fontSize: 15, color: "#6B6058", marginTop: 6 }}>
-          Сегодня {new Date(TODAY + "T00:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" })} · {sessions.filter(s => s.date === TODAY).length} {sessions.filter(s => s.date === TODAY).length === 1 ? "сессия" : "сессии"}
+          Сегодня {new Date(TODAY + "T00:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" })}
+          {!sessionsLoading && (
+            <> · {sessions.filter(s => s.date === TODAY).length} {sessions.filter(s => s.date === TODAY).length === 1 ? "сессия" : "сессии"}</>
+          )}
         </p>
       </div>
 
@@ -209,8 +218,8 @@ export default function DashboardPage() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
-                <div style={{ fontSize: 32, fontWeight: 800, color: "#1C1C1E", letterSpacing: "-0.5px" }}>
-                  {value}
+                <div style={{ fontSize: 32, fontWeight: 800, color: statsLoading ? "#D9D2C6" : "#1C1C1E", letterSpacing: "-0.5px" }}>
+                  {statsLoading ? "—" : value}
                 </div>
                 <div style={{ fontSize: 13, color: "#6B6058", marginTop: 6, fontWeight: 500 }}>
                   {label}
@@ -530,15 +539,15 @@ export default function DashboardPage() {
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", gap: 12 }}>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#1BAF7A" }}>{clientsByStatus.active}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: clientsLoading ? "#D9D2C6" : "#1BAF7A" }}>{clientsLoading ? "—" : clientsByStatus.active}</div>
                     <div style={{ fontSize: 11, color: "#8C7355" }}>Активных</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#F59E0B" }}>{clientsByStatus.pause}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: clientsLoading ? "#D9D2C6" : "#F59E0B" }}>{clientsLoading ? "—" : clientsByStatus.pause}</div>
                     <div style={{ fontSize: 11, color: "#8C7355" }}>На паузе</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#8C7355" }}>{clientsByStatus.completed}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#8C7355" }}>{clientsLoading ? "—" : clientsByStatus.completed}</div>
                     <div style={{ fontSize: 11, color: "#8C7355" }}>Завершено</div>
                   </div>
                 </div>
