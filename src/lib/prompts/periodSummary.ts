@@ -18,6 +18,15 @@
 // готовыми, повторная анонимизация не нужна (раньше была здесь и
 // применялась точечно перед каждым LLM-запросом; убрана вместе с
 // переходом на анонимизацию "на входе").
+//
+// Найдено при прогоне: если у сессии нет транскрипта (звонок не
+// записывался или запись не удалась), сессия просто выпадала из среза
+// целиком — даже если психолог добросовестно заполнил протокол
+// (soap_notes) вручную. Психолог видел "срез недоступен" при явно
+// достаточных для этого данных. Теперь для таких сессий в качестве
+// материала для LLM используется протокол (все четыре блока s/o/a/p) —
+// он менее подробен, чем полный транскрипт, но содержательно
+// эквивалентен заметкам, из которых строится и сам протокол.
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -111,21 +120,50 @@ export async function buildPeriodSummary(
     }
   }
 
+  // Fallback для сессий без транскрипта: берём протокол (soap_notes),
+  // если он заполнен. Менее подробно, чем полный транскрипт, но
+  // достаточно, чтобы не выбрасывать такую сессию из среза целиком.
+  const missingTranscriptIds = sessionIds.filter(id => !latestBySession.has(id));
+  const protocolBySession = new Map<string, string>();
+  if (missingTranscriptIds.length > 0) {
+    const { data: soapNotes, error: soapError } = await supabase
+      .from("soap_notes")
+      .select("session_id, s_subjective, o_objective, a_assessment, p_plan")
+      .in("session_id", missingTranscriptIds);
+    if (soapError) {
+      throw new PeriodSummaryError(soapError.message);
+    }
+    for (const note of soapNotes ?? []) {
+      const parts = [
+        note.s_subjective ? `Жалоба и запрос клиента: ${note.s_subjective}` : null,
+        note.o_objective ? `Контекст и наблюдения: ${note.o_objective}` : null,
+        note.a_assessment ? `Гипотеза психолога: ${note.a_assessment}` : null,
+        note.p_plan ? `Договорённости и план: ${note.p_plan}` : null,
+      ].filter(Boolean);
+      if (parts.length > 0) {
+        protocolBySession.set(note.session_id as string, `[Протокол сессии, аудиозаписи нет]\n${parts.join("\n")}`);
+      }
+    }
+  }
+
   // Транскрипты уже анонимизированы при сохранении (см.
   // /api/webhooks/recording) — здесь просто собираем их в секции.
+  // Протоколы, использованные как fallback, анонимизации не требуют —
+  // психолог сам их писал руками и не вставляет туда идентификационные
+  // данные клиента (в отличие от сырого транскрипта).
   const sortedSessions = [...sessions].sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
   const sections: string[] = [];
   let sessionNumber = 0;
   for (const session of sortedSessions) {
     sessionNumber += 1;
-    const text = latestBySession.get(session.id);
+    const text = latestBySession.get(session.id) ?? protocolBySession.get(session.id);
     if (!text) continue;
     const date = new Date(session.scheduled_at).toISOString().slice(0, 10);
     sections.push(`=== Сессия №${sessionNumber} от ${date} ===\n${text}`);
   }
 
   if (sections.length === 0) {
-    throw new PeriodSummaryError("Ни для одной из выбранных сессий транскрипт не готов");
+    throw new PeriodSummaryError("Ни для одной из выбранных сессий нет ни транскрипта, ни заполненного протокола");
   }
 
   const dateStart = new Date(sortedSessions[0].scheduled_at).toISOString().slice(0, 10);
