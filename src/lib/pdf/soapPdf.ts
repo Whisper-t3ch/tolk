@@ -15,6 +15,7 @@ import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { readFile } from "fs/promises";
 import path from "path";
+import { normalizeTimeZone } from "@/lib/timezone";
 
 export interface SoapPdfInput {
   clientName: string;
@@ -22,6 +23,12 @@ export interface SoapPdfInput {
   durationMinutes: number;
   templateTitle?: string | null;
   blocks: Array<{ label: string; text: string }>;
+  /**
+   * Часовой пояс психолога. PDF собирается на сервере (Vercel, UTC), и
+   * без него дата сессии в шапке протокола считалась по UTC: вечерняя
+   * сессия по московскому времени уезжала в протоколе на день назад.
+   */
+  timeZone?: string;
 }
 
 const PAGE_WIDTH = 595.28; // A4 при 72 DPI
@@ -101,6 +108,7 @@ export async function generateSoapPdf(input: SoapPdfInput): Promise<Uint8Array> 
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: normalizeTimeZone(input.timeZone),
   });
   drawWrapped(`${input.clientName} · ${dateLabel} · ${input.durationMinutes} минут`, regularFont, 11, rgb(0.42, 0.38, 0.33));
   if (input.templateTitle) {

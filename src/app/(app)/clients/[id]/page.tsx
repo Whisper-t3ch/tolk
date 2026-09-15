@@ -131,8 +131,8 @@ function testDisplayName(test: { test_type: string; title?: string | null }): st
 function toChatMessage(raw: {
   id: string; direction: string; text: string; created_at: string;
   status: string; error_message: string | null;
-}): ChatMessage {
-  const time = new Date(raw.created_at).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+}, timeZone: string): ChatMessage {
+  const time = formatTimeInTimeZone(new Date(raw.created_at), timeZone);
   return {
     id: raw.id,
     role: raw.direction === "incoming" ? "client" : "psychologist",
@@ -430,7 +430,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const demoExtrasForTrend = demoClientExtrasByName[client?.name ?? ""];
   const completedTests = useMemo(() => testResults.filter(t => t.status === "completed"), [testResults]);
   const clientTestHistoryForTrend = completedTests.length > 0
-    ? completedTests.map(t => ({ date: new Date(t.created_at).toLocaleDateString("ru", { day: "numeric", month: "short" }), score: t.score }))
+    ? completedTests.map(t => ({ date: new Date(t.created_at).toLocaleDateString("ru", { day: "numeric", month: "short", timeZone }), score: t.score }))
     : demoExtrasForTrend?.testHistory ?? [];
   // Тренд считаем по истории теста (score ниже = лучше для GAD-7/PHQ-9/MBI,
   // поэтому направление здесь условное — просто "снизился/вырос за 2 замера").
@@ -467,7 +467,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       });
       const data = await res.json();
       if (res.ok) {
-        setMessages(prev => [...prev, toChatMessage(data.message)]);
+        setMessages(prev => [...prev, toChatMessage(data.message, timeZone)]);
         setSelectedFile(null);
       } else {
         setChatInput(text);
@@ -582,7 +582,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
         name: testDisplayName(latestCompletedTest),
         score: latestCompletedTest.score,
         maxScore: latestCompletedTest.max_score,
-        date: new Date(latestCompletedTest.created_at).toLocaleDateString("ru", { day: "numeric", month: "short" }),
+        date: new Date(latestCompletedTest.created_at).toLocaleDateString("ru", { day: "numeric", month: "short", timeZone }),
       }
     : client.lastTest ?? demoExtras?.lastTest;
   const hwTotal = client.hwTotal || demoExtras?.hwTotal || 0;
@@ -1188,7 +1188,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                         {hw.text.length > 220 ? `${hw.text.slice(0, 220)}…` : hw.text}
                       </div>
                       <div style={{ fontSize: 11, color: hw.status === "sent" ? "#1BAF7A" : "#8C7355", marginTop: 6 }}>
-                        {new Date(hw.created_at).toLocaleDateString("ru", { day: "numeric", month: "long" })}
+                        {new Date(hw.created_at).toLocaleDateString("ru", { day: "numeric", month: "long", timeZone })}
                         {" · "}
                         {hw.status === "sent" ? "доставлено" : "не доставлено — у клиента не подключён мессенджер"}
                       </div>

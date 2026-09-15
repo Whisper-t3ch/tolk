@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateSoapPdf } from "@/lib/pdf/soapPdf";
+import { normalizeTimeZone } from "@/lib/timezone";
 
 // GET /api/sessions/[id]/soap/pdf
 // Генерирует и отдаёт настоящий PDF-файл протокола сессии — раньше
@@ -71,6 +72,15 @@ async function handleGet(request: NextRequest, params: Promise<{ id: string }>) 
   const clientRel = Array.isArray(session.clients) ? session.clients[0] : session.clients;
   const clientName = (clientRel as { name?: string } | null)?.name ?? "Клиент";
 
+  // Пояс психолога: PDF собирается на сервере в UTC, и без него дата в
+  // шапке протокола могла отличаться от той, что психолог видит в
+  // кабинете, — для вечерних сессий на целый день.
+  const { data: psychologist } = await supabase
+    .from("psychologists")
+    .select("timezone")
+    .eq("id", user.id)
+    .maybeSingle();
+
   // Сборка PDF — единственное место здесь, где может упасть что-то
   // внешнее (чтение встроенных шрифтов, embed через fontkit). Без
   // try/catch Next отдавал голый 500 с пустым телом, и на фронте
@@ -82,6 +92,7 @@ async function handleGet(request: NextRequest, params: Promise<{ id: string }>) 
       scheduledAt: session.scheduled_at as string,
       durationMinutes: session.duration_minutes as number,
       templateTitle,
+      timeZone: normalizeTimeZone(psychologist?.timezone as string | undefined),
       blocks: [
         { label: "Жалоба и запрос клиента", text: soapNote.s_subjective ?? "" },
         { label: "Контекст и наблюдения", text: soapNote.o_objective ?? "" },

@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { Download, Copy, FileOutput, CheckCircle, Sparkles, Send, X, Loader2, AlertTriangle } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
+import { useProfile } from "@/lib/ProfileContext";
+import { normalizeTimeZone } from "@/lib/timezone";
 
 // Статус session.recording_status (см. migration_007_video_asr.sql) —
 // подсказка психологу, почему автоматическая генерация SOAP пока
@@ -66,6 +68,8 @@ interface ProtocolTemplate {
 }
 
 export default function SOAPPage({ params }: { params: Promise<{ id: string }> }) {
+  const { profile } = useProfile();
+  const timeZone = normalizeTimeZone(profile?.timezone);
   const { id: sessionId } = use(params);
 
   const [loading, setLoading] = useState(true);
@@ -328,7 +332,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                   {loading
                     ? "Загрузка…"
                     : sessionInfo
-                    ? `${sessionInfo.clientName} · ${new Date(sessionInfo.scheduledAt).toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" })} · ${sessionInfo.durationMinutes} минут`
+                    ? `${sessionInfo.clientName} · ${new Date(sessionInfo.scheduledAt).toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric", timeZone })} · ${sessionInfo.durationMinutes} минут`
                     : loadError ?? "Сессия не найдена"}
                 </p>
               </div>

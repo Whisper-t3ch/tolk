@@ -4,26 +4,32 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, Send, Paperclip, X, Sparkles, BookOpen } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useClients } from "@/lib/ClientsContext";
+import { useProfile } from "@/lib/ProfileContext";
+import { formatTimeInTimeZone, formatDateInTimeZone, todayInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { createClientRecord } from "@/lib/data/clients";
 import { Card, CardContent, Input } from "@/components/ui";
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
 
-const formatMessageTime = (date: Date): string => {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const yesterday = new Date(today);
+// Все отметки времени в переписке — в часовом поясе психолога, а не
+// устройства: сообщение, отправленное в 15:10 по Москве, показывалось
+// психологу с ноутбуком в Омске как «18:10», и в переписке с клиентом
+// расходилось со временем сессий, которое уже считается по поясу.
+const formatMessageTime = (date: Date, timeZone: string): string => {
+  const todayStr = todayInTimeZone(timeZone);
+  const messageDateStr = formatDateInTimeZone(date, timeZone);
+  const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = formatDateInTimeZone(yesterday, timeZone);
 
-  const timeStr = date.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+  const timeStr = formatTimeInTimeZone(date, timeZone);
 
-  if (messageDate.getTime() === today.getTime()) {
+  if (messageDateStr === todayStr) {
     return `Сегодня ${timeStr}`;
-  } else if (messageDate.getTime() === yesterday.getTime()) {
+  } else if (messageDateStr === yesterdayStr) {
     return `Вчера ${timeStr}`;
   } else {
-    return date.toLocaleDateString("ru", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return `${date.toLocaleDateString("ru", { day: "numeric", month: "short", timeZone })} ${timeStr}`;
   }
 };
 
@@ -77,12 +83,12 @@ interface MessengerLink {
 function toChatMessage(raw: {
   id: string; direction: string; text: string; created_at: string;
   status: string; error_message: string | null;
-}): ChatMessage {
+}, timeZone: string): ChatMessage {
   return {
     id: raw.id,
     role: raw.direction === "incoming" ? "client" : "psychologist",
     text: raw.text,
-    time: new Date(raw.created_at).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }),
+    time: formatTimeInTimeZone(new Date(raw.created_at), timeZone),
     timestamp: new Date(raw.created_at),
     status: raw.status as ChatMessage["status"],
     errorMessage: raw.error_message,
@@ -91,6 +97,8 @@ function toChatMessage(raw: {
 
 function ClientsPageInner() {
   const { clients, loading: clientsLoading, error: clientsError, refresh: refreshClients } = useClients();
+  const { profile } = useProfile();
+  const timeZone = profile?.timezone ?? DEFAULT_TIMEZONE;
   const searchParams = useSearchParams();
   const router = useRouter();
   const clientFromUrl = searchParams.get("client");
@@ -237,7 +245,7 @@ function ClientsPageInner() {
       });
       const data = await res.json();
       if (res.ok) {
-        setMessages(prev => [...prev, toChatMessage(data.message)]);
+        setMessages(prev => [...prev, toChatMessage(data.message, timeZone)]);
       } else {
         setChatInput(text);
         alert(data.error ?? "Не удалось отправить сообщение");
@@ -704,7 +712,7 @@ function ClientsPageInner() {
                       )}
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
                         <span style={{ fontSize: 10, opacity: 0.65 }}>
-                          {formatMessageTime(msg.timestamp)}
+                          {formatMessageTime(msg.timestamp, timeZone)}
                         </span>
                         {isMine && msg.status === "pending" && (
                           <span style={{ fontSize: 10, opacity: 0.75 }} title={msg.errorMessage ?? "Клиент ещё не подключил чат"}>· не доставлено</span>
