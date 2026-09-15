@@ -188,5 +188,18 @@ export async function softDeleteClient(id: string): Promise<void> {
     .from("clients")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
-  if (error) throw error;
+  // Supabase возвращает PostgrestError — обычный объект, а не Error,
+  // поэтому вызывающий код с проверкой `e instanceof Error` показывал
+  // психологу общую фразу вместо причины. Заворачиваем в настоящий
+  // Error и отдельно объясняем 42501: это отказ RLS, то есть проблема
+  // настройки базы, а не «что-то пошло не так» — по общей фразе такое
+  // не отличить от сетевого сбоя, и чинится оно совсем иначе.
+  if (error) {
+    if (error.code === "42501") {
+      throw new Error(
+        "База данных не разрешает архивировать клиента: не применена миграция прав доступа (migration_027). Сообщите в поддержку."
+      );
+    }
+    throw new Error(error.message || "Не удалось удалить клиента");
+  }
 }
