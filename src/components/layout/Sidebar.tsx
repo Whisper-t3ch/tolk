@@ -12,6 +12,7 @@ import { useProfile } from "@/lib/ProfileContext";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { LogoMark } from "@/components/Logo";
+import { formatDateInTimeZone, formatTimeInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
 
 const navItems = [
   { href: "/dashboard",      icon: LayoutDashboard, label: "Главная" },
@@ -37,6 +38,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { profile } = useProfile();
+  const timeZone = profile?.timezone ?? DEFAULT_TIMEZONE;
   const plan = profile?.plan ?? { name: "—", assistantRequests: { used: 0, total: 1 } };
   const avatarInitials = profile?.avatarInitials ?? "…";
   const name = profile?.name ?? "";
@@ -69,9 +71,11 @@ export default function Sidebar() {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
 
+    // Дата/время — в часовом поясе психолога, а не устройства (см.
+    // тот же фикс в clients/[id]/page.tsx::startSessionNow).
     const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const dateStr = formatDateInTimeZone(now, timeZone);
+    const timeStr = formatTimeInTimeZone(now, timeZone);
 
     try {
       const created = await addSession({
@@ -100,8 +104,7 @@ export default function Sidebar() {
   // (в отличие от startSessionNow, здесь ещё нет ни client, ни отправки —
   // только подготовка формы с датой по умолчанию "сегодня").
   const openScheduleStep = (clientId: string) => {
-    const today = new Date();
-    setScheduleDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
+    setScheduleDate(formatDateInTimeZone(new Date(), timeZone));
     setScheduleTime("10:00");
     setSchedulingClientId(clientId);
   };

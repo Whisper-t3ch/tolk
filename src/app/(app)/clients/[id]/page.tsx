@@ -13,7 +13,9 @@ import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
 import { TEST_SCALES, type TestType } from "@/lib/testScales";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
+import { useProfile } from "@/lib/ProfileContext";
 import { updateClientRecord, softDeleteClient } from "@/lib/data/clients";
+import { formatDateInTimeZone, formatTimeInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { Button, Card, CardContent } from "@/components/ui";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
@@ -127,6 +129,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const { clients, loading: clientsLoading, refresh: refreshClients } = useClients();
   const client = clients.find(c => c.id === id);
   const { sessions, addSession } = useSession();
+  const { profile } = useProfile();
+  const timeZone = profile?.timezone ?? DEFAULT_TIMEZONE;
   const router = useRouter();
   const [startingSession, setStartingSession] = useState(false);
 
@@ -208,9 +212,13 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     if (!client || startingSession) return;
     setStartingSession(true);
     try {
+      // Дата/время считаем в часовом поясе психолога, а не устройства —
+      // иначе психолог, открывший кабинет с телефона в другом поясе
+      // (или сервер, если бы кнопка когда-то стала server action),
+      // создал бы сессию на "сейчас" по чужому времени.
       const now = new Date();
-      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      const dateStr = formatDateInTimeZone(now, timeZone);
+      const timeStr = formatTimeInTimeZone(now, timeZone);
       const created = await addSession({ clientId: client.id, clientName: client.name, date: dateStr, time: timeStr });
       router.push(`/session/${created.id}`);
     } finally {
