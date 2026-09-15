@@ -49,7 +49,7 @@ export function ToastContainer({ messages, onClose }: ToastContainerProps) {
             initial={{ opacity: 0, y: -20, x: 20 }}
             animate={{ opacity: 1, y: 0, x: 0 }}
             exit={{ opacity: 0, y: -20, x: 20 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             style={{
               display: "flex",
               alignItems: "center",

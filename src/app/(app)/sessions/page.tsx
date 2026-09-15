@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 import { Calendar, Clock, ArrowRight, FileText, Link2, Check } from "lucide-react";
 import { useSession, type PlannedSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
+import { useProfile } from "@/lib/ProfileContext";
+import { todayInTimeZone, isSessionPast, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { Button, Card, CardContent } from "@/components/ui";
 
 const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
@@ -17,6 +19,8 @@ function formatDateLabel(dateStr: string): string {
 export default function SessionsPage() {
   const { sessions, confirmPayment } = useSession();
   const { clients } = useClients();
+  const { profile } = useProfile();
+  const timeZone = profile?.timezone ?? DEFAULT_TIMEZONE;
   const [filter, setFilter] = useState<"upcoming" | "past">("upcoming");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
@@ -34,19 +38,23 @@ export default function SessionsPage() {
     return idx === -1 ? 0 : idx;
   }
 
-  // Реальная сегодняшняя дата в локальном времени (sv-SE даёт формат
-  // YYYY-MM-DD, как в session.date) — раньше здесь стояла захардкоженная
-  // "2026-08-16", из-за чего давно прошедшие сессии продолжали висеть
-  // во вкладке «Предстоящие».
-  const today = useMemo(() => new Date().toLocaleDateString("sv-SE"), []);
+  // Сегодняшняя дата в поясе психолога — нужна только для подписи
+  // «Сегодня» над группой. Раньше здесь стояла захардкоженная
+  // "2026-08-16", из-за чего давно прошедшие сессии висели в
+  // «Предстоящих», потом — дата устройства, что расходилось с поясом
+  // психолога на границе суток.
+  const today = useMemo(() => todayInTimeZone(timeZone), [timeZone]);
 
+  // Делим по моменту окончания сессии, а не по дате: встреча, которую
+  // психолог провёл час назад, не должна до полуночи предлагать себя
+  // кнопкой «Начать».
   const { upcoming, past } = useMemo(() => {
     const sorted = [...sessions].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
     return {
-      upcoming: sorted.filter(s => s.date >= today),
-      past: sorted.filter(s => s.date < today).reverse(),
+      upcoming: sorted.filter(s => !isSessionPast(s.date, s.time, timeZone)),
+      past: sorted.filter(s => isSessionPast(s.date, s.time, timeZone)).reverse(),
     };
-  }, [sessions, today]);
+  }, [sessions, timeZone]);
 
   const list = filter === "upcoming" ? upcoming : past;
 

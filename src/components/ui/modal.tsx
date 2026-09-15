@@ -36,7 +36,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             onClick={e => e.stopPropagation()}
             style={{
               position: "fixed",

@@ -82,11 +82,17 @@ function mapRow(row: ClientRow): DbClient {
 const CLIENT_COLUMNS =
   "id, name, request, approach, status, age, gender, joined_date, needs_attention, hw_completed, hw_total, created_at, updated_at";
 
+// Удалённые клиенты (deleted_at is not null) не попадают ни в один
+// список. Раньше фильтра здесь не было, хотя softDeleteClient ниже уже
+// писал deleted_at, а agent/executor.ts при чтении клиентов его
+// фильтровал — код расходился сам с собой, и успешное мягкое удаление
+// всё равно не убрало бы клиента из интерфейса.
 export async function fetchClients(): Promise<DbClient[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("clients")
     .select(CLIENT_COLUMNS)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -99,6 +105,7 @@ export async function fetchClient(id: string): Promise<DbClient | null> {
     .from("clients")
     .select(CLIENT_COLUMNS)
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (error) throw error;

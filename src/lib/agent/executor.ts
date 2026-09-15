@@ -13,7 +13,8 @@ import { yandexGptEmbed } from "@/lib/yandexgpt";
 import { buildPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
 import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
 import { buildJitsiRoomName, buildJitsiUrl, checkJitsiEnv } from "@/lib/jitsi";
-import { zonedDateTimeToUtc, formatTimeInTimeZone, weekdayInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { zonedDateTimeToUtc, formatTimeInTimeZone, weekdayInTimeZone, todayInTimeZone, formatDateInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { generateAvailableSlots, type WorkingHours } from "@/lib/booking";
 import type { AgentToolName } from "./tools";
 
 export class AgentToolError extends Error {
@@ -316,16 +317,86 @@ interface Slot {
 // от ассистента слоты, реально соответствующие 12:00-00:00 по его часам.
 // Тот же класс бага, что чинился в src/lib/data/sessions.ts — только там
 // про ЧТЕНИЕ существующих сессий, а здесь про ГЕНЕРАЦИЮ новых предложений.
+//
+// СТАЛО (после прогона-2): основной путь вообще не считает слоты сам, а
+// берёт booking_settings психолога и отдаёт их в generateAvailableSlots
+// из lib/booking.ts — ту же функцию, на которой работает публичная
+// страница записи. Ручной цикл ниже остался только как запасной путь
+// для психолога, который ещё не настраивал публичную запись.
 async function findAvailableSlots(
   ctx: ExecutorContext,
   args: { duration_minutes: number; date_from?: string; date_to?: string }
 ) {
   const timeZone = ctx.timeZone ?? DEFAULT_TIMEZONE;
-  const dateFrom = args.date_from ?? new Date().toISOString().slice(0, 10);
+  const dateFrom = args.date_from ?? todayInTimeZone(timeZone);
   const defaultTo = new Date();
   defaultTo.setDate(defaultTo.getDate() + 14);
-  const dateTo = args.date_to ?? defaultTo.toISOString().slice(0, 10);
+  const dateTo = args.date_to ?? formatDateInTimeZone(defaultTo, timeZone);
 
+  // Рабочие часы берём из booking_settings — того же места, которое
+  // психолог заполняет в «Настройки → Публичная запись» и по которому
+  // клиенты бронируют время сами. Раньше здесь читались
+  // psychologist_preferences.preferred_hours с дефолтом 09:00–21:00: у
+  // психолога с расписанием 10:00–19:00 ассистент бодро предлагал 09:00
+  // и 20:00, то есть звал клиента на время, когда психолог не работает.
+  // Два независимых источника рабочих часов, причём про второй психолог
+  // не знал и настроить его из интерфейса не мог.
+  //
+  // Слоты считает generateAvailableSlots из lib/booking.ts — та же
+  // функция, что обслуживает публичную страницу записи. Так ассистент и
+  // форма бронирования не могут разойтись в ответе на один и тот же
+  // вопрос «когда психолог свободен».
+  const { data: bookingSettings } = await ctx.supabase
+    .from("booking_settings")
+    .select("working_hours, session_duration_minutes, buffer_minutes, min_notice_hours")
+    .eq("psychologist_id", ctx.psychologistId)
+    .maybeSingle();
+
+  if (bookingSettings?.working_hours) {
+    const { data: busy, error: busyError } = await ctx.supabase
+      .from("sessions")
+      .select("scheduled_at, duration_minutes")
+      .gte("scheduled_at", `${dateFrom}T00:00:00`)
+      .lte("scheduled_at", `${dateTo}T23:59:59`)
+      .neq("status", "cancelled");
+    if (busyError) throw new AgentToolError(busyError.message, "find_available_slots");
+
+    const defaultDuration = (bookingSettings.session_duration_minutes as number | null) ?? 50;
+    const occupied = (busy ?? []).map(s => {
+      const start = new Date(s.scheduled_at as string);
+      const durationMin = (s.duration_minutes as number | null) ?? defaultDuration;
+      return {
+        start: start.toISOString(),
+        end: new Date(start.getTime() + durationMin * 60_000).toISOString(),
+      };
+    });
+
+    const generated = generateAvailableSlots({
+      fromDate: dateFrom,
+      toDate: dateTo,
+      workingHours: bookingSettings.working_hours as WorkingHours,
+      // Длительность, которую попросила модель, важнее настройки по
+      // умолчанию: психолог мог попросить «найди час» при обычных 50
+      // минутах.
+      sessionDurationMinutes: args.duration_minutes || defaultDuration,
+      bufferMinutes: (bookingSettings.buffer_minutes as number | null) ?? 0,
+      minNoticeHours: (bookingSettings.min_notice_hours as number | null) ?? 0,
+      occupied,
+      timeZone,
+    });
+
+    const slots: Slot[] = generated.slice(0, 20).map(s => ({
+      date: s.date,
+      time: s.time,
+      datetime: zonedDateTimeToUtc(s.date, s.time, timeZone).toISOString(),
+    }));
+
+    return { slots };
+  }
+
+  // Публичная запись ещё не настроена — работаем по старому пути, через
+  // предпочтения ассистента. Это по-прежнему единственный источник для
+  // психолога, который не открывал раздел «Публичная запись».
   const { preferences } = await getPreferences(ctx);
   const restMinutes = ((preferences.rest_between_sessions as { minutes?: number } | undefined)?.minutes) ?? 0;
   const preferredHours = preferences.preferred_hours as { start?: string; end?: string } | undefined;

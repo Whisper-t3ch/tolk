@@ -59,7 +59,7 @@ export default function ConferenceModal({ isOpen, clientName, conferenceLink, on
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             style={{
               position: "fixed",
               top: 0,
@@ -218,7 +218,7 @@ export default function ConferenceModal({ isOpen, clientName, conferenceLink, on
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 250, damping: 20 }}
+                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                     style={{
                       width: 100,
                       height: 100,

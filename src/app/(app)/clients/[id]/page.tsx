@@ -15,9 +15,36 @@ import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { useProfile } from "@/lib/ProfileContext";
 import { updateClientRecord, softDeleteClient } from "@/lib/data/clients";
-import { formatDateInTimeZone, formatTimeInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { formatDateInTimeZone, formatTimeInTimeZone, todayInTimeZone, isSessionPast, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { Button, Card, CardContent } from "@/components/ui";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
+// Возраст со склонением: «21 год», «34 года», «29 лет». Раньше всегда
+// подставлялось «лет», а у клиента без возраста под именем оставалось
+// висячее «лет ·» вообще без числа.
+function formatAge(age: number): string {
+  const mod100 = age % 100;
+  const mod10 = age % 10;
+  if (mod100 >= 11 && mod100 <= 14) return `${age} лет`;
+  if (mod10 === 1) return `${age} год`;
+  if (mod10 >= 2 && mod10 <= 4) return `${age} года`;
+  return `${age} лет`;
+}
+
+// Дата сессии для списков в карточке клиента: «21 сентября», с годом —
+// только если год не текущий. Раньше выводилась сырая строка из БД
+// («2026-09-21 · 16:00»), хотя на /sessions и в календаре тот же самый
+// день уже показывался по-человечески.
+function formatSessionDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) return date;
+  const label = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("ru", {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  });
+  return y === new Date().getFullYear() ? label : `${label} ${y}`;
+}
 
 const EMPTY_TRIGGERS: string[] = [];
 const EMPTY_PROGRESS = { aiScore: 0, psychologistScore: null, clientScore: null, history: [] as Array<{ date: string; aiScore: number; psychologistScore?: number; clientScore?: number }> };
@@ -151,6 +178,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [editClientError, setEditClientError] = useState<string | null>(null);
   const [showDeleteClientConfirm, setShowDeleteClientConfirm] = useState(false);
   const [deletingClient, setDeletingClient] = useState(false);
+  const [deleteClientError, setDeleteClientError] = useState<string | null>(null);
 
   function openEditClient() {
     if (!client) return;
@@ -193,11 +221,17 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   async function confirmDeleteClient() {
     if (!client || deletingClient) return;
     setDeletingClient(true);
+    // Ошибку обязательно показываем: пустой catch здесь уже приводил к
+    // тому, что удаление молча не работало (RLS отклоняла запись
+    // deleted_at, см. migration_027), а психолог видел только то, что
+    // после нажатия «Удалить» ничего не происходит.
+    setDeleteClientError(null);
     try {
       await softDeleteClient(client.id);
       await refreshClients();
       router.push("/clients");
-    } catch {
+    } catch (e) {
+      setDeleteClientError(e instanceof Error ? e.message : "Не удалось удалить клиента");
       setDeletingClient(false);
     }
   }
@@ -377,12 +411,16 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     () => sessions.filter(s => s.clientId === id).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)),
     [sessions, id]
   );
-  // Реальная сегодняшняя дата в локальном времени (sv-SE даёт YYYY-MM-DD,
-  // как в session.date) — раньше здесь стояла захардкоженная "2026-08-16",
-  // из-за чего прошедшие сессии клиента показывались как предстоящие.
-  const today = useMemo(() => new Date().toLocaleDateString("sv-SE"), []);
-  const upcomingSessions = clientSessions.filter(s => s.date >= today);
-  const pastSessions = clientSessions.filter(s => s.date < today).reverse();
+  // Сегодняшняя дата в часовом поясе ПСИХОЛОГА: раньше здесь стояла
+  // захардкоженная "2026-08-16" (прошедшие сессии показывались как
+  // предстоящие), потом — дата устройства, что для психолога с поясом,
+  // отличным от браузерного, на границе суток снова делило сессии
+  // неверно.
+  const today = useMemo(() => todayInTimeZone(timeZone), [timeZone]);
+  // По моменту окончания, а не по дате — иначе только что проведённая
+  // сессия до полуночи остаётся «предстоящей» с кнопкой «Начать».
+  const upcomingSessions = clientSessions.filter(s => !isSessionPast(s.date, s.time, timeZone));
+  const pastSessions = clientSessions.filter(s => isSessionPast(s.date, s.time, timeZone)).reverse();
 
   const progress = client?.progress ?? EMPTY_PROGRESS;
   // Реальная история теста — из test_results (Supabase). Пока психолог
@@ -659,7 +697,9 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E" }}>{client.name}</div>
             <div style={{ fontSize: 13, color: "#6B6058", marginTop: 2 }}>
-              {client.age} лет · {client.request}
+              {[client.age != null ? formatAge(client.age) : null, client.request || null]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           </div>
           <div style={{
@@ -755,7 +795,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                     <CardContent className="pt-3 pb-3" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <Clock size={13} style={{ color: "#2D6A5C" }} />
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "#1C1C1E" }}>{s.date} · {s.time}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "#1C1C1E" }}>{formatSessionDate(s.date)} · {s.time}</span>
                       </div>
                       <Link href={`/session/${s.id}`} style={{ textDecoration: "none" }}>
                         <Button size="sm">Начать</Button>
@@ -777,7 +817,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   <Card key={s.id}>
                     <CardContent className="pt-3 pb-3" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Video size={13} style={{ color: "#8C7355" }} />
-                      <span style={{ fontSize: 12, color: "#6B6058" }}>{s.date} · {s.time}</span>
+                      <span style={{ fontSize: 12, color: "#6B6058" }}>{formatSessionDate(s.date)} · {s.time}</span>
                     </CardContent>
                   </Card>
                 ))}
@@ -1168,18 +1208,25 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             <CardContent className="pt-6">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
-                  Динамика теста {lastTest?.name ?? "—"}
+                  {lastTest?.name ? `Динамика теста ${lastTest.name}` : "Динамика тестов"}
                 </h3>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "5px 10px", background: `${trendColor}20`, borderRadius: 20,
-                  }}>
-                    <TrendIcon size={14} style={{ color: trendColor }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: trendColor }}>
-                      {trend === "improving" ? "Улучшение" : trend === "degrading" ? "Ухудшение" : "Стабильно"}
-                    </span>
-                  </div>
+                  {/* Бейдж динамики показываем, только когда есть хотя бы
+                      два замера, между которыми эта динамика и считается.
+                      Раньше он висел всегда и у клиента без единого теста
+                      бодро утверждал «Стабильно» — рядом с надписью
+                      «Тесты ещё не проводились». */}
+                  {testResults.length >= 2 && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "5px 10px", background: `${trendColor}20`, borderRadius: 20,
+                    }}>
+                      <TrendIcon size={14} style={{ color: trendColor }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: trendColor }}>
+                        {trend === "improving" ? "Улучшение" : trend === "degrading" ? "Ухудшение" : "Стабильно"}
+                      </span>
+                    </div>
+                  )}
                   <Button size="sm" variant="secondary" onClick={() => setShowSendTestForm(v => !v)}>
                     + Внести результат теста
                   </Button>
@@ -1260,17 +1307,25 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>
                 Оценка прогресса (ИИ / психолог / клиент)
               </h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={progress.history}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
-                  <XAxis dataKey="date" stroke="#8C7355" style={{ fontSize: 11 }} />
-                  <YAxis domain={[-5, 5]} stroke="#8C7355" style={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E5DFD5" }} />
-                  <Line type="monotone" dataKey="aiScore" name="ИИ" stroke="#2D6A5C" strokeWidth={2} dot={{ fill: "#2D6A5C", r: 3 }} />
-                  <Line type="monotone" dataKey="psychologistScore" name="Психолог" stroke="#1BAF7A" strokeWidth={2} dot={{ fill: "#1BAF7A", r: 3 }} />
-                  <Line type="monotone" dataKey="clientScore" name="Клиент" stroke="#F59E0B" strokeWidth={2} dot={{ fill: "#F59E0B", r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              {/* Пустой график с осью −5…5 и без единой точки выглядел как
+                  сломанный виджет, а не как «данных пока нет». */}
+              {progress.history.length === 0 ? (
+                <p style={{ fontSize: 13, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                  График появится, когда накопятся оценки за несколько сессий — свою и клиента можно проставлять после каждой встречи.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={progress.history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
+                    <XAxis dataKey="date" stroke="#8C7355" style={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 10]} stroke="#8C7355" style={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E5DFD5" }} />
+                    <Line type="monotone" dataKey="aiScore" name="ИИ" stroke="#2D6A5C" strokeWidth={2} dot={{ fill: "#2D6A5C", r: 3 }} />
+                    <Line type="monotone" dataKey="psychologistScore" name="Психолог" stroke="#1BAF7A" strokeWidth={2} dot={{ fill: "#1BAF7A", r: 3 }} />
+                    <Line type="monotone" dataKey="clientScore" name="Клиент" stroke="#F59E0B" strokeWidth={2} dot={{ fill: "#F59E0B", r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -1396,7 +1451,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: "spring", damping: 22, stiffness: 320 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 65 }}
             >
               <div style={{
@@ -1495,7 +1550,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   </button>
 
                   <button
-                    onClick={() => setShowDeleteClientConfirm(true)}
+                    onClick={() => { setDeleteClientError(null); setShowDeleteClientConfirm(true); }}
                     disabled={savingClient}
                     style={{
                       padding: "10px", background: "none", color: "#EF4444",
@@ -1536,6 +1591,11 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               <p style={{ fontSize: 13, color: "#6B6058", marginBottom: 20, lineHeight: 1.5 }}>
                 Карточка, история сессий и переписка скроются из списка клиентов. Это действие нельзя отменить из интерфейса.
               </p>
+              {deleteClientError && (
+                <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginBottom: 16, marginTop: 0 }}>
+                  {deleteClientError}
+                </p>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   onClick={() => setShowDeleteClientConfirm(false)}

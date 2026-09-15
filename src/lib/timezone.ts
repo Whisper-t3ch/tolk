@@ -124,6 +124,28 @@ export function todayInTimeZone(timeZone: string, now: Date = new Date()): strin
   return formatDateInTimeZone(now, timeZone);
 }
 
+/**
+ * Прошла ли уже сессия, назначенная на `date` (YYYY-MM-DD) и `time`
+ * (HH:MM) в зоне психолога.
+ *
+ * Раньше сессии делились на предстоящие и прошедшие по одной лишь дате,
+ * поэтому встреча, которую психолог провёл сорок минут назад и по
+ * которой уже сгенерировал протокол, до самой полуночи оставалась в
+ * «Предстоящих» с кнопкой «Начать». Сравниваем момент окончания: пока
+ * сессия идёт, она остаётся предстоящей — к ней ещё можно
+ * присоединиться.
+ */
+export function isSessionPast(
+  date: string,
+  time: string,
+  timeZone: string,
+  durationMinutes = 50,
+  now: Date = new Date()
+): boolean {
+  const endsAt = zonedDateTimeToUtc(date, time, timeZone).getTime() + durationMinutes * 60_000;
+  return endsAt <= now.getTime();
+}
+
 /** День недели (0 = воскресенье) в нужной зоне — для рабочих часов. */
 export function weekdayInTimeZone(date: Date, timeZone: string): number {
   const tz = normalizeTimeZone(timeZone);

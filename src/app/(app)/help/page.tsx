@@ -3,7 +3,6 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, MessageCircle, Mail, Send, LifeBuoy } from "lucide-react";
 import { Button, Card, CardContent, Textarea } from "@/components/ui";
-import { useProfile } from "@/lib/ProfileContext";
 
 // Найдено при прогоне: три из пяти ответов описывали функциональность,
 // которой в продукте нет — автогенерацию протокола сразу после звонка,
@@ -36,17 +35,41 @@ const FAQ = [
   },
 ];
 
+const SUPPORT_TELEGRAM = "tolk_support";
+const SUPPORT_EMAIL = "support@tolk.pro";
+
 export default function HelpPage() {
-  const { profile } = useProfile();
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   const [message, setMessage] = useState("");
-  const [sent, setSent] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const sendMessage = () => {
-    if (!message.trim()) return;
-    setSent(true);
-    setMessage("");
-    setTimeout(() => setSent(false), 3000);
+  // Найдено прогоном-2: раньше эта форма ничего не отправляла — кнопка
+  // просто показывала «✓ Сообщение отправлено. Мы свяжемся с вами в
+  // ближайшее время» и очищала поле. Психолог с реальной проблемой ждал
+  // ответа, которого никто не получал. Серверной доставки обращений в
+  // продукте нет, поэтому вместо имитации формы — два настоящих канала:
+  // текст уходит в буфер обмена и открывается чат поддержки, либо
+  // подставляется в письмо. Обещаем только то, что действительно
+  // происходит.
+  const openTelegram = async () => {
+    const text = message.trim();
+    if (text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 4000);
+      } catch {
+        // Буфер может быть недоступен (нет разрешения, небезопасный
+        // контекст) — это не повод не открыть чат: психолог напишет сам.
+      }
+    }
+    window.open(`https://t.me/${SUPPORT_TELEGRAM}`, "_blank", "noopener,noreferrer");
+  };
+
+  const openEmail = () => {
+    const subject = encodeURIComponent("Вопрос в поддержку ТОЛК");
+    const body = encodeURIComponent(message.trim());
+    window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -144,7 +167,7 @@ export default function HelpPage() {
             </h3>
           </div>
           <p style={{ fontSize: 12, color: "#8C7355", marginBottom: 12 }}>
-            Ответим на {profile?.telegram.username || profile?.email || "ваш контакт"} в течение рабочего дня
+            Опишите вопрос здесь и выберите, куда его отправить — в Telegram или почтой. Отвечаем в течение рабочего дня.
           </p>
           <Textarea
             value={message}
@@ -152,20 +175,23 @@ export default function HelpPage() {
             placeholder="Опишите вопрос или проблему..."
             rows={4}
           />
-          <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
-            <Button size="md" onClick={sendMessage} disabled={!message.trim()}>
-              Отправить <Send size={14} style={{ marginLeft: 8 }} />
+          <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button size="md" variant="secondary" onClick={openEmail} disabled={!message.trim()}>
+              <Mail size={14} style={{ marginRight: 8 }} /> Отправить почтой
+            </Button>
+            <Button size="md" onClick={openTelegram}>
+              Написать в Telegram <Send size={14} style={{ marginLeft: 8 }} />
             </Button>
           </div>
           <AnimatePresence>
-            {sent && (
+            {copied && (
               <motion.div
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 style={{ marginTop: 10, fontSize: 12, color: "#1BAF7A", fontWeight: 600 }}
               >
-                ✓ Сообщение отправлено. Мы свяжемся с вами в ближайшее время.
+                ✓ Текст скопирован — вставьте его в чат с @{SUPPORT_TELEGRAM}
               </motion.div>
             )}
           </AnimatePresence>

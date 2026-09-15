@@ -65,6 +65,9 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [psychologist, setPsychologist] = useState<{ name: string; specialty: string | null } | null>(null);
   const [telegramConnected, setTelegramConnected] = useState(false);
+  // Пояс психолога — в нём показаны все слоты. Нужен на экране выбора,
+  // а не только на экране подтверждения после брони.
+  const [slotsTimeZone, setSlotsTimeZone] = useState(DEFAULT_TIMEZONE);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
@@ -89,6 +92,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
             setSlots(data.slots ?? []);
             setPsychologist(data.psychologist ?? null);
             setTelegramConnected(Boolean(data.telegram_connected));
+            setSlotsTimeZone(data.timezone ?? DEFAULT_TIMEZONE);
           } else {
             setError(data.error ?? "Страница бронирования не найдена");
           }
@@ -334,6 +338,9 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#1C1C1E", marginBottom: 12 }}>
                       <Clock size={14} style={{ color: "#2D6A5C" }} /> Выберите время
                     </div>
+                    <p style={{ fontSize: 12, color: "#8C7355", margin: "0 0 12px" }}>
+                      Время указано {timeZoneShortLabel(slotsTimeZone)}
+                    </p>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
                       {slotsForSelectedDate.map(slot => (
                         <button

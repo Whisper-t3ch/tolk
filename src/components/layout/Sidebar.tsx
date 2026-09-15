@@ -452,7 +452,7 @@ export default function Sidebar() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               style={{
                 position: "fixed",
                 top: 0,

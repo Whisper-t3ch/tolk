@@ -120,5 +120,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     psychologist: { name: psychologistName, specialty: profile?.specialty ?? null },
     session_duration_minutes: settings.session_duration_minutes,
     telegram_connected: telegramConnected,
+    // Пояс нужен клиенту уже на экране ВЫБОРА времени, а не только на
+    // экране подтверждения: без подписи «по московскому времени» клиент
+    // из другого пояса читает «18:00» как своё местное.
+    timezone: timeZone,
   });
 }

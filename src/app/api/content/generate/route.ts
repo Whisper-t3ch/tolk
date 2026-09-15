@@ -20,6 +20,23 @@ const FORMAT_INSTRUCTIONS: Record<string, string> = {
   pdf: "Формат: короткий гайд для скачивания (PDF), 3-5 практических пунктов по теме с заголовком и коротким вступлением. Пиши структурированно, с подзаголовками для каждого пункта.",
 };
 
+// Подчищаем markdown на выходе. Просьба «не используй markdown» в
+// системном промпте есть, но модель её регулярно игнорирует, и психолог
+// получал пост вида «**Когда тревога не даёт покоя**» — звёздочки видны
+// в превью и уезжают в опубликованный пост: ни Telegram, ни ВКонтакте
+// такой синтаксис не понимают. Инструкция остаётся, но результат теперь
+// не зависит от того, послушалась ли модель.
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, "")            // ## Заголовок
+    .replace(/\*\*([^*]+)\*\*/g, "$1")       // **жирный**
+    .replace(/__([^_]+)__/g, "$1")          // __жирный__
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1$2")  // *курсив*, не трогая «* » в начале строки
+    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?:;]|$)/g, "$1$2")      // _курсив_
+    .replace(/`([^`\n]+)`/g, "$1")          // `код`
+    .trim();
+}
+
 export async function POST(request: NextRequest) {
   const envStatus = checkYandexGptEnv();
   if (!envStatus.configured) {
@@ -119,7 +136,7 @@ ${FORMAT_INSTRUCTIONS[format]}
 
     await consumeAssistantLimit(supabase, user.id, "normal");
 
-    return NextResponse.json({ text: text.trim() });
+    return NextResponse.json({ text: stripMarkdown(text) });
   } catch (e) {
     const message = e instanceof YandexGptError ? e.message : "Не удалось сгенерировать контент";
     return NextResponse.json({ error: message }, { status: 502 });
