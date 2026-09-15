@@ -13,6 +13,7 @@ import { yandexGptEmbed } from "@/lib/yandexgpt";
 import { buildPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSummary";
 import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
 import { buildJitsiRoomName, buildJitsiUrl, checkJitsiEnv } from "@/lib/jitsi";
+import { zonedDateTimeToUtc, formatTimeInTimeZone, weekdayInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import type { AgentToolName } from "./tools";
 
 export class AgentToolError extends Error {
@@ -25,6 +26,16 @@ export class AgentToolError extends Error {
 interface ExecutorContext {
   supabase: SupabaseClient;
   psychologistId: string;
+  /**
+   * IANA-идентификатор пояса психолога (psychologists.timezone). Опционален
+   * ради обратной совместимости мест, которые ещё не обновлены — но
+   * findAvailableSlots и createSession используют его напрямую, поэтому
+   * оба вызывающих route.ts должны его передавать. Без этого поля функции
+   * молча падают на DEFAULT_TIMEZONE, что даёт неверные слоты для любого
+   * психолога вне Москвы — тот же класс бага, что чинился в
+   * src/lib/data/sessions.ts.
+   */
+  timeZone?: string;
 }
 
 // ------------------------------------------------------------
@@ -297,10 +308,19 @@ interface Slot {
   datetime: string;
 }
 
+// БЫЛО: вся функция работала на серверном Date (Vercel, UTC) без единого
+// обращения к часовому поясу психолога — preferred_hours "09:00"-"21:00"
+// применялись к времени СЕРВЕРА через setHours(), а d.getHours() при
+// формировании слота (строка ниже) читал результат тоже в поясе сервера.
+// Психолог из Омска (UTC+3), настроивший «работаю с 9 до 21», получил бы
+// от ассистента слоты, реально соответствующие 12:00-00:00 по его часам.
+// Тот же класс бага, что чинился в src/lib/data/sessions.ts — только там
+// про ЧТЕНИЕ существующих сессий, а здесь про ГЕНЕРАЦИЮ новых предложений.
 async function findAvailableSlots(
   ctx: ExecutorContext,
   args: { duration_minutes: number; date_from?: string; date_to?: string }
 ) {
+  const timeZone = ctx.timeZone ?? DEFAULT_TIMEZONE;
   const dateFrom = args.date_from ?? new Date().toISOString().slice(0, 10);
   const defaultTo = new Date();
   defaultTo.setDate(defaultTo.getDate() + 14);
@@ -314,7 +334,7 @@ async function findAvailableSlots(
   const preferredDays = (preferences.preferred_days as string[] | undefined) ?? [
     "mon", "tue", "wed", "thu", "fri",
   ];
-  const dayCodeMap: Record<number, string> = { 0: "sun", 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri", 6: "sat" };
+  const dayCodeMap = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
   const { data: busySessions, error } = await ctx.supabase
     .from("sessions")
@@ -332,39 +352,45 @@ async function findAvailableSlots(
   });
 
   const slots: Slot[] = [];
-  const [startH, startM] = startHour.split(":").map(Number);
-  const [endH, endM] = endHour.split(":").map(Number);
   const stepMinutes = 30;
 
-  const cursor = new Date(`${dateFrom}T00:00:00`);
-  const limitDate = new Date(`${dateTo}T23:59:59`);
+  // Перебираем календарные дни диапазона как строки YYYY-MM-DD (не Date
+  // сервера) — день недели и рабочие часы вычисляем строго в поясе
+  // психолога через weekdayInTimeZone/zonedDateTimeToUtc.
+  let cursorDate = dateFrom;
+  while (cursorDate <= dateTo && slots.length < 20) {
+    const dayStartUtc = zonedDateTimeToUtc(cursorDate, "00:00", timeZone);
+    const dayCode = dayCodeMap[weekdayInTimeZone(dayStartUtc, timeZone)];
 
-  while (cursor <= limitDate && slots.length < 20) {
-    const dayCode = dayCodeMap[cursor.getDay()];
     if (preferredDays.includes(dayCode)) {
-      const dayStart = new Date(cursor);
-      dayStart.setHours(startH, startM, 0, 0);
-      const dayEnd = new Date(cursor);
-      dayEnd.setHours(endH, endM, 0, 0);
+      const dayOpenUtc = zonedDateTimeToUtc(cursorDate, startHour, timeZone);
+      const dayCloseUtc = zonedDateTimeToUtc(cursorDate, endHour, timeZone);
 
-      for (let t = new Date(dayStart); t.getTime() + args.duration_minutes * 60_000 <= dayEnd.getTime(); t.setMinutes(t.getMinutes() + stepMinutes)) {
-        const slotStart = t.getTime();
+      for (
+        let slotStart = dayOpenUtc.getTime();
+        slotStart + args.duration_minutes * 60_000 <= dayCloseUtc.getTime();
+        slotStart += stepMinutes * 60_000
+      ) {
         const slotEnd = slotStart + args.duration_minutes * 60_000;
         const overlaps = busyIntervals.some(b => slotStart < b.end && slotEnd > b.start);
         const inPast = slotStart < Date.now();
         if (!overlaps && !inPast) {
           const d = new Date(slotStart);
           slots.push({
-            date: d.toISOString().slice(0, 10),
-            time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+            date: cursorDate,
+            time: formatTimeInTimeZone(d, timeZone),
             datetime: d.toISOString(),
           });
           if (slots.length >= 20) break;
         }
       }
     }
-    cursor.setDate(cursor.getDate() + 1);
-    cursor.setHours(0, 0, 0, 0);
+
+    // Следующий календарный день (строкой, чтобы не зависеть от Date
+    // сервера и от переходов летнего времени внутри цикла).
+    const [y, m, dd] = cursorDate.split("-").map(Number);
+    const next = new Date(Date.UTC(y, m - 1, dd + 1));
+    cursorDate = next.toISOString().slice(0, 10);
   }
 
   return { slots };

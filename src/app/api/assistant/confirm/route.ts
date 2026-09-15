@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { toolNeedsConfirmation } from "@/lib/agent/tools";
+import { normalizeTimeZone } from "@/lib/timezone";
 
 // POST /api/assistant/confirm
 // Body: { action: { tool: string, arguments: Record<string, unknown> }, confirmed: boolean }
@@ -43,7 +44,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const output = await executeAgentTool({ supabase, psychologistId: user.id }, tool, args);
+    // Пояс психолога нужен инструментам, которые сами считают время
+    // (find_available_slots) — см. задачу про executor.ts::findAvailableSlots.
+    const { data: psychologist } = await supabase
+      .from("psychologists")
+      .select("timezone")
+      .eq("id", user.id)
+      .maybeSingle();
+    const timeZone = normalizeTimeZone(psychologist?.timezone as string | undefined);
+
+    const output = await executeAgentTool({ supabase, psychologistId: user.id, timeZone }, tool, args);
     return NextResponse.json({ message: describeSuccess(tool), result: output });
   } catch (e) {
     const message = e instanceof AgentToolError ? e.message : "Не удалось выполнить действие";

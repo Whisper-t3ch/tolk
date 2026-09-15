@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
     for (const call of toolCalls) {
       try {
         const output = await executeAgentTool(
-          { supabase, psychologistId: userId },
+          { supabase, psychologistId: userId, timeZone },
           call.functionCall.name,
           call.functionCall.arguments
         );
