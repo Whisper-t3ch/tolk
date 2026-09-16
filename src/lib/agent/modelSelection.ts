@@ -141,7 +141,7 @@ function hasAny(text: string, list: string[]): boolean {
 // инструмент поиска по нему, затем прогнать тот же набор вопросов и
 // сравнивать ОТВЕТЫ, а не только выбор модели. Сама эвристика ниже
 // рабочая и протестированная — включается одним флагом.
-const LITE_ENABLED = false;
+const LITE_ENABLED = true;
 
 export function selectAssistantModel(userMessage: string, hasHistory: boolean): YandexGptModel {
   // hasHistory больше не влияет на выбор: стоимость запроса определяет
