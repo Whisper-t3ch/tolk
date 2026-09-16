@@ -125,7 +125,19 @@ export async function POST(request: NextRequest) {
   const timeLabel = formatTimeInTimeZone(now, timeZone);
   const dateTimeBlock = `Текущая дата и время психолога (часовой пояс ${timeZone}): ${weekdayLabel}, ${dateLabel}, ${timeLabel} (ISO: ${now.toISOString()}). Используй это как точку отсчёта для "завтра", "через неделю", "в пятницу" и подобных относительных формулировок времени — никогда не угадывай и не бери дату из своих обучающих данных.`;
 
-  const systemPrompt = [approachBlock, AGENT_SYSTEM_PROMPT, dateTimeBlock, promptAdditions].filter(Boolean).join("\n\n");
+  // Порядок блоков подобран под кэширование промпта: провайдеры
+  // кэшируют общий ПРЕФИКС, поэтому всё стабильное идёт вперёд, а
+  // изменчивое — в самый конец.
+  //
+  // approachBlock меняется, только если психолог сменил подход в
+  // профиле; AGENT_SYSTEM_PROMPT неизменен; promptAdditions меняется не
+  // чаще запуска cron-анализа. А вот dateTimeBlock содержит время с
+  // точностью до минуты — то есть у каждого запроса он свой. Пока он
+  // стоял третьим, всё, что шло после него, не могло попасть в кэш: по
+  // счетам за 15.09 входящие токены стоили 19,67 руб против 10,64 руб
+  // кэшированных. Перенос в конец оставляет кэшируемым весь стабильный
+  // префикс.
+  const systemPrompt = [approachBlock, AGENT_SYSTEM_PROMPT, promptAdditions, dateTimeBlock].filter(Boolean).join("\n\n");
 
   // Подгружаем историю переписки этой agent_session — без этого каждое
   // сообщение психолога обрабатывается моделью в полном отрыве от
