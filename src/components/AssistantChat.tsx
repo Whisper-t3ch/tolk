@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Send, Mic, Check, X as XIcon, ThumbsUp, ThumbsDown, Copy } from "lucide-react";
+import { Send, Mic, Check, X as XIcon, ThumbsUp, ThumbsDown, Copy, RotateCcw } from "lucide-react";
 
 // Web Speech API не имеет официальных типов в TS lib.dom — минимальный
 // набросок нужных полей (тот же паттерн, что в AIAssistant.tsx).
@@ -103,6 +103,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [agentSessionId, setAgentSessionId] = useState<string | undefined>(undefined);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   // Для неявного сигнала was_reformulated: запоминаем последний ответ
@@ -316,8 +317,57 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
     }
   };
 
+  // Сброс диалога: история копилась бесконечно и сбросить её было
+  // нечем, а модель, видя свой прежний ответ со слотами, переписывала
+  // его вместо нового вызова инструмента (см. правило в
+  // AGENT_SYSTEM_PROMPT). Теперь психолог может начать с чистого листа.
+  const startNewDialog = async () => {
+    if (isLoading || resetting) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/assistant/history", { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Не удалось начать новый диалог");
+        return;
+      }
+      setMessages([WELCOME_MESSAGE]);
+      setPendingAction(null);
+      setAgentSessionId(undefined);
+      lastExchangeRef.current = null;
+    } catch {
+      setError("Не удалось связаться с сервером");
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      {messages.length > 1 && (
+        <div style={{
+          display: "flex", justifyContent: "flex-end",
+          padding: compact ? "8px 12px 0" : "12px 16px 0",
+        }}>
+          <button
+            onClick={startNewDialog}
+            disabled={isLoading || resetting}
+            title="Очистить историю и начать заново"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 10px", background: "none",
+              border: "1px solid #E5DFD5", borderRadius: 8,
+              fontSize: 12, fontWeight: 600, color: "#8C7355",
+              cursor: isLoading || resetting ? "not-allowed" : "pointer",
+              fontFamily: "var(--font-sans)",
+            }}
+          >
+            <RotateCcw size={13} />
+            {resetting ? "Очищаю…" : "Новый диалог"}
+          </button>
+        </div>
+      )}
       <div
         style={{
           flex: 1,

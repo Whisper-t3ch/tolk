@@ -39,3 +39,52 @@ export async function GET(request: NextRequest) {
     messages: Array.isArray(data.messages) ? data.messages : [],
   });
 }
+
+// DELETE /api/assistant/history
+//
+// Начать диалог с чистого листа. Кнопки для этого в интерфейсе не было
+// вовсе: история копилась бесконечно, и психолог не мог её сбросить —
+// а модель, видя в переписке свой прежний ответ со списком слотов, на
+// следующий похожий вопрос переписывала его вместо нового вызова
+// инструмента и называла время, когда психолог уже занят.
+//
+// Историю не удаляем, а очищаем messages у текущей сессии: сама строка
+// agent_sessions остаётся (на неё могут ссылаться записи обратной связи
+// об ответах ассистента).
+export async function DELETE() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  }
+
+  const { data: current, error: findError } = await supabase
+    .from("agent_sessions")
+    .select("id")
+    .eq("psychologist_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (findError) {
+    return NextResponse.json({ error: findError.message }, { status: 500 });
+  }
+  // Диалога ещё не было — сбрасывать нечего, но это не ошибка.
+  if (!current) {
+    return NextResponse.json({ ok: true });
+  }
+
+  const { error: clearError } = await supabase
+    .from("agent_sessions")
+    .update({ messages: [] })
+    .eq("id", current.id)
+    .eq("psychologist_id", user.id);
+
+  if (clearError) {
+    return NextResponse.json({ error: clearError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
