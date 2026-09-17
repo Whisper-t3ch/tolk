@@ -1,29 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { checkYandexGptEnv, yandexGptCompleteJson, YandexGptError } from "@/lib/yandexgpt";
+import { checkYandexGptEnv, yandexGptStartAsyncCompletion, YandexGptError } from "@/lib/yandexgpt";
 import {
   buildSoapUserMessage,
   selectSoapSystemPrompt,
-  type SoapResult,
 } from "@/lib/prompts/soap";
 
 // POST /api/sessions/[id]/soap/generate
 // Body (опционально): { template_id?: string } — id материала из
 // knowledge_base (source_type=protocol), выбранного психологом на
 // странице протокола. Если указан, его текст передаётся модели как
-// ориентир структуры/акцентов для блоков s/o/a/p (см. lib/prompts/soap.ts)
-// и сохраняется в soap_notes.protocol_template_id — без него используется
-// базовый формат по умолчанию, как раньше.
+// ориентир структуры/акцентов для блоков s/o/a/p (см. lib/prompts/soap.ts).
 //
-// Генерирует протокол сессии через YandexGPT Pro из транскрипта (если
-// готов) и краткого контекста предыдущих сессий, сохраняет результат
-// в soap_notes (ai_generated: true) и возвращает его — страница
-// /session/[id]/soap подставляет результат в текстовые поля, психолог
-// может отредактировать перед сохранением.
+// АСИНХРОННЫЙ режим (с 17.09): вместо того чтобы ждать готовый текст в
+// рамках этого же запроса, здесь только ЗАПУСКАЕТСЯ генерация через
+// completionAsync и сразу возвращается { job_id } — фронтенд опрашивает
+// GET /api/sessions/[id]/soap/generate/status?job_id=... каждые несколько
+// секунд, пока не получит готовый результат. Экономика: async-режим
+// примерно вдвое дешевле синхронного (0.61₽/1000 токенов вместо 1.2₽/1000
+// для Pro) ценой задержки в несколько минут — SOAP генерируется уже ПОСЛЕ
+// сессии, психолог не ждёт его в реальном времени, так что задержка не
+// стоит психологу ничего, кроме времени, а не денег платформы.
 //
-// Раньше кнопка "Сгенерировать" была задизейблена, а промпты в
-// lib/prompts/soap.ts существовали, но ни один API route их не вызывал —
-// это первое реальное подключение.
+// Раньше (до 17.09) это был синхронный yandexGptCompleteJson с мгновенным
+// возвратом готового протокола — см. историю файла. Официальный пример
+// тела запроса для completionAsync (aistudio.yandex.ru/docs/ru/ai-studio/
+// operations/generation/async-request) не показывает поле jsonObject —
+// не полагаемся на него здесь и не выдаём его отсутствие за факт, а просто
+// парсим ответ так же, как раньше делал yandexGptCompleteJson: промпт
+// soap.ts САМ требует строгий JSON текстом, полученный текст очищается от
+// возможной markdown-обёртки и парсится вручную при получении результата
+// (см. status/route.ts).
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const envStatus = checkYandexGptEnv();
   if (!envStatus.configured) {
@@ -177,54 +184,41 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     templateTitle: template?.title ?? undefined,
   });
 
-  let result: SoapResult;
+  // Запускаем генерацию в async-режиме — НЕ ждём результат здесь. Модель та
+  // же (Pro), меняется только режим доставки (см. комментарий в начале
+  // файла про экономику). yandexGptStartAsyncCompletion возвращает id
+  // операции сразу, до завершения генерации.
+  let operationId: string;
   try {
-    result = await yandexGptCompleteJson<SoapResult>([
+    operationId = await yandexGptStartAsyncCompletion([
       { role: "system", text: systemPrompt },
       { role: "user", text: userMessage },
     ]);
   } catch (e) {
-    const message = e instanceof YandexGptError ? e.message : "Не удалось сгенерировать протокол";
+    const message = e instanceof YandexGptError ? e.message : "Не удалось запустить генерацию протокола";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
-  const patch = {
-    s_subjective: result.s ?? "",
-    o_objective: result.o ?? "",
-    a_assessment: result.a ?? "",
-    p_plan: result.p ?? "",
-    ai_generated: true,
-    protocol_template_id: template?.id ?? null,
-  };
-
-  const { data: existing } = await supabase
-    .from("soap_notes")
+  // Job хранит только служебное состояние ЭТОГО запроса на генерацию —
+  // не результат протокола (тот пишется в soap_notes только когда job
+  // готов, см. status/route.ts). template_id job'а нужен, чтобы при
+  // сохранении финального результата проставить soap_notes.protocol_template_id
+  // тем же значением, что психолог выбрал при запуске.
+  const { data: job, error: jobError } = await supabase
+    .from("soap_generation_jobs")
+    .insert({
+      session_id: sessionId,
+      psychologist_id: user.id,
+      operation_id: operationId,
+      status: "pending",
+      template_id: template?.id ?? null,
+    })
     .select("id")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const query = existing
-    ? supabase.from("soap_notes").update(patch).eq("id", existing.id)
-    : supabase.from("soap_notes").insert({ session_id: sessionId, ...patch });
-
-  const { data: saved, error: saveError } = await query
-    .select("id, s_subjective, o_objective, a_assessment, p_plan, updated_at")
     .single();
 
-  if (saveError) {
-    return NextResponse.json({ error: saveError.message }, { status: 500 });
+  if (jobError) {
+    return NextResponse.json({ error: jobError.message }, { status: 500 });
   }
 
-  return NextResponse.json({
-    soapNote: {
-      id: saved.id,
-      s: saved.s_subjective ?? "",
-      o: saved.o_objective ?? "",
-      a: saved.a_assessment ?? "",
-      p: saved.p_plan ?? "",
-      updatedAt: saved.updated_at,
-    },
-  });
+  return NextResponse.json({ jobId: job.id, status: "pending" });
 }
