@@ -143,6 +143,33 @@ function hasAny(text: string, list: string[]): boolean {
 // рабочая и протестированная — включается одним флагом.
 const LITE_ENABLED = true;
 
+/**
+ * Решает, является ли сообщение справочным вопросом о самой платформе,
+ * без данных конкретного клиента — НЕЗАВИСИМО от LITE_ENABLED и выбора
+ * модели. Это два разных рычага экономии: какую модель звать (дешевле
+ * по цене токена) и какой набор инструментов ей давать (дешевле по
+ * размеру схемы function calling). Если lite когда-нибудь снова
+ * выключат флагом, урезанный набор инструментов для справочных
+ * вопросов всё равно должен продолжать работать — это не связанные
+ * друг с другом решения, и объединять их в одну функцию с одним
+ * флагом-выключателем было бы риском сломать оба сразу при откате
+ * одного из них.
+ */
+export function isReferenceOnlyQuestion(userMessage: string): boolean {
+  const text = userMessage.toLowerCase().trim();
+  const mentionsClientData = hasAny(text, CLIENT_DATA_MARKERS);
+
+  if (hasAny(text, DEEP_ANALYSIS_KEYWORDS)) return false;
+  if (hasAny(text, AMBIGUOUS_ANALYSIS_KEYWORDS) && mentionsClientData) return false;
+  if (mentionsClientData) return false;
+  if (text.length > LONG_MESSAGE_THRESHOLD) return false;
+
+  const startsAsHelp = PLATFORM_HELP_PREFIXES.some(p => text.startsWith(p));
+  if (startsAsHelp) return true;
+
+  return hasAny(text, PLATFORM_HELP_KEYWORDS);
+}
+
 export function selectAssistantModel(userMessage: string, hasHistory: boolean): YandexGptModel {
   // hasHistory больше не влияет на выбор: стоимость запроса определяет
   // содержание вопроса, а не наличие предыдущих реплик. Параметр
@@ -152,27 +179,5 @@ export function selectAssistantModel(userMessage: string, hasHistory: boolean): 
 
   if (!LITE_ENABLED) return "pro";
 
-  const text = userMessage.toLowerCase().trim();
-
-  const mentionsClientData = hasAny(text, CLIENT_DATA_MARKERS);
-
-  // Безусловная аналитика — всегда pro.
-  if (hasAny(text, DEEP_ANALYSIS_KEYWORDS)) return "pro";
-
-  // Неоднозначные слова ("период", "итог", "анализ", "срез") считаются
-  // аналитикой только если рядом есть признак данных клиента.
-  if (hasAny(text, AMBIGUOUS_ANALYSIS_KEYWORDS) && mentionsClientData) return "pro";
-
-  // Вопрос явно про клиента — pro, даже если начинается как справочный
-  // ("как посмотреть тесты Марины" — нужен доступ к данным).
-  if (mentionsClientData) return "pro";
-
-  if (text.length > LONG_MESSAGE_THRESHOLD) return "pro";
-
-  const startsAsHelp = PLATFORM_HELP_PREFIXES.some(p => text.startsWith(p));
-  if (startsAsHelp) return "lite";
-
-  if (hasAny(text, PLATFORM_HELP_KEYWORDS)) return "lite";
-
-  return "pro";
+  return isReferenceOnlyQuestion(userMessage) ? "lite" : "pro";
 }

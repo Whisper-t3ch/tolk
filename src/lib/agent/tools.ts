@@ -47,6 +47,27 @@ export function toolNeedsConfirmation(name: string): boolean {
   return CONFIRMATION_REQUIRED_TOOLS.has(name as AgentToolName);
 }
 
+/**
+ * Урезанный набор инструментов для справочных вопросов о платформе
+ * (когда selectAssistantModel уже определил — по тем же признакам,
+ * что и выбор lite/pro, — что вопрос не касается конкретного клиента
+ * или расписания). Экономит на схеме function calling: 18 инструментов
+ * в JSON — 8442 символа, эти два — на порядок меньше, а передаются
+ * ИМЕННО ТУДА, где остальные 16 физически не могут понадобиться.
+ *
+ * find_client_by_name оставлен как страховка, а не потому что он нужен
+ * для справочных вопросов сам по себе: если эвристика ошиблась и вопрос
+ * всё-таки был про конкретного клиента ("а как обстоят дела у Марины" —
+ * без явных маркеров, которые ловит modelSelection), модель сможет хотя
+ * бы найти клиента и дать частичный осмысленный ответ или адресовать
+ * дальнейший вопрос, вместо жёсткого "не могу помочь с этим здесь" —
+ * ответ психологу не должен становиться хуже ради экономии на токенах.
+ */
+export const REFERENCE_ONLY_TOOL_NAMES: ReadonlySet<AgentToolName> = new Set([
+  "search_knowledge_base",
+  "find_client_by_name",
+]);
+
 // ------------------------------------------------------------
 // Схемы function calling (JSON Schema под YandexGPT tools[].function.parameters)
 // ------------------------------------------------------------
@@ -316,6 +337,16 @@ export const AGENT_TOOLS: YandexGptTool[] = [
 ];
 
 export const MAX_AGENT_ITERATIONS = 5;
+
+/**
+ * Урезанный набор для справочных вопросов о платформе — см. комментарий
+ * у REFERENCE_ONLY_TOOL_NAMES выше. Вычисляется от полного AGENT_TOOLS,
+ * а не задаётся отдельным литералом, чтобы описания инструментов не
+ * дублировались и не расходились между полным и урезанным набором.
+ */
+export function getReferenceOnlyTools(): YandexGptTool[] {
+  return AGENT_TOOLS.filter(t => REFERENCE_ONLY_TOOL_NAMES.has(t.function.name as AgentToolName));
+}
 
 export const AGENT_SYSTEM_PROMPT = `Ты профессиональный ассистент практикующего психолога.
 Ты знаешь всех его клиентов, их историю и расписание.

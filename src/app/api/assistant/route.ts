@@ -11,12 +11,12 @@ import {
   consumeAssistantLimit,
   limitExceededResponse,
 } from "@/lib/assistantLimits";
-import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
+import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, getReferenceOnlyTools, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { buildApproachContextBlock } from "@/lib/approaches";
 import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
 import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
-import { selectAssistantModel } from "@/lib/agent/modelSelection";
+import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
 import { randomUUID } from "crypto";
 
 // POST /api/assistant
@@ -169,6 +169,20 @@ export async function POST(request: NextRequest) {
   // ответа, что означало до двух сетевых вызовов на один запрос).
   const selectedModel = selectAssistantModel(userMessage, history.length > 0);
 
+  // Набор инструментов, доступных модели — независимо от того, какая
+  // модель выбрана. Для справочных вопросов о платформе (та же
+  // эвристика, что и в selectAssistantModel, но это отдельное решение —
+  // см. комментарий у isReferenceOnlyQuestion) передаём только
+  // search_knowledge_base и find_client_by_name вместо полной схемы
+  // из 18 инструментов: остальные 16 физически не могут понадобиться
+  // психологу, который спрашивает "как поменять часовой пояс", а схема
+  // function calling — это ощутимая часть стоимости каждого запроса
+  // (см. комментарий у AGENT_TOOLS про точный размер). Психолог получает
+  // тот же ответ, просто модель тратит меньше на описание инструментов,
+  // которые ей всё равно не понадобятся для этого вопроса.
+  const isReferenceOnly = isReferenceOnlyQuestion(userMessage);
+  const availableTools = isReferenceOnly ? getReferenceOnlyTools() : AGENT_TOOLS;
+
   const messages: YandexGptAnyMessage[] = [
     { role: "system", text: systemPrompt },
     ...history,
@@ -242,7 +256,7 @@ export async function POST(request: NextRequest) {
       // сценария нет в принципе.
       const result = await yandexGptCompleteWithTools(messages, {
         model: selectedModel,
-        tools: AGENT_TOOLS,
+        tools: availableTools,
         temperature: 0.2,
       });
 
