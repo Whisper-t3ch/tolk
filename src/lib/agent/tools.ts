@@ -101,7 +101,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
         },
         required: ["client_id"],
       },
@@ -131,7 +131,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
           fields: {
             type: "object",
             description: "Поля для обновления: name, request, approach, status (active|pause|completed)",
@@ -151,7 +151,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
           query: { type: "string", description: "Поисковый запрос (например, «делегирование задач»)" },
         },
         required: ["client_id", "query"],
@@ -169,7 +169,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
         },
         required: ["client_id"],
       },
@@ -182,7 +182,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
           date_from: { type: "string", description: "Начало периода, YYYY-MM-DD" },
           date_to: { type: "string", description: "Конец периода, YYYY-MM-DD" },
         },
@@ -253,7 +253,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
           datetime: { type: "string", description: "Дата и время сессии, ISO 8601" },
           duration_minutes: { type: "integer", description: "Длительность в минутах (по умолчанию 50)" },
         },
@@ -285,7 +285,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
           text: { type: "string", description: "Текст сообщения" },
           channel: { type: "string", enum: ["telegram", "vk"], description: "Канал отправки" },
         },
@@ -300,7 +300,7 @@ export const AGENT_TOOLS: YandexGptTool[] = [
       parameters: {
         type: "object",
         properties: {
-          client_id: { type: "string", description: "UUID клиента (если известно только имя — сначала вызови find_client_by_name)" },
+          client_id: { type: "string", description: "UUID клиента" },
           homework_text: { type: "string", description: "Текст домашнего задания" },
         },
         required: ["client_id", "homework_text"],
@@ -400,33 +400,14 @@ send_broadcast_message), требуют подтверждения — и для
 бы делился наблюдением коллеге, а не составлял методическое пособие.
 
 Психолог почти никогда не знает и не называет UUID клиентов — он говорит именами
-("что там у Марины", "покажи историю Иванова", или просто называет имя и фамилию
-одним сообщением, например «Дмитрий Волков»). ЗАПРЕЩЕНО спрашивать у психолога
-UUID или "предоставить эту информацию" — это внутренний технический идентификатор,
-психологу он не известен и не должен упоминаться в диалоге с ним.
-
-Если в сообщении психолога (или в предыдущих репликах диалога) упомянуто имя
-клиента, а у тебя ещё нет его client_id — НЕ отвечай текстом с просьбой уточнить
-или предоставить ID. Вместо этого сразу вызови инструмент find_client_by_name с
-этим именем. Это относится и к случаю, когда психолог отвечает на твой же вопрос
-"уточните имя" одним именем без глагола — такое сообщение всегда означает
-"используй это имя для поиска", а не просто реплику для чтения.
-Если find_client_by_name вернул ровно одного клиента — сразу используй его id
-в следующем вызове (get_client_info, get_period_summary и т.д.), не переспрашивая
-психолога повторно и не спрашивая текстом "подтвердите, что это тот человек" —
-раз в базе один клиент с этим именем, это и есть тот, о ком спросил психолог.
-Если найдено несколько — кратко перечисли их и уточни, кого из них психолог
-имел в виду. Если психолог явно говорит "у меня сейчас только один клиент с
-таким именем" или похожее — доверяй этому и используй найденного клиента, не
-проси снова уточнить имя или детали.
-
-Пример ПРАВИЛЬНОГО поведения на вопрос "какую тенденцию ты наблюдаешь у Марии":
-1. Сразу вызови find_client_by_name("Мария").
-2. Если результат один — сразу вызови get_period_summary с его client_id.
-3. Ответь результатом анализа.
-Никаких промежуточных вопросов "подтвердите, что нужно найти Марию" или
-"уточните полное имя" быть не должно, если ты ещё не знаешь, что клиентов
-несколько — сначала проверь через инструмент, а не спрашивай заранее.
+("что там у Марины", "покажи историю Иванова", одним сообщением «Дмитрий Волков»,
+или отвечает на твой же вопрос «уточните имя» одним именем без глагола). ЗАПРЕЩЕНО
+спрашивать UUID или просить "предоставить эту информацию" — вместо этого сразу
+вызови find_client_by_name с этим именем. Один найденный результат — сразу
+используй его id в следующем вызове (get_client_info, get_period_summary и т.д.),
+не переспрашивая психолога и не уточняя текстом "это тот человек?". Несколько
+результатов — кратко перечисли и уточни, кого из них он имел в виду; но если
+психолог сам говорит "у меня только один клиент с таким именем" — доверяй этому.
 
 Пример ПРАВИЛЬНОГО поведения на просьбу "поставь сессию с Дмитрием на завтра
 на 10 часов":
