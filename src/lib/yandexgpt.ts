@@ -34,18 +34,25 @@ function resolveModelName(model: YandexGptModel): string {
   if (model === "lite") {
     return process.env.YANDEX_GPT_LITE_MODEL || "yandexgpt-lite/latest";
   }
-  // ПЛАН ПЕРЕХОДА НА Pro 5.1 (не завершён, см. YANDEX_GPT_PRO_MODEL ниже):
-  // официальная документация Yandex (aistudio.yandex.ru/ru/docs/ai-studio/
-  // concepts/generation/models, сверено 19.09) подтверждает, что алиас
-  // "yandexgpt/latest" (текущий дефолт) указывает на YandexGPT Pro 5, а
-  // Pro 5.1 доступна через явное имя "yandexgpt-5.1" (или алиас
-  // "yandexgpt/rc"). По прайсу Pro 5.1 стоит 0.8₽/1000 токенов вход/кэш/
-  // исход против 1.2₽/1000 у Pro 5 — ~33% дешевле на этой части
-  // стоимости запроса. Перед сменой дефолта здесь — сначала протестировать
-  // через YANDEX_GPT_PRO_MODEL=yandexgpt-5.1 на preview (без ошибок
-  // доступа/квоты) и прогнать regression на тех же вопросах, что и весь
-  // день. Дефолт остаётся на "yandexgpt/latest" до подтверждения.
-  return process.env.YANDEX_GPT_PRO_MODEL || "yandexgpt/latest";
+  // Явное имя модели, не алиас. Официальная документация Yandex
+  // (aistudio.yandex.ru/ru/docs/ai-studio/concepts/generation/models,
+  // сверено 19.09) подтверждает: алиас "yandexgpt/latest" (прежний
+  // дефолт) указывает на YandexGPT Pro 5, не на Pro 5.1. Pro 5.1 стоит
+  // 0.8₽/1000 токенов вход/кэш/исход против 1.2₽/1000 у Pro 5 — ~33%
+  // дешевле на этой части стоимости запроса (tool tokens по прайсу — это
+  // токены встроенных инструментов AI Studio, не наших custom functions,
+  // так что общий эффект на стоимость запроса подтверждается только
+  // реальным биллингом, не теоретически).
+  //
+  // Проверено перед переключением дефолта (19.09, preview-ветка
+  // test/pro-5.1-model, env override YANDEX_GPT_PRO_MODEL=yandexgpt-5.1):
+  // один пробный запрос без ошибок доступа/квоты, затем regression на
+  // ключевых сценариях дня — справочный вопрос с кэш-хитом, агентский
+  // запрос с чтением данных клиента (тесты), UUID-регресс ("где найти
+  // историю переписки с Ольгой" — без утечки UUID, без зависания),
+  // многошаговый tool chain (find_client_by_name → session lookup).
+  // Все сценарии прошли чисто.
+  return process.env.YANDEX_GPT_PRO_MODEL || "yandexgpt-5.1";
 }
 
 export interface YandexGptEnvStatus {
