@@ -34,6 +34,7 @@
 // ============================================================
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { yandexGptEmbed } from "@/lib/yandexgpt";
+import { waitUntil } from "@vercel/functions";
 
 const SIMILARITY_THRESHOLD = 0.93;
 
@@ -76,8 +77,22 @@ export async function findCachedReferenceAnswer(
   const hit = data[0] as { id: string; answer: string };
 
   // Увеличиваем счётчик попаданий и обновляем updated_at — не блокируем
-  // ответ психологу ожиданием этого запроса.
-  void supabase.rpc("increment_reference_answer_cache_hit", { cache_id: hit.id });
+  // ОТВЕТ психологу ожиданием этого запроса, но и не "void fire-and-forget":
+  // route.ts возвращает NextResponse сразу после того, как эта функция
+  // отдаст { id, answer }, и на серверлес-рантайме Vercel платформа
+  // вправе оборвать execution context сразу после отправки ответа —
+  // ровно тот же баг, что был найден и исправлен в route.ts для
+  // saveReferenceAnswerToCache (см. коммит с waitUntil), но этот
+  // конкретный вызов остался незамеченным при первом проходе, потому
+  // что он не в route.ts, а здесь. Как следствие: кэш реально отдавал
+  // сохранённый ответ (проверено вручную — второй ответ на тот же
+  // вопрос пришёл byte-identical первому), но hit_count оставался 0,
+  // потому что инкремент не успевал выполниться.
+  waitUntil(
+    Promise.resolve(
+      supabase.rpc("increment_reference_answer_cache_hit", { cache_id: hit.id })
+    )
+  );
 
   return { id: hit.id, answer: hit.answer };
 }
