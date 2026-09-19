@@ -53,7 +53,11 @@ function resolveModelName(model: YandexGptModel): string {
   // (Pro 5), стабильно работавшая весь день с responseGuard как барьером
   // на случай СВОИХ, более редких сбоев Pro 5 (например, утренний
   // UUID-баг).
-  return process.env.YANDEX_GPT_PRO_MODEL || "yandexgpt/latest";
+  // ВРЕМЕННО для контролируемого сбора паттернов псевдо-tool-call (шаг 1
+  // задачи #26) — единственный пользователь прод-инстанса сейчас автор,
+  // риска для реальных психологов нет. Откатить на "yandexgpt/latest"
+  // сразу после сбора данных, вернуть дефолт на Pro 5.
+  return process.env.YANDEX_GPT_PRO_MODEL || "yandexgpt-5.1";
 }
 
 export interface YandexGptEnvStatus {
@@ -200,6 +204,14 @@ export async function yandexGptCompleteWithTools(
   const data = await response.json();
   // API оборачивает ответ в { result: {...} } на практике, хотя в схеме документации
   // это не показано явно — поддерживаем оба варианта на случай расхождений.
+  const usage = data?.result?.usage ?? data?.usage;
+  if (usage) {
+    // ВРЕМЕННО (сбор данных для решения о Pro 5.1, см. задачу #26/#35):
+    // точные токены из API вместо оценки по размеру текста — грепается
+    // в Vercel Logs по маркеру YGPT_USAGE. Формат usage подтверждён
+    // документацией Yandex: inputTextTokens/completionTokens/totalTokens.
+    console.log("YGPT_USAGE", JSON.stringify({ model: modelName, ...usage }));
+  }
   const alternative = data?.result?.alternatives?.[0] ?? data?.alternatives?.[0];
   const toolCalls: YandexGptToolCall[] | undefined = alternative?.message?.toolCallList?.toolCalls;
   if (toolCalls && toolCalls.length > 0) {
