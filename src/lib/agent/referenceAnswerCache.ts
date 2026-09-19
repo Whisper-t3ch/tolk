@@ -53,17 +53,15 @@ export async function findCachedReferenceAnswer(
   supabase: SupabaseClient,
   question: string
 ): Promise<CachedAnswer | null> {
-  console.log("CACHE_LOOKUP_START", JSON.stringify({ question }));
   let embedding: number[];
   try {
     embedding = await yandexGptEmbed(question, "query");
   } catch (e) {
     // Сбой эмбеддинга не должен ронять основной ответ — просто идём
     // мимо кэша, как будто его не было.
-    console.error("CACHE_ERROR_EMBEDDING", e instanceof Error ? e.message : String(e));
+    console.error("referenceAnswerCache: не удалось получить embedding вопроса", e instanceof Error ? e.message : String(e));
     return null;
   }
-  console.log("CACHE_EMBEDDING_OK", JSON.stringify({ dims: embedding.length }));
 
   const { data, error } = await supabase.rpc("match_reference_answer_cache", {
     query_embedding: embedding,
@@ -71,40 +69,33 @@ export async function findCachedReferenceAnswer(
   });
 
   if (error) {
-    console.error("CACHE_ERROR_RPC", JSON.stringify({ message: error.message, details: error.details, hint: error.hint, code: error.code }));
+    console.error("referenceAnswerCache: match_reference_answer_cache вернул ошибку", error.message);
     return null;
   }
-  console.log("CACHE_RPC_RESULT", JSON.stringify({ rowCount: data?.length ?? 0, data }));
-  if (!data || data.length === 0) {
-    console.log("CACHE_MISS", JSON.stringify({ question }));
-    return null;
-  }
+  if (!data || data.length === 0) return null;
 
   const hit = data[0] as { id: string; answer: string };
-  console.log("CACHE_HIT", JSON.stringify({ id: hit.id }));
 
   // Увеличиваем счётчик попаданий и обновляем updated_at — не блокируем
   // ОТВЕТ психологу ожиданием этого запроса, но и не "void fire-and-forget":
   // route.ts возвращает NextResponse сразу после того, как эта функция
   // отдаст { id, answer }, и на серверлес-рантайме Vercel платформа
-  // вправе оборвать execution context сразу после отправки ответа —
-  // ровно тот же баг, что был найден и исправлен в route.ts для
-  // saveReferenceAnswerToCache (см. коммит с waitUntil), но этот
-  // конкретный вызов остался незамеченным при первом проходе, потому
-  // что он не в route.ts, а здесь. Как следствие: кэш реально отдавал
-  // сохранённый ответ (проверено вручную — второй ответ на тот же
-  // вопрос пришёл byte-identical первому), но hit_count оставался 0,
-  // потому что инкремент не успевал выполниться.
+  // вправе оборвать execution context сразу после отправки ответа.
+  // ИЗВЕСТНАЯ НЕИСПРАВНОСТЬ (некритичная): даже с waitUntil hit_count
+  // не увеличивается в проде — сам кэш при этом работает правильно
+  // (подтверждено логами: RPC находит совпадение, similarity=1, ответ
+  // возвращается верно и заметно быстрее). Требует дальнейшей
+  // диагностики (вероятная причина — Supabase SSR-клиент, привязанный
+  // к cookies текущего запроса, может отказывать в выполнении RPC уже
+  // после того как response Next.js закрыт), но НЕ блокирует запуск —
+  // это влияет только на аналитику попаданий, не на корректность
+  // ответов психологу или на экономию (кэш всё равно не идёт в LLM).
   waitUntil(
     Promise.resolve(
       supabase.rpc("increment_reference_answer_cache_hit", { cache_id: hit.id })
-    )
-      .then((res) => {
-        console.log("CACHE_INCREMENT_RESULT", JSON.stringify({ error: (res as { error: unknown } | null)?.error ?? null }));
-      })
-      .catch((e) => {
-        console.error("CACHE_INCREMENT_THROWN", e instanceof Error ? e.message : String(e));
-      })
+    ).catch((e) => {
+      console.error("referenceAnswerCache: не удалось увеличить hit_count", e instanceof Error ? e.message : String(e));
+    })
   );
 
   return { id: hit.id, answer: hit.answer };
