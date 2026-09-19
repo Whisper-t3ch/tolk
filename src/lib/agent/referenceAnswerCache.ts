@@ -53,15 +53,17 @@ export async function findCachedReferenceAnswer(
   supabase: SupabaseClient,
   question: string
 ): Promise<CachedAnswer | null> {
+  console.log("CACHE_LOOKUP_START", JSON.stringify({ question }));
   let embedding: number[];
   try {
     embedding = await yandexGptEmbed(question, "query");
   } catch (e) {
     // Сбой эмбеддинга не должен ронять основной ответ — просто идём
     // мимо кэша, как будто его не было.
-    console.error("referenceAnswerCache: не удалось получить embedding вопроса", e);
+    console.error("CACHE_ERROR_EMBEDDING", e instanceof Error ? e.message : String(e));
     return null;
   }
+  console.log("CACHE_EMBEDDING_OK", JSON.stringify({ dims: embedding.length }));
 
   const { data, error } = await supabase.rpc("match_reference_answer_cache", {
     query_embedding: embedding,
@@ -69,12 +71,17 @@ export async function findCachedReferenceAnswer(
   });
 
   if (error) {
-    console.error("referenceAnswerCache: match_reference_answer_cache вернул ошибку", error.message);
+    console.error("CACHE_ERROR_RPC", JSON.stringify({ message: error.message, details: error.details, hint: error.hint, code: error.code }));
     return null;
   }
-  if (!data || data.length === 0) return null;
+  console.log("CACHE_RPC_RESULT", JSON.stringify({ rowCount: data?.length ?? 0, data }));
+  if (!data || data.length === 0) {
+    console.log("CACHE_MISS", JSON.stringify({ question }));
+    return null;
+  }
 
   const hit = data[0] as { id: string; answer: string };
+  console.log("CACHE_HIT", JSON.stringify({ id: hit.id }));
 
   // Увеличиваем счётчик попаданий и обновляем updated_at — не блокируем
   // ОТВЕТ психологу ожиданием этого запроса, но и не "void fire-and-forget":

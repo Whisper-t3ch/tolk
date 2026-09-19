@@ -191,8 +191,10 @@ export async function POST(request: NextRequest) {
   // LLM-вызов, но психолог всё равно получает ответ, диалог сохраняется,
   // а лимит списывается как за обычный запрос — с точки зрения психолога
   // это не отличимо от обычного ответа, дешевле только для платформы.
+  console.log("CACHE_GATE", JSON.stringify({ isReferenceOnly, userMessage }));
   if (isReferenceOnly) {
     const cached = await findCachedReferenceAnswer(supabase, userMessage);
+    console.log("CACHE_LOOKUP_RESULT", JSON.stringify({ found: !!cached }));
     if (cached) {
       const assistantMessageId = randomUUID();
       const { agentSessionId } = await saveAgentSession(
