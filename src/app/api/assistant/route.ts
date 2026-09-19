@@ -17,7 +17,9 @@ import { buildApproachContextBlock } from "@/lib/approaches";
 import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
 import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
 import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
+import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
 import { randomUUID } from "crypto";
+import { waitUntil } from "@vercel/functions";
 
 // POST /api/assistant
 // Body: { message: string, client_id?: string, session_id?: string, agent_session_id?: string }
@@ -183,6 +185,43 @@ export async function POST(request: NextRequest) {
   const isReferenceOnly = isReferenceOnlyQuestion(userMessage);
   const availableTools = isReferenceOnly ? getReferenceOnlyTools() : AGENT_TOOLS;
 
+  // Семантический кэш — ТОЛЬКО для справочных вопросов о платформе (см.
+  // referenceAnswerCache.ts про экономику и почему для вопросов о данных
+  // клиента кэш недопустим в принципе). При попадании полностью пропускаем
+  // LLM-вызов, но психолог всё равно получает ответ, диалог сохраняется,
+  // а лимит списывается как за обычный запрос — с точки зрения психолога
+  // это не отличимо от обычного ответа, дешевле только для платформы.
+  if (isReferenceOnly) {
+    const cached = await findCachedReferenceAnswer(supabase, userMessage);
+    if (cached) {
+      const assistantMessageId = randomUUID();
+      const { agentSessionId } = await saveAgentSession(
+        supabase,
+        user.id,
+        body.agent_session_id,
+        userMessage,
+        cached.answer,
+        assistantMessageId
+      );
+      await consumeAssistantLimit(supabase, user.id, "normal");
+      await recordAssistantFeedback(supabase, {
+        psychologistId: user.id,
+        approach: psychologistProfile?.approach ?? null,
+        agentSessionId,
+        messageId: assistantMessageId,
+        question: userMessage,
+        answer: cached.answer,
+        promptVersionId,
+      });
+      return NextResponse.json({
+        message: cached.answer,
+        actions_taken: false,
+        agent_session_id: agentSessionId,
+        message_id: assistantMessageId,
+      });
+    }
+  }
+
   const messages: YandexGptAnyMessage[] = [
     { role: "system", text: systemPrompt },
     ...history,
@@ -274,9 +313,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
-  if (finalText === null) {
-    finalText = "Не удалось завершить обработку запроса за отведённое число шагов. Попробуйте переформулировать вопрос проще.";
-  }
+  const iterationsExhausted = finalText === null;
+  const responseText: string = iterationsExhausted
+    ? "Не удалось завершить обработку запроса за отведённое число шагов. Попробуйте переформулировать вопрос проще."
+    : (finalText as string);
 
   // Сохраняем диалог. assistantMessageId — стабильный id именно этого
   // ответа ассистента (сохраняется вместе с сообщением в jsonb), нужен
@@ -287,7 +327,7 @@ export async function POST(request: NextRequest) {
     user.id,
     body.agent_session_id,
     userMessage,
-    finalText,
+    responseText,
     assistantMessageId
   );
 
@@ -305,12 +345,34 @@ export async function POST(request: NextRequest) {
     agentSessionId,
     messageId: assistantMessageId,
     question: userMessage,
-    answer: finalText,
+    answer: responseText,
     promptVersionId,
   });
 
+  // Сохраняем в семантический кэш ТОЛЬКО справочные вопросы (см.
+  // referenceAnswerCache.ts) — не блокируем ОТВЕТ психологу ожиданием
+  // этого запроса, но и не используем голый "void fire-and-forget":
+  // на серверлес-рантайме Vercel платформа вправе заморозить/убить
+  // execution context сразу после того, как обработчик вернул ответ —
+  // любой незавершённый await (здесь их два подряд: сначала сетевой
+  // вызов YandexGPT Embeddings, потом Supabase insert) обрывается
+  // молча, ДО того как успевает сработать даже catch/console.error
+  // внутри saveReferenceAnswerToCache. Это и было настоящей причиной
+  // того, что кэш не сохранял вообще ничего (таблица оставалась
+  // пустой без единой строки в логах об ошибке) — a не найденная
+  // ранее асимметрия doc/query эмбеддингов (та тоже была реальной
+  // проблемой и исправлена отдельно, но не она была причиной пустой
+  // таблицы). waitUntil() из @vercel/functions — официальный способ
+  // явно продлить жизнь serverless-инстанса до завершения промиса,
+  // даже после того как ответ уже отправлен клиенту. Не кэшируем
+  // деградированный ответ "не удалось завершить обработку" — это
+  // ошибка выполнения, а не факт о платформе.
+  if (isReferenceOnly && !iterationsExhausted) {
+    waitUntil(saveReferenceAnswerToCache(supabase, userMessage, responseText));
+  }
+
   return NextResponse.json({
-    message: finalText,
+    message: responseText,
     actions_taken: usedTools,
     agent_session_id: agentSessionId,
     message_id: assistantMessageId,
