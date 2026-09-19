@@ -61,6 +61,16 @@ interface SoapContent {
 
 const EMPTY_SOAP: SoapContent = { s: "", o: "", a: "", p: "" };
 
+// Текст рядом со спиннером кнопки генерации — асинхронный режим (см.
+// комментарий в handleGenerate) занимает от десятков секунд до пары минут,
+// и голый спиннер без пояснения в этом случае выглядит как зависший баг,
+// а не как ожидаемое поведение.
+function generateButtonLabel(stage: "starting" | "waiting" | null): string {
+  if (stage === "starting") return "Запускаю генерацию…";
+  if (stage === "waiting") return "Генерирую… обычно 1-2 минуты";
+  return "Сгенерировать протокол";
+}
+
 interface ProtocolTemplate {
   id: string;
   title: string | null;
@@ -90,6 +100,11 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   const [downloadingTranscript, setDownloadingTranscript] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  // Генерация теперь асинхронная (см. api/.../soap/generate) — занимает от
+  // нескольких десятков секунд до пары минут вместо мгновенного ответа.
+  // generateStage отражает это психологу текстом рядом со спиннером, а не
+  // молчаливым ожиданием — иначе долгий спиннер выглядит зависшим багом.
+  const [generateStage, setGenerateStage] = useState<"starting" | "waiting" | null>(null);
   const [showSendSummary, setShowSendSummary] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [summaryChannel, setSummaryChannel] = useState<"telegram" | "vk" | "max">("telegram");
@@ -159,29 +174,67 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
     }
   }
 
+  // Генерация протокола — асинхронная (см. комментарий в api/.../soap/generate
+  // про экономику: async-режим YandexGPT примерно вдвое дешевле синхронного,
+  // психолог всё равно запускает генерацию уже после сессии, задержка в
+  // 2-4 минуты не мешает). Здесь: (1) запускаем job, (2) опрашиваем статус
+  // раз в 4 секунды, пока не готово, (3) подставляем результат так же, как
+  // раньше делал единственный синхронный fetch.
   async function handleGenerate() {
     setGenerating(true);
     setGenerateError(null);
+    setGenerateStage("starting");
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/soap/generate`, {
+      const startRes = await fetch(`/api/sessions/${sessionId}/soap/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ template_id: selectedTemplateId || undefined }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setGenerateError(data.error ?? "Не удалось сгенерировать протокол");
+      const startData = await startRes.json();
+      if (!startRes.ok) {
+        setGenerateError(startData.error ?? "Не удалось запустить генерацию протокола");
         return;
       }
-      setSoapNoteId(data.soapNote.id);
-      setContent({ s: data.soapNote.s, o: data.soapNote.o, a: data.soapNote.a, p: data.soapNote.p });
-      setProtocolExists(true);
-      setNotification("Протокол сгенерирован — проверьте и при необходимости отредактируйте перед сохранением");
-      setTimeout(() => setNotification(null), 4000);
+
+      const jobId = startData.jobId as string;
+      setGenerateStage("waiting");
+
+      const POLL_INTERVAL_MS = 4000;
+      const MAX_ATTEMPTS = 60; // до 4 минут — async обычно укладывается в 1-2 минуты
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+
+        const statusRes = await fetch(`/api/sessions/${sessionId}/soap/generate/status?job_id=${jobId}`);
+        const statusData = await statusRes.json();
+        if (!statusRes.ok) {
+          setGenerateError(statusData.error ?? "Не удалось проверить статус генерации");
+          return;
+        }
+
+        if (statusData.status === "error") {
+          setGenerateError(statusData.error ?? "Не удалось сгенерировать протокол");
+          return;
+        }
+
+        if (statusData.status === "done") {
+          const soapNote = statusData.soapNote;
+          setSoapNoteId(soapNote.id);
+          setContent({ s: soapNote.s, o: soapNote.o, a: soapNote.a, p: soapNote.p });
+          setProtocolExists(true);
+          setNotification("Протокол сгенерирован — проверьте и при необходимости отредактируйте перед сохранением");
+          setTimeout(() => setNotification(null), 4000);
+          return;
+        }
+        // status === "pending" — ждём следующей попытки.
+      }
+
+      setGenerateError("Генерация занимает необычно много времени — попробуйте обновить страницу через минуту, протокол мог уже сохраниться");
     } catch {
       setGenerateError("Не удалось связаться с сервером — проверьте соединение");
     } finally {
       setGenerating(false);
+      setGenerateStage(null);
     }
   }
 
@@ -439,7 +492,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               )}
               <Button variant="primary" onClick={handleGenerate} disabled={generating}>
                 {generating ? (
-                  <><Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} /> Генерирую…</>
+                  <><Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} /> {generateButtonLabel(generateStage)}</>
                 ) : (
                   <><Sparkles size={14} style={{ marginRight: 6 }} /> Сгенерировать протокол</>
                 )}
@@ -517,7 +570,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               {protocolExists && (
                 <Button onClick={handleGenerate} variant="secondary" disabled={generating}>
                   {generating ? (
-                    <><Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} /> Генерирую…</>
+                    <><Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} /> {generateButtonLabel(generateStage)}</>
                   ) : (
                     <><Sparkles size={14} style={{ marginRight: 6 }} /> Сгенерировать протокол</>
                   )}

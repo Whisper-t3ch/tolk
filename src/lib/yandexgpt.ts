@@ -18,6 +18,15 @@
 const YANDEX_COMPLETION_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
 const YANDEX_EMBEDDING_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/textEmbedding";
 
+// Асинхронный режим — отдельный эндпоинт (documented: aistudio.yandex.ru/docs/ru/ai-studio/operations/generation/async-request).
+// Дешевле синхронного примерно в 2 раза (см. pricing: sync 1.2₽/1000 вход+исход
+// для Pro, async 0.61₽/1000 вход+исход) ценой задержки от нескольких минут до
+// нескольких часов вместо мгновенного ответа. Подходит для несрочных задач —
+// SOAP-протокол генерируется уже ПОСЛЕ завершения сессии, психолог не ждёт
+// его в реальном времени.
+const YANDEX_COMPLETION_ASYNC_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completionAsync";
+const YANDEX_OPERATION_URL = "https://operation.api.cloud.yandex.net/operations";
+
 /** Каскад моделей — какую модель использовать для каждого класса задач. */
 export type YandexGptModel = "pro" | "lite";
 
@@ -223,6 +232,135 @@ export async function yandexGptCompleteJson<T>(
   } catch {
     throw new YandexGptError("Не удалось разобрать JSON-ответ YandexGPT", undefined, raw);
   }
+}
+
+/**
+ * Запускает completion в АСИНХРОННОМ режиме (см. YANDEX_COMPLETION_ASYNC_URL
+ * выше про экономику) и сразу возвращает id операции — не дожидаясь
+ * результата. Использовать вместе с yandexGptGetAsyncOperation, который
+ * опрашивает статус и возвращает готовый текст, когда генерация завершена.
+ *
+ * Не поддерживает function calling (агентский цикл требует мгновенного
+ * ответа на каждой итерации — async для него не подходит по конструкции).
+ * Подходит для одноразовых генераций без немедленной реакции пользователя:
+ * сейчас единственный кандидат — SOAP-протокол сессии.
+ */
+export async function yandexGptStartAsyncCompletion(
+  messages: YandexGptMessage[],
+  options: YandexGptCompletionOptions = {}
+): Promise<string> {
+  const apiKey = process.env.YANDEX_GPT_API_KEY;
+  const folderId = process.env.YANDEX_GPT_FOLDER_ID;
+  if (!apiKey || !folderId) {
+    throw new YandexGptError("YandexGPT не настроен — отсутствуют YANDEX_GPT_API_KEY/YANDEX_GPT_FOLDER_ID");
+  }
+
+  const modelName = resolveModelName(options.model ?? "pro");
+
+  const body = {
+    modelUri: `gpt://${folderId}/${modelName}`,
+    completionOptions: {
+      stream: false,
+      temperature: options.temperature ?? 0.3,
+      maxTokens: String(options.maxTokens ?? 2000),
+    },
+    messages,
+    ...(options.jsonObject ? { jsonObject: true } : {}),
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(YANDEX_COMPLETION_ASYNC_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Api-Key ${apiKey}`,
+        "x-folder-id": folderId,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new YandexGptError(
+      `Не удалось связаться с YandexGPT (async): ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+
+  if (!response.ok) {
+    let details: unknown;
+    try {
+      details = await response.json();
+    } catch {
+      details = await response.text().catch(() => undefined);
+    }
+    throw new YandexGptError(`YandexGPT (async) вернул ошибку ${response.status}`, response.status, details);
+  }
+
+  const data = await response.json();
+  const operationId: string | undefined = data?.id;
+  if (!operationId) {
+    throw new YandexGptError("YandexGPT (async) не вернул id операции", response.status, data);
+  }
+  return operationId;
+}
+
+/** Статус асинхронной операции — done=false означает "ещё генерируется", проверяйте позже. */
+export interface YandexGptAsyncOperationStatus {
+  done: boolean;
+  /** Заполнен только когда done=true и генерация завершилась успешно. */
+  text: string | null;
+  /** Заполнено, если операция завершилась ошибкой (done=true, но результата нет). */
+  error: string | null;
+}
+
+/**
+ * Проверяет статус операции, запущенной через yandexGptStartAsyncCompletion.
+ * Вызывающий код (обычно отдельный API route, опрашиваемый фронтендом с
+ * интервалом в несколько секунд) сам решает, как часто опрашивать — эта
+ * функция делает ровно один HTTP-запрос за вызов, без встроенного ожидания.
+ */
+export async function yandexGptGetAsyncOperation(operationId: string): Promise<YandexGptAsyncOperationStatus> {
+  const apiKey = process.env.YANDEX_GPT_API_KEY;
+  if (!apiKey) {
+    throw new YandexGptError("YandexGPT не настроен — отсутствует YANDEX_GPT_API_KEY");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${YANDEX_OPERATION_URL}/${operationId}`, {
+      method: "GET",
+      headers: { Authorization: `Api-Key ${apiKey}` },
+    });
+  } catch (e) {
+    throw new YandexGptError(
+      `Не удалось связаться с Yandex Cloud Operations: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+
+  if (!response.ok) {
+    let details: unknown;
+    try {
+      details = await response.json();
+    } catch {
+      details = await response.text().catch(() => undefined);
+    }
+    throw new YandexGptError(`Yandex Cloud Operations вернул ошибку ${response.status}`, response.status, details);
+  }
+
+  const data = await response.json();
+  if (!data?.done) {
+    return { done: false, text: null, error: null };
+  }
+
+  if (data.error) {
+    return { done: true, text: null, error: data.error?.message ?? "Операция завершилась ошибкой" };
+  }
+
+  const alternative = data?.response?.alternatives?.[0];
+  const text: string | undefined = alternative?.message?.text;
+  if (typeof text !== "string") {
+    return { done: true, text: null, error: "YandexGPT (async) вернул неожиданный формат ответа" };
+  }
+  return { done: true, text, error: null };
 }
 
 /** Тип текста для эмбеддинга — doc (материалы для индексации) или query (поисковый запрос). */
