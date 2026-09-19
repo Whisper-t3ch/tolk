@@ -18,6 +18,7 @@ import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
 import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
 import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
 import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
+import { guardResponseText } from "@/lib/agent/responseGuard";
 import { randomUUID } from "crypto";
 import { waitUntil } from "@vercel/functions";
 
@@ -314,9 +315,17 @@ export async function POST(request: NextRequest) {
   }
 
   const iterationsExhausted = finalText === null;
-  const responseText: string = iterationsExhausted
+  const rawResponseText: string = iterationsExhausted
     ? "Не удалось завершить обработку запроса за отведённое число шагов. Попробуйте переформулировать вопрос проще."
     : (finalText as string);
+
+  // Последний барьер перед тем, как психолог увидит ответ — см.
+  // lib/agent/responseGuard.ts про то, почему это НЕ дублирует правила
+  // системного промпта, а защищает от случаев, когда модель (любая, не
+  // только Pro 5.1) их не соблюла. Применяется здесь, ДО сохранения в
+  // agent_sessions/кэш и ДО ответа психологу — так небезопасный текст
+  // никогда никуда не попадает, а не только не показывается в UI.
+  const responseText = guardResponseText(rawResponseText);
 
   // Сохраняем диалог. assistantMessageId — стабильный id именно этого
   // ответа ассистента (сохраняется вместе с сообщением в jsonb), нужен
