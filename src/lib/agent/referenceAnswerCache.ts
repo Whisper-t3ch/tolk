@@ -99,6 +99,12 @@ export async function findCachedReferenceAnswer(
     Promise.resolve(
       supabase.rpc("increment_reference_answer_cache_hit", { cache_id: hit.id })
     )
+      .then((res) => {
+        console.log("CACHE_INCREMENT_RESULT", JSON.stringify({ error: (res as { error: unknown } | null)?.error ?? null }));
+      })
+      .catch((e) => {
+        console.error("CACHE_INCREMENT_THROWN", e instanceof Error ? e.message : String(e));
+      })
   );
 
   return { id: hit.id, answer: hit.answer };
