@@ -19,6 +19,7 @@ import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptE
 import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
 import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
 import { randomUUID } from "crypto";
+import { waitUntil } from "@vercel/functions";
 
 // POST /api/assistant
 // Body: { message: string, client_id?: string, session_id?: string, agent_session_id?: string }
@@ -349,14 +350,25 @@ export async function POST(request: NextRequest) {
   });
 
   // Сохраняем в семантический кэш ТОЛЬКО справочные вопросы (см.
-  // referenceAnswerCache.ts) — не блокируем ответ психологу ожиданием
-  // этого запроса (fire-and-forget), в отличие от recordAssistantFeedback
-  // выше: попадание в кэш — чистая оптимизация будущих запросов, а не
-  // часть контракта текущего ответа, и лишняя задержка здесь психологу
-  // ничего не даёт. Не кэшируем деградированный ответ "не удалось
-  // завершить обработку" — это ошибка выполнения, а не факт о платформе.
+  // referenceAnswerCache.ts) — не блокируем ОТВЕТ психологу ожиданием
+  // этого запроса, но и не используем голый "void fire-and-forget":
+  // на серверлес-рантайме Vercel платформа вправе заморозить/убить
+  // execution context сразу после того, как обработчик вернул ответ —
+  // любой незавершённый await (здесь их два подряд: сначала сетевой
+  // вызов YandexGPT Embeddings, потом Supabase insert) обрывается
+  // молча, ДО того как успевает сработать даже catch/console.error
+  // внутри saveReferenceAnswerToCache. Это и было настоящей причиной
+  // того, что кэш не сохранял вообще ничего (таблица оставалась
+  // пустой без единой строки в логах об ошибке) — a не найденная
+  // ранее асимметрия doc/query эмбеддингов (та тоже была реальной
+  // проблемой и исправлена отдельно, но не она была причиной пустой
+  // таблицы). waitUntil() из @vercel/functions — официальный способ
+  // явно продлить жизнь serverless-инстанса до завершения промиса,
+  // даже после того как ответ уже отправлен клиенту. Не кэшируем
+  // деградированный ответ "не удалось завершить обработку" — это
+  // ошибка выполнения, а не факт о платформе.
   if (isReferenceOnly && !iterationsExhausted) {
-    void saveReferenceAnswerToCache(supabase, userMessage, responseText);
+    waitUntil(saveReferenceAnswerToCache(supabase, userMessage, responseText));
   }
 
   return NextResponse.json({
