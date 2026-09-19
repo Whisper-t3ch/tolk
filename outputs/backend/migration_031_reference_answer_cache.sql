@@ -18,7 +18,11 @@
 --
 -- vector(256) — та же размерность, что и knowledge_base.embedding
 -- (migration_004_agent.sql), т.к. используется тот же embedding API
--- (text-search-doc/query, модель Яндекса).
+-- Яндекса. ВАЖНО (в отличие от knowledge_base): здесь сравниваются
+-- вопрос с вопросом (симметрично), поэтому question_embedding везде
+-- в этой таблице — эмбеддинг типа "query", а не пара doc/query, как
+-- в асимметричном RAG-поиске по базе знаний. См. комментарий в
+-- src/lib/agent/referenceAnswerCache.ts.
 --
 -- Применять через Supabase SQL Editor. Идемпотентно.
 -- ============================================================
