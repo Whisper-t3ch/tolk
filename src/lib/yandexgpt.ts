@@ -34,6 +34,17 @@ function resolveModelName(model: YandexGptModel): string {
   if (model === "lite") {
     return process.env.YANDEX_GPT_LITE_MODEL || "yandexgpt-lite/latest";
   }
+  // ПЛАН ПЕРЕХОДА НА Pro 5.1 (не завершён, см. YANDEX_GPT_PRO_MODEL ниже):
+  // официальная документация Yandex (aistudio.yandex.ru/ru/docs/ai-studio/
+  // concepts/generation/models, сверено 19.09) подтверждает, что алиас
+  // "yandexgpt/latest" (текущий дефолт) указывает на YandexGPT Pro 5, а
+  // Pro 5.1 доступна через явное имя "yandexgpt-5.1" (или алиас
+  // "yandexgpt/rc"). По прайсу Pro 5.1 стоит 0.8₽/1000 токенов вход/кэш/
+  // исход против 1.2₽/1000 у Pro 5 — ~33% дешевле на этой части
+  // стоимости запроса. Перед сменой дефолта здесь — сначала протестировать
+  // через YANDEX_GPT_PRO_MODEL=yandexgpt-5.1 на preview (без ошибок
+  // доступа/квоты) и прогнать regression на тех же вопросах, что и весь
+  // день. Дефолт остаётся на "yandexgpt/latest" до подтверждения.
   return process.env.YANDEX_GPT_PRO_MODEL || "yandexgpt/latest";
 }
 
