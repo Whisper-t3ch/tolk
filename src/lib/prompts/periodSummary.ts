@@ -70,6 +70,22 @@ export function formatPeriodSummaryAsText(result: PeriodSummaryResult): string {
   ].join("\n\n");
 }
 
+// Найдено 20.09 при тесте retry для responseGuard (см. ниже): модель
+// иногда не заполняет одно из пяти полей JSON (чаще всего dynamics) —
+// yandexGptCompleteJson не бросает ошибку в этом случае (JSON валиден,
+// просто ключ отсутствует или null), и formatPeriodSummaryAsText
+// подставляет буквальное "undefined" в текст, который видит психолог
+// ("Динамика состояния:\nundefined"). Это хуже, чем responseGuard-
+// fallback: выглядит как сломанный продукт, а не как честное сообщение
+// об ошибке. Проверяем все 5 полей на непустую строку — при провале
+// используем тот же retry-путь, что и для responseGuard, а не отдельный
+// механизм.
+function hasAllPeriodSummaryFields(result: PeriodSummaryResult): boolean {
+  return (["key_themes", "dynamics", "progress", "patterns", "open_questions"] as const).every(
+    key => typeof result[key] === "string" && result[key].trim().length > 0
+  );
+}
+
 export interface PeriodSummarySession {
   id: string;
   scheduled_at: string;
@@ -183,25 +199,25 @@ export async function buildPeriodSummary(
     },
   ];
 
-  // Один автоматический повтор, если responseGuard считает итоговый текст
-  // небезопасным (см. lib/agent/responseGuard.ts) — найдено 20.09 при
-  // тестировании "Уровень 1.1": один и тот же вопрос про Катю дал
-  // success=true за 1 llm_call с ПОЧТИ идентичным объёмом токенов дважды
-  // подряд, но с разным результатом — один раз responseGuard заблокировал
-  // текст (психолог увидел общий fallback "не удалось сформировать
-  // ответ"), другой раз прошёл нормально. Это нестабильность генерации
-  // (модель иногда пишет в одно из полей JSON что-то похожее на
-  // snake_case-паттерн — дату, техническую пометку — и GENERIC_TECHNICAL_
-  // PATTERN ложно срабатывает), не связанная с чанкингом RAG и не баг в
-  // коде. Ретрай почти не увеличивает стоимость (повторный вызов стоит
-  // примерно как исходный) и убирает риск, что психолог увидит
-  // бессодержательный fallback на ровном месте.
+  // Один автоматический повтор, если результат непригоден для показа
+  // психологу — по любой из двух независимых причин, найденных 20.09
+  // при тестировании "Уровень 1.1" на одном и том же вопросе про Катю:
+  // (1) responseGuard считает итоговый текст небезопасным (см.
+  // lib/agent/responseGuard.ts) — модель иногда пишет в одно из полей
+  // JSON что-то похожее на snake_case-паттерн (дату, техническую
+  // пометку), и GENERIC_TECHNICAL_PATTERN ложно срабатывает;
+  // (2) одно из пяти полей JSON пустое/отсутствует (см.
+  // hasAllPeriodSummaryFields выше) — без этой проверки
+  // formatPeriodSummaryAsText подставляет буквальное "undefined" в текст.
+  // Ни одна из причин не связана с чанкингом RAG и не баг в коде — это
+  // нестабильность генерации. Ретрай почти не увеличивает стоимость
+  // (повторный вызов стоит примерно как исходный).
   let result: PeriodSummaryResult;
   let summaryText: string;
   try {
     result = await yandexGptCompleteJson<PeriodSummaryResult>(periodSummaryMessages);
     summaryText = formatPeriodSummaryAsText(result);
-    if (!checkResponseSafety(summaryText).safe) {
+    if (!hasAllPeriodSummaryFields(result) || !checkResponseSafety(summaryText).safe) {
       result = await yandexGptCompleteJson<PeriodSummaryResult>(periodSummaryMessages);
       summaryText = formatPeriodSummaryAsText(result);
     }
