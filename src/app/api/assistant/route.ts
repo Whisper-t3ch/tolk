@@ -234,6 +234,27 @@ export async function POST(request: NextRequest) {
   let iterations = 0;
   let finalText: string | null = null;
 
+  // Защита от зацикливания (см. задачу "рычаг 3", 20.09): если модель
+  // запрашивает ТОТ ЖЕ инструмент с ТЕМИ ЖЕ аргументами повторно, это
+  // явный признак, что повтор не даст нового результата (например,
+  // find_available_slots с одинаковыми датами дважды) — вместо того
+  // чтобы тратить ещё один платный цикл tool-вызов + LLM-вызов на
+  // заведомо тот же ответ, останавливаемся сразу с честным сообщением.
+  // Ключ — имя инструмента + стабильно сериализованные аргументы.
+  const calledToolSignatures = new Set<string>();
+  function toolCallSignature(name: string, args: Record<string, unknown>): string {
+    const sortedKeys = Object.keys(args).sort();
+    const sortedArgs: Record<string, unknown> = {};
+    for (const key of sortedKeys) sortedArgs[key] = args[key];
+    return `${name}:${JSON.stringify(sortedArgs)}`;
+  }
+  // Считаем, сколько раз обнаружен повтор за весь запрос — один повтор
+  // может быть безобидным (модель сама поймёт из сообщения об ошибке и
+  // подберёт другие аргументы или ответит текстом), но если это
+  // происходит снова, дальнейшие попытки почти наверняка тоже не
+  // сдвинутся с места — обрываем сразу, не дожидаясь MAX_AGENT_ITERATIONS.
+  let repeatedLoopCount = 0;
+
   // Возвращает NextResponse, если цикл должен немедленно остановиться
   // (нужно подтверждение психолога); { shortCircuitText } если результат
   // инструмента уже самодостаточен как финальный ответ психологу (см.
@@ -242,8 +263,16 @@ export async function POST(request: NextRequest) {
   // ту же обработку toolCalls в двух местах цикла (см. ниже, где lite
   // неожиданно тоже запрашивает tool call).
   async function handleToolCalls(
-    toolCalls: NonNullable<Awaited<ReturnType<typeof yandexGptCompleteWithTools>>["toolCalls"]>
+    rawToolCalls: NonNullable<Awaited<ReturnType<typeof yandexGptCompleteWithTools>>["toolCalls"]>
   ): Promise<NextResponse | { shortCircuitText: string } | null> {
+    // Жёсткий потолок на число вызовов в ОДНОЙ пачке (одна LLM-итерация
+    // может в принципе запросить сразу несколько function calls) —
+    // отдельная защита от MAX_AGENT_ITERATIONS, которая ограничивает
+    // число итераций, но не число вызовов внутри одной. На практике
+    // модель почти всегда запрашивает по одному вызову за итерацию (см.
+    // логи YGPT_USAGE), это просто верхняя граница на аномальный случай.
+    const MAX_TOOL_CALLS_PER_BATCH = 3;
+    const toolCalls = rawToolCalls.slice(0, MAX_TOOL_CALLS_PER_BATCH);
     messages.push({ role: "assistant", toolCallList: { toolCalls } });
 
     // Если хотя бы один из запрошенных вызовов требует подтверждения —
@@ -268,7 +297,29 @@ export async function POST(request: NextRequest) {
     usedTools = true;
     const toolResults: Array<{ functionResult: { name: string; content: string } }> = [];
     let periodSummaryShortCircuitText: string | null = null;
+    let loopDetected = false;
     for (const call of toolCalls) {
+      const signature = toolCallSignature(call.functionCall.name, call.functionCall.arguments);
+      if (calledToolSignatures.has(signature)) {
+        // Тот же вызов уже выполнялся в этом запросе — не выполняем его
+        // снова (и не тратим на это ни backend, ни следующий LLM-вызов).
+        // Сообщаем модели явно, что это повтор, а не молчим — так она с
+        // высокой вероятностью остановится сама и даст текстовый ответ
+        // на следующей (последней разрешённой) итерации, вместо того
+        // чтобы получить обычный успешный результат и попробовать снова.
+        toolResults.push({
+          functionResult: {
+            name: call.functionCall.name,
+            content: JSON.stringify({
+              error: "Этот вызов с такими же параметрами уже был выполнен в этом запросе — повторный вызов не даст нового результата. Ответь психологу тем, что уже известно, или уточни у него детали, если данных недостаточно.",
+            }),
+          },
+        });
+        loopDetected = true;
+        continue;
+      }
+      calledToolSignatures.add(signature);
+
       try {
         const output = await executeAgentTool(
           { supabase, psychologistId: userId, timeZone },
@@ -309,6 +360,21 @@ export async function POST(request: NextRequest) {
 
     if (periodSummaryShortCircuitText !== null) {
       return { shortCircuitText: periodSummaryShortCircuitText };
+    }
+
+    if (loopDetected) {
+      repeatedLoopCount += 1;
+      if (repeatedLoopCount >= 2) {
+        // Второе обнаруженное зацикливание за один запрос — дальнейшие
+        // попытки почти наверняка тоже не сдвинутся с места. Обрываем
+        // сразу честным сообщением, не дожидаясь исчерпания
+        // MAX_AGENT_ITERATIONS (это сэкономит оставшиеся, заведомо
+        // бесполезные, платные итерации).
+        return {
+          shortCircuitText:
+            "Не удалось обработать этот запрос — потребовалось несколько попыток с одинаковым результатом. Попробуйте переформулировать вопрос или уточнить детали.",
+        };
+      }
     }
 
     messages.push({ role: "user", toolResultList: { toolResults } });
