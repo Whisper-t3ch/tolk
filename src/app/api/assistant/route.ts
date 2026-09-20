@@ -19,6 +19,7 @@ import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptE
 import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
 import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
 import { guardResponseText } from "@/lib/agent/responseGuard";
+import { parsePseudoToolCall } from "@/lib/agent/pseudoToolCallParser";
 import { randomUUID } from "crypto";
 import { waitUntil } from "@vercel/functions";
 
@@ -301,6 +302,26 @@ export async function POST(request: NextRequest) {
       });
 
       if (result.text !== null) {
+        // Некоторые модели (подтверждено на Pro 5.1, см.
+        // lib/agent/pseudoToolCallParser.ts) иногда вместо заполнения
+        // structured toolCallList.toolCalls пишут текстовое подобие
+        // вызова инструмента прямо в текст ответа. Раньше это уходило
+        // психологу как сломанный "финальный" ответ (перехватывался
+        // только responseGuard'ом — который ПРЯЧЕТ проблему fallback-
+        // текстом, а не решает её). Теперь сначала пробуем распознать
+        // и обработать это как настоящий tool call — психолог в
+        // успешном случае вообще не видит разницы. Если распознавание
+        // не сработало, работаем с текстом как раньше (см. ниже,
+        // включая responseGuard как последний барьер).
+        const pseudoCall = parsePseudoToolCall(result.text);
+        if (pseudoCall) {
+          const stopResponse = await handleToolCalls([
+            { functionCall: { name: pseudoCall.name, arguments: pseudoCall.arguments } },
+          ]);
+          if (stopResponse) return stopResponse;
+          continue;
+        }
+
         finalText = result.text;
         break;
       }
