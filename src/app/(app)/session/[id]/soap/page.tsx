@@ -1,5 +1,5 @@
 "use client";
-import { use, useState, useEffect, useCallback, useMemo } from "react";
+import { use, useState, useEffect, useCallback, useMemo, type ChangeEvent } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Download, Copy, FileOutput, CheckCircle, Sparkles, Send, X, Loader2, AlertTriangle } from "lucide-react";
@@ -98,6 +98,10 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   const [copied, setCopied] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [downloadingTranscript, setDownloadingTranscript] = useState(false);
+  const [showUploadTranscript, setShowUploadTranscript] = useState(false);
+  const [uploadTranscriptText, setUploadTranscriptText] = useState("");
+  const [uploadingTranscript, setUploadingTranscript] = useState(false);
+  const [uploadTranscriptError, setUploadTranscriptError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   // Генерация теперь асинхронная (см. api/.../soap/generate) — занимает от
@@ -264,6 +268,60 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
     } finally {
       setDownloadingTranscript(false);
     }
+  }
+
+  // Ручная загрузка транскрипта — для сессий, проведённых не через
+  // видеозвонок платформы (очная встреча, звонок в другом сервисе), или
+  // когда автоматическая расшифровка не удалась. Текст проходит тот же
+  // путь, что и запись от GigaAM (анонимизация + embedding для RAG),
+  // см. api/sessions/[id]/transcript/route.ts.
+  async function handleUploadTranscript() {
+    const text = uploadTranscriptText.trim();
+    if (!text) {
+      setUploadTranscriptError("Вставьте текст транскрипта");
+      return;
+    }
+    setUploadingTranscript(true);
+    setUploadTranscriptError(null);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/transcript`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setUploadTranscriptError(data.error ?? "Не удалось загрузить транскрипт");
+        return;
+      }
+      setShowUploadTranscript(false);
+      setUploadTranscriptText("");
+      setNotification(
+        data.embeddingSaved
+          ? "Транскрипт загружен — теперь его можно использовать в ассистенте и для генерации протокола"
+          : "Транскрипт загружен, но не удалось построить индекс для поиска — попробуйте позже"
+      );
+      setTimeout(() => setNotification(null), 4000);
+      // recording_status на странице обновится при следующей загрузке —
+      // не критично для этого действия, поэтому просто перезагружаем soap.
+      loadSoap();
+    } catch {
+      setUploadTranscriptError("Не удалось связаться с сервером — проверьте соединение");
+    } finally {
+      setUploadingTranscript(false);
+    }
+  }
+
+  async function handleTranscriptFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.name.toLowerCase().endsWith(".docx")) {
+      setUploadTranscriptError("Файлы .docx пока не поддерживаются — откройте файл и вставьте текст вручную, либо сохраните его как .txt");
+      return;
+    }
+    const text = await file.text();
+    setUploadTranscriptText(text);
+    setUploadTranscriptError(null);
   }
 
   // Короткий дружелюбный текст для клиента из S+P — не клинический язык,
@@ -588,6 +646,9 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 <Download size={14} style={{ marginRight: 6 }} />
                 {downloadingTranscript ? "Скачиваю..." : "Скачать транскрипт"}
               </Button>
+              <Button onClick={() => setShowUploadTranscript(true)} variant="secondary">
+                <FileOutput size={14} style={{ marginRight: 6 }} /> Загрузить транскрипт
+              </Button>
               <Button onClick={openSendSummary} variant="secondary">
                 <Send size={14} style={{ marginRight: 6 }} /> Отправить резюме клиенту
               </Button>
@@ -618,6 +679,80 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         >
           {notification}
         </motion.div>
+      )}
+
+      {/* Модалка ручной загрузки транскрипта — вставить текст или выбрать
+          .txt-файл. Для сессий, проведённых не через видеозвонок
+          платформы, или когда автоматическая расшифровка не удалась. */}
+      {showUploadTranscript && (
+        <>
+          <div
+            onClick={() => !uploadingTranscript && setShowUploadTranscript(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 70 }}
+          />
+          <div style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 75,
+          }}>
+            <div style={{
+              background: "#fff", borderRadius: 16, padding: 24, width: "min(560px, 92vw)",
+              maxHeight: "85vh", display: "flex", flexDirection: "column", gap: 12,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Загрузить транскрипт вручную</h3>
+                <button
+                  onClick={() => !uploadingTranscript && setShowUploadTranscript(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#8C7355" }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <p style={{ margin: 0, fontSize: 12.5, color: "#8C7355" }}>
+                Подходит, если сессия прошла не через видеозвонок платформы, или автоматическая
+                расшифровка не удалась. Текст сохранится в историю клиента так же, как обычный
+                транскрипт — им сможет пользоваться ассистент и генерация протокола.
+              </p>
+              <label style={{ fontSize: 12.5, fontWeight: 600, color: "#4A3F35" }}>
+                Загрузить .txt-файл
+                <input
+                  type="file"
+                  accept=".txt,text/plain"
+                  onChange={handleTranscriptFileChange}
+                  style={{ display: "block", marginTop: 6, fontSize: 12.5 }}
+                />
+              </label>
+              <p style={{ margin: "0", fontSize: 11.5, color: "#B0A597", textAlign: "center" }}>— или вставьте текст ниже —</p>
+              <textarea
+                value={uploadTranscriptText}
+                onChange={e => { setUploadTranscriptText(e.target.value); setUploadTranscriptError(null); }}
+                placeholder="Вставьте текст транскрипта сессии…"
+                rows={10}
+                style={{
+                  width: "100%", resize: "vertical", padding: 10, borderRadius: 8,
+                  border: "1px solid #E5DFD5", fontSize: 13, fontFamily: "inherit",
+                }}
+              />
+              {uploadTranscriptText && (
+                <p style={{ margin: 0, fontSize: 11.5, color: "#B0A597" }}>
+                  {uploadTranscriptText.length.toLocaleString("ru-RU")} символов
+                </p>
+              )}
+              {uploadTranscriptError && (
+                <p style={{ margin: 0, fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px" }}>
+                  {uploadTranscriptError}
+                </p>
+              )}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <Button variant="secondary" onClick={() => setShowUploadTranscript(false)} disabled={uploadingTranscript}>
+                  Отмена
+                </Button>
+                <Button onClick={handleUploadTranscript} disabled={uploadingTranscript || !uploadTranscriptText.trim()}>
+                  {uploadingTranscript ? "Загружаю…" : "Сохранить транскрипт"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Модалка отправки резюме клиенту */}
