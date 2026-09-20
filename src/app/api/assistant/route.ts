@@ -17,7 +17,6 @@ import { buildApproachContextBlock } from "@/lib/approaches";
 import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
 import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
 import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
-import { selectToolsForMessage } from "@/lib/agent/toolRouting";
 import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
 import { guardResponseText } from "@/lib/agent/responseGuard";
 import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pseudoToolCallParser";
@@ -187,20 +186,23 @@ export async function POST(request: NextRequest) {
   // тот же ответ, просто модель тратит меньше на описание инструментов,
   // которые ей всё равно не понадобятся для этого вопроса.
   const isReferenceOnly = isReferenceOnlyQuestion(userMessage);
-  // Domain routing (см. lib/agent/toolRouting.ts) — второй заход на эту
-  // идею, теперь с явным критерием отката: если тест покажет хоть один
-  // случай, где нужный инструмент не попал в урезанный набор, весь
-  // механизм отключается. selectToolsForMessage возвращает null, когда
-  // не уверен в домене — тогда используется полный AGENT_TOOLS, риска
-  // нет по построению.
-  const routedTools = isReferenceOnly ? null : selectToolsForMessage(userMessage);
-  const availableTools = isReferenceOnly ? getReferenceOnlyTools() : (routedTools ?? AGENT_TOOLS);
-  if (!isReferenceOnly) {
-    console.log(
-      "TOOL_ROUTING",
-      JSON.stringify({ routed: routedTools !== null, toolCount: availableTools.length })
-    );
-  }
+  // Domain routing (lib/agent/toolRouting.ts) — ОТКАЧЕНО 20.09, второй
+  // заход подряд. Живой тест на составном вопросе "как менялась злость
+  // у Кати и отправь ей домашнее задание по итогам" определил только
+  // домен communication (ключевое слово "отправь"), потому что "злость"
+  // не входит в keyword-список домена history (там только "тревог",
+  // "динамик" и подобные общие термины) — search_client_history не
+  // попал в урезанный набор из 4 инструментов, и модель не смогла
+  // выполнить первую половину запроса, ответив "минуту..." без единого
+  // вызова инструмента (actions_taken: false). Это ровно критерий
+  // отката, согласованный заранее: любой случай, где routing не даёт
+  // модели нужный инструмент — механизм отключается целиком, а не
+  // чинится точечным добавлением ключевых слов (список эмоций,
+  // симптомов и клинических тем, которые психолог может упомянуть,
+  // принципиально неисчерпаем — сегодня не хватило "злости", завтра не
+  // хватит другого слова). toolRouting.ts оставлен в репозитории для
+  // истории/справки, но не используется.
+  const availableTools = isReferenceOnly ? getReferenceOnlyTools() : AGENT_TOOLS;
 
   // Идентификатор ВСЕГО запроса психолога (не одной LLM-итерации) — см.
   // lib/agent/usageLog.ts. Общий и для кэш-хита, и для полного
