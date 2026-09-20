@@ -20,6 +20,7 @@ import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/model
 import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
 import { guardResponseText } from "@/lib/agent/responseGuard";
 import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pseudoToolCallParser";
+import { logLlmUsage } from "@/lib/agent/usageLog";
 import { randomUUID } from "crypto";
 import { waitUntil } from "@vercel/functions";
 
@@ -187,6 +188,12 @@ export async function POST(request: NextRequest) {
   const isReferenceOnly = isReferenceOnlyQuestion(userMessage);
   const availableTools = isReferenceOnly ? getReferenceOnlyTools() : AGENT_TOOLS;
 
+  // Идентификатор ВСЕГО запроса психолога (не одной LLM-итерации) — см.
+  // lib/agent/usageLog.ts. Общий и для кэш-хита, и для полного
+  // агентского цикла, чтобы llm_usage_log можно было анализировать по
+  // request_id независимо от того, каким путём был обработан вопрос.
+  const requestId = randomUUID();
+
   // Семантический кэш — ТОЛЬКО для справочных вопросов о платформе (см.
   // referenceAnswerCache.ts про экономику и почему для вопросов о данных
   // клиента кэш недопустим в принципе). При попадании полностью пропускаем
@@ -215,6 +222,22 @@ export async function POST(request: NextRequest) {
         answer: cached.answer,
         promptVersionId,
       });
+      // Кэш-хит — 0 LLM-вызовов, cost_rub=0 по построению (не через
+      // estimateCostRub, там нет model для этого случая).
+      waitUntil(
+        logLlmUsage(supabase, {
+          requestId,
+          psychologistId: user.id,
+          route: "reference",
+          model: "cache_hit",
+          usage: null,
+          llmCallsCount: 0,
+          toolCallsCount: 0,
+          retriesCount: 0,
+          cacheStatus: "hit",
+          workflowSuccess: true,
+        })
+      );
       return NextResponse.json({
         message: cached.answer,
         actions_taken: false,
@@ -233,6 +256,16 @@ export async function POST(request: NextRequest) {
   let usedTools = false;
   let iterations = 0;
   let finalText: string | null = null;
+
+  // Накопление данных для llm_usage_log (задача "рычаг 4", 20.09) —
+  // суммируется по ВСЕМ LLM-итерациям этого запроса, пишется одной
+  // строкой после выхода из цикла (см. logLlmUsage ниже).
+  let llmCallsCount = 0;
+  let toolCallsCount = 0;
+  let lastModel = selectedModel === "lite" ? "yandexgpt-lite/latest" : "yandexgpt/latest";
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokensSum = 0;
 
   // Защита от зацикливания (см. задачу "рычаг 3", 20.09): если модель
   // запрашивает ТОТ ЖЕ инструмент с ТЕМИ ЖЕ аргументами повторно, это
@@ -284,6 +317,28 @@ export async function POST(request: NextRequest) {
       // Действие ещё не выполнено (ждём подтверждения) — списываем
       // минимальную стоимость "агентская задача была начата".
       await consumeAssistantLimit(supabase, userId, "agentTask");
+      waitUntil(
+        logLlmUsage(supabase, {
+          requestId,
+          psychologistId: userId,
+          route: "agentic",
+          model: lastModel,
+          usage: {
+            inputTextTokens: totalInputTokens,
+            completionTokens: totalOutputTokens,
+            totalTokens: totalTokensSum,
+          },
+          llmCallsCount,
+          toolCallsCount,
+          retriesCount: repeatedLoopCount,
+          cacheStatus: "not_applicable",
+          // confirmation_required — психолог получил осмысленную
+          // реакцию (карточку подтверждения), это успешный workflow, а
+          // не сбой, даже несмотря на то, что финальное действие ещё
+          // не выполнено.
+          workflowSuccess: true,
+        })
+      );
       return NextResponse.json({
         type: "confirmation_required",
         action: {
@@ -319,6 +374,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
       calledToolSignatures.add(signature);
+      toolCallsCount += 1;
 
       try {
         const output = await executeAgentTool(
@@ -398,6 +454,14 @@ export async function POST(request: NextRequest) {
         temperature: 0.2,
       });
 
+      llmCallsCount += 1;
+      lastModel = result.model;
+      if (result.usage) {
+        totalInputTokens += result.usage.inputTextTokens;
+        totalOutputTokens += result.usage.completionTokens;
+        totalTokensSum += result.usage.totalTokens;
+      }
+
       if (result.text !== null) {
         // Некоторые модели (подтверждено на Pro 5.1, см.
         // lib/agent/pseudoToolCallParser.ts) иногда вместо заполнения
@@ -453,6 +517,24 @@ export async function POST(request: NextRequest) {
     }
   } catch (e) {
     const message = e instanceof YandexGptError ? e.message : "Не удалось получить ответ ассистента";
+    waitUntil(
+      logLlmUsage(supabase, {
+        requestId,
+        psychologistId: user.id,
+        route: isReferenceOnly ? "reference" : "agentic",
+        model: lastModel,
+        usage: {
+          inputTextTokens: totalInputTokens,
+          completionTokens: totalOutputTokens,
+          totalTokens: totalTokensSum,
+        },
+        llmCallsCount,
+        toolCallsCount,
+        retriesCount: repeatedLoopCount,
+        cacheStatus: isReferenceOnly ? "miss" : "not_applicable",
+        workflowSuccess: false,
+      })
+    );
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
@@ -521,6 +603,31 @@ export async function POST(request: NextRequest) {
   if (isReferenceOnly && !iterationsExhausted) {
     waitUntil(saveReferenceAnswerToCache(supabase, userMessage, responseText));
   }
+
+  // Полная телеметрия стоимости (задача "рычаг 4", 20.09) — см.
+  // lib/agent/usageLog.ts. workflowSuccess=false только при исчерпании
+  // итераций (психолог не получил полезного результата, хотя ответ и
+  // не был технической ошибкой 502) — confirmation_required считается
+  // success раньше, в handleToolCalls, отдельной записи не делает
+  // (тот путь возвращает NextResponse до этой точки).
+  waitUntil(
+    logLlmUsage(supabase, {
+      requestId,
+      psychologistId: user.id,
+      route: isReferenceOnly ? "reference" : "agentic",
+      model: lastModel,
+      usage: {
+        inputTextTokens: totalInputTokens,
+        completionTokens: totalOutputTokens,
+        totalTokens: totalTokensSum,
+      },
+      llmCallsCount,
+      toolCallsCount,
+      retriesCount: repeatedLoopCount,
+      cacheStatus: isReferenceOnly ? "miss" : "not_applicable",
+      workflowSuccess: !iterationsExhausted,
+    })
+  );
 
   return NextResponse.json({
     message: responseText,

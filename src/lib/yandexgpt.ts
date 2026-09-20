@@ -117,12 +117,23 @@ export interface YandexGptCompletionOptions {
   tools?: YandexGptTool[];
 }
 
+/** Usage-данные из ответа API — точные токены вместо оценки по размеру текста. */
+export interface YandexGptUsage {
+  inputTextTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 /** Результат completion-запроса с поддержкой function calling. */
 export interface YandexGptCompletionResult {
   /** Текст ответа — заполнен, если модель не запросила вызов функции. */
   text: string | null;
   /** Запрошенные вызовы функций — заполнено, если status = ALTERNATIVE_STATUS_TOOL_CALLS. */
   toolCalls: YandexGptToolCall[] | null;
+  /** Точное имя модели, реально использованной для этого вызова (после resolveModelName). */
+  model: string;
+  /** Usage из ответа API, если он его вернул (см. llm_usage_log, задача "рычаг 4"). */
+  usage: YandexGptUsage | null;
 }
 
 export class YandexGptError extends Error {
@@ -191,25 +202,33 @@ export async function yandexGptCompleteWithTools(
   const data = await response.json();
   // API оборачивает ответ в { result: {...} } на практике, хотя в схеме документации
   // это не показано явно — поддерживаем оба варианта на случай расхождений.
-  const usage = data?.result?.usage ?? data?.usage;
+  const rawUsage = data?.result?.usage ?? data?.usage;
+  const usage: YandexGptUsage | null = rawUsage
+    ? {
+        inputTextTokens: Number(rawUsage.inputTextTokens ?? 0),
+        completionTokens: Number(rawUsage.completionTokens ?? 0),
+        totalTokens: Number(rawUsage.totalTokens ?? 0),
+      }
+    : null;
   if (usage) {
-    // ВРЕМЕННО (сбор данных для решения о Pro 5.1, см. задачу #26/#35):
-    // точные токены из API вместо оценки по размеру текста — грепается
-    // в Vercel Logs по маркеру YGPT_USAGE. Формат usage подтверждён
+    // Точные токены из API вместо оценки по размеру текста — грепается
+    // в Vercel Logs по маркеру YGPT_USAGE (независимо от того, пишется
+    // ли то же самое в llm_usage_log — лог остаётся дешёвым способом
+    // посмотреть usage без похода в БД). Формат usage подтверждён
     // документацией Yandex: inputTextTokens/completionTokens/totalTokens.
-    console.log("YGPT_USAGE", JSON.stringify({ model: modelName, ...usage }));
+    console.log("YGPT_USAGE", JSON.stringify({ model: modelName, ...rawUsage }));
   }
   const alternative = data?.result?.alternatives?.[0] ?? data?.alternatives?.[0];
   const toolCalls: YandexGptToolCall[] | undefined = alternative?.message?.toolCallList?.toolCalls;
   if (toolCalls && toolCalls.length > 0) {
-    return { text: null, toolCalls };
+    return { text: null, toolCalls, model: modelName, usage };
   }
 
   const text: string | undefined = alternative?.message?.text;
   if (typeof text !== "string") {
     throw new YandexGptError("YandexGPT вернул неожиданный формат ответа", response.status, data);
   }
-  return { text, toolCalls: null };
+  return { text, toolCalls: null, model: modelName, usage };
 }
 
 /**
