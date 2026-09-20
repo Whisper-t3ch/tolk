@@ -235,11 +235,15 @@ export async function POST(request: NextRequest) {
   let finalText: string | null = null;
 
   // Возвращает NextResponse, если цикл должен немедленно остановиться
-  // (нужно подтверждение психолога), иначе null и продолжает messages
-  // для следующей итерации. Вынесено в функцию, чтобы не дублировать
-  // одну и ту же обработку toolCalls в двух местах цикла (см. ниже,
-  // где lite неожиданно тоже запрашивает tool call).
-  async function handleToolCalls(toolCalls: NonNullable<Awaited<ReturnType<typeof yandexGptCompleteWithTools>>["toolCalls"]>) {
+  // (нужно подтверждение психолога); { shortCircuitText } если результат
+  // инструмента уже самодостаточен как финальный ответ психологу (см.
+  // ниже про get_period_summary); иначе null и продолжает messages для
+  // следующей итерации. Вынесено в функцию, чтобы не дублировать одну и
+  // ту же обработку toolCalls в двух местах цикла (см. ниже, где lite
+  // неожиданно тоже запрашивает tool call).
+  async function handleToolCalls(
+    toolCalls: NonNullable<Awaited<ReturnType<typeof yandexGptCompleteWithTools>>["toolCalls"]>
+  ): Promise<NextResponse | { shortCircuitText: string } | null> {
     messages.push({ role: "assistant", toolCallList: { toolCalls } });
 
     // Если хотя бы один из запрошенных вызовов требует подтверждения —
@@ -263,6 +267,7 @@ export async function POST(request: NextRequest) {
 
     usedTools = true;
     const toolResults: Array<{ functionResult: { name: string; content: string } }> = [];
+    let periodSummaryShortCircuitText: string | null = null;
     for (const call of toolCalls) {
       try {
         const output = await executeAgentTool(
@@ -273,6 +278,27 @@ export async function POST(request: NextRequest) {
         toolResults.push({
           functionResult: { name: call.functionCall.name, content: JSON.stringify(output) },
         });
+        // Экономия лишней LLM-итерации (см. задачу "рычаг 1", 20.09):
+        // get_period_summary уже возвращает полностью готовый,
+        // структурированный текст (summaryText из buildPeriodSummary) —
+        // без дальнейшей интерпретации моделью, промпт среза не
+        // подмешивает персонализацию под подход психолога, так что
+        // следующая LLM-итерация с полной схемой из 18 инструментов
+        // тратилась бы только на то, чтобы пересказать тот же текст
+        // другими словами. Срабатывает, только если это ЕДИНСТВЕННЫЙ
+        // вызов в пачке — если модель запросила ещё что-то в этой же
+        // пачке, ей может быть нужно скомбинировать результаты, тогда
+        // идём обычным путём через ещё одну итерацию.
+        if (
+          call.functionCall.name === "get_period_summary" &&
+          toolCalls.length === 1 &&
+          output &&
+          typeof output === "object" &&
+          "summary" in output &&
+          typeof (output as { summary: unknown }).summary === "string"
+        ) {
+          periodSummaryShortCircuitText = (output as { summary: string }).summary;
+        }
       } catch (e) {
         const message = e instanceof AgentToolError ? e.message : "Ошибка выполнения инструмента";
         toolResults.push({
@@ -280,6 +306,11 @@ export async function POST(request: NextRequest) {
         });
       }
     }
+
+    if (periodSummaryShortCircuitText !== null) {
+      return { shortCircuitText: periodSummaryShortCircuitText };
+    }
+
     messages.push({ role: "user", toolResultList: { toolResults } });
     return null;
   }
@@ -326,7 +357,11 @@ export async function POST(request: NextRequest) {
           const stopResponse = await handleToolCalls([
             { functionCall: { name: pseudoCall.name, arguments: pseudoCall.arguments } },
           ]);
-          if (stopResponse) return stopResponse;
+          if (stopResponse instanceof NextResponse) return stopResponse;
+          if (stopResponse) {
+            finalText = stopResponse.shortCircuitText;
+            break;
+          }
           continue;
         }
 
@@ -344,7 +379,11 @@ export async function POST(request: NextRequest) {
 
       // Модель запросила вызов функций.
       const stopResponse = await handleToolCalls(result.toolCalls ?? []);
-      if (stopResponse) return stopResponse;
+      if (stopResponse instanceof NextResponse) return stopResponse;
+      if (stopResponse) {
+        finalText = stopResponse.shortCircuitText;
+        break;
+      }
     }
   } catch (e) {
     const message = e instanceof YandexGptError ? e.message : "Не удалось получить ответ ассистента";
