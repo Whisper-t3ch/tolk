@@ -31,6 +31,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { yandexGptCompleteJson, YandexGptError } from "@/lib/yandexgpt";
+import { checkResponseSafety } from "@/lib/agent/responseGuard";
 
 export const PERIOD_SUMMARY_SYSTEM_PROMPT = `Ты клинический ассистент психолога.
 На основе транскриптов нескольких сессий с одним клиентом составь обобщённое резюме на русском языке.
@@ -169,26 +170,47 @@ export async function buildPeriodSummary(
   const dateStart = new Date(sortedSessions[0].scheduled_at).toISOString().slice(0, 10);
   const dateEnd = new Date(sortedSessions[sortedSessions.length - 1].scheduled_at).toISOString().slice(0, 10);
 
+  const periodSummaryMessages = [
+    { role: "system" as const, text: PERIOD_SUMMARY_SYSTEM_PROMPT },
+    {
+      role: "user" as const,
+      text: buildPeriodSummaryUserMessage({
+        sessionsCount: sections.length,
+        dateStart,
+        dateEnd,
+        transcripts: sections.join("\n\n"),
+      }),
+    },
+  ];
+
+  // Один автоматический повтор, если responseGuard считает итоговый текст
+  // небезопасным (см. lib/agent/responseGuard.ts) — найдено 20.09 при
+  // тестировании "Уровень 1.1": один и тот же вопрос про Катю дал
+  // success=true за 1 llm_call с ПОЧТИ идентичным объёмом токенов дважды
+  // подряд, но с разным результатом — один раз responseGuard заблокировал
+  // текст (психолог увидел общий fallback "не удалось сформировать
+  // ответ"), другой раз прошёл нормально. Это нестабильность генерации
+  // (модель иногда пишет в одно из полей JSON что-то похожее на
+  // snake_case-паттерн — дату, техническую пометку — и GENERIC_TECHNICAL_
+  // PATTERN ложно срабатывает), не связанная с чанкингом RAG и не баг в
+  // коде. Ретрай почти не увеличивает стоимость (повторный вызов стоит
+  // примерно как исходный) и убирает риск, что психолог увидит
+  // бессодержательный fallback на ровном месте.
   let result: PeriodSummaryResult;
+  let summaryText: string;
   try {
-    result = await yandexGptCompleteJson<PeriodSummaryResult>([
-      { role: "system", text: PERIOD_SUMMARY_SYSTEM_PROMPT },
-      {
-        role: "user",
-        text: buildPeriodSummaryUserMessage({
-          sessionsCount: sections.length,
-          dateStart,
-          dateEnd,
-          transcripts: sections.join("\n\n"),
-        }),
-      },
-    ]);
+    result = await yandexGptCompleteJson<PeriodSummaryResult>(periodSummaryMessages);
+    summaryText = formatPeriodSummaryAsText(result);
+    if (!checkResponseSafety(summaryText).safe) {
+      result = await yandexGptCompleteJson<PeriodSummaryResult>(periodSummaryMessages);
+      summaryText = formatPeriodSummaryAsText(result);
+    }
   } catch (e) {
     throw new PeriodSummaryError(e instanceof YandexGptError ? e.message : "Не удалось сгенерировать срез");
   }
 
   return {
-    summaryText: formatPeriodSummaryAsText(result),
+    summaryText,
     structured: result,
     sectionsCount: sections.length,
     dateStart,
