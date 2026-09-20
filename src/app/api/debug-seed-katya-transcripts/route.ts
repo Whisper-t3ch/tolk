@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { anonymizeTranscript } from "@/lib/anonymize";
-import { yandexGptEmbed } from "@/lib/yandexgpt";
+import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 import { readFileSync } from "fs";
 import path from "path";
 
@@ -49,7 +49,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Нужно ровно 10 sessionIds, в хронологическом порядке" }, { status: 400 });
   }
 
-  const results: Array<{ index: number; sessionId: string; ok: boolean; error?: string; chars?: number; embeddingSaved?: boolean }> = [];
+  const results: Array<{
+    index: number;
+    sessionId: string;
+    ok: boolean;
+    error?: string;
+    chars?: number;
+    chunksTotal?: number;
+    chunksEmbedded?: number;
+  }> = [];
 
   for (let i = 0; i < 10; i++) {
     const sessionId = sessionIds[i];
@@ -74,31 +82,25 @@ export async function POST(request: NextRequest) {
 
       const anonymizedText = await anonymizeTranscript(text, clientName);
 
-      let embedding: number[] | null = null;
-      try {
-        embedding = await yandexGptEmbed(anonymizedText, "doc");
-      } catch (e) {
-        embedding = null;
-        console.error("seed-katya: embedding failed for", fileName, e instanceof Error ? e.message : e);
-      }
-
       const { error: insertError } = await supabase.from("session_transcripts").insert({
         session_id: sessionId,
         raw_text: anonymizedText,
         source: "manual",
-        embedding,
+        embedding: null,
       });
       if (insertError) {
         results.push({ index: i + 1, sessionId, ok: false, error: insertError.message });
         continue;
       }
 
+      const { chunksTotal, chunksEmbedded } = await chunkAndEmbedTranscript(supabase, sessionId, anonymizedText);
+
       await supabase
         .from("sessions")
         .update({ recording_status: "ready", transcript_error: null })
         .eq("id", sessionId);
 
-      results.push({ index: i + 1, sessionId, ok: true, chars: anonymizedText.length, embeddingSaved: embedding !== null });
+      results.push({ index: i + 1, sessionId, ok: true, chars: anonymizedText.length, chunksTotal, chunksEmbedded });
     } catch (e) {
       results.push({ index: i + 1, sessionId, ok: false, error: e instanceof Error ? e.message : String(e) });
     }

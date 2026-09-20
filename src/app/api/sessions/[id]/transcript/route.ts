@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { anonymizeTranscript } from "@/lib/anonymize";
-import { yandexGptEmbed } from "@/lib/yandexgpt";
+import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 
 // POST /api/sessions/[id]/transcript
 // Body: { text: string }
@@ -16,11 +16,13 @@ import { yandexGptEmbed } from "@/lib/yandexgpt";
 //
 // Пайплайн намеренно зеркалит webhooks/recording: анонимизация ДО
 // первой записи в БД (raw_text в базе — всегда уже анонимизированный
-// текст, читающий код не анонимизирует повторно), затем embedding для
-// RAG (best-effort — если YandexGPT Embeddings недоступен, транскрипт
-// всё равно сохраняется, просто не найдётся через search_client_history
-// до пересчёта). source='manual' — то же значение, что уже разрешено
-// CHECK-констрейнтом колонки (migration_007_video_asr.sql), отдельное
+// текст, читающий код не анонимизирует повторно), затем чанкинг +
+// embedding для RAG на каждый чанк отдельно (best-effort по чанку —
+// см. lib/transcriptChunking.ts: YandexGPT Embeddings ограничен 2048
+// токенами на вход, обычная сессия крупнее лимита целиком, поэтому
+// один embedding на весь текст почти всегда падал бы с ошибкой 400).
+// source='manual' — то же значение, что уже разрешено CHECK-
+// констрейнтом колонки (migration_007_video_asr.sql), отдельное
 // значение 'manual_upload' не потребовалось.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = await params;
@@ -69,27 +71,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const anonymizedText = await anonymizeTranscript(text, clientName);
 
-  let embedding: number[] | null = null;
-  try {
-    embedding = await yandexGptEmbed(anonymizedText, "doc");
-  } catch {
-    embedding = null;
-  }
-
   const { error: insertError } = await supabase.from("session_transcripts").insert({
     session_id: sessionId,
     raw_text: anonymizedText,
     source: "manual",
-    embedding,
+    // embedding на уровне целой сессии не считаем — см. комментарий
+    // выше и lib/transcriptChunking.ts. RAG работает через
+    // session_transcript_chunks, эта колонка остаётся NULL.
+    embedding: null,
   });
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
+
+  const { chunksTotal, chunksEmbedded } = await chunkAndEmbedTranscript(supabase, sessionId, anonymizedText);
 
   await supabase
     .from("sessions")
     .update({ recording_status: "ready", transcript_error: null })
     .eq("id", sessionId);
 
-  return NextResponse.json({ ok: true, embeddingSaved: embedding !== null });
+  return NextResponse.json({ ok: true, embeddingSaved: chunksEmbedded > 0, chunksTotal, chunksEmbedded });
 }

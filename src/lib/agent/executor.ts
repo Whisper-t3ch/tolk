@@ -140,27 +140,53 @@ async function updateClient(ctx: ExecutorContext, args: { client_id: string; fie
 async function searchClientHistory(ctx: ExecutorContext, args: { client_id: string; query: string }) {
   const queryEmbedding = await yandexGptEmbed(args.query, "query");
 
-  const { data, error } = await ctx.supabase.rpc("match_session_transcripts", {
+  // match_session_transcript_chunks (не match_session_transcripts) —
+  // см. migration_034_session_transcript_chunks.sql. Embedding на
+  // уровне целой сессии больше не считается (YandexGPT Embeddings
+  // ограничен 2048 токенами на вход, часовая сессия обычно крупнее),
+  // поиск идёт по чанкам ~4000 символов каждый.
+  const { data, error } = await ctx.supabase.rpc("match_session_transcript_chunks", {
     query_embedding: queryEmbedding,
     match_client_id: args.client_id,
     match_psychologist_id: ctx.psychologistId,
-    match_count: 5,
+    // Берём больше чанков, чем нужно результатов — несколько лучших
+    // чанков могут прийти из одной и той же сессии, схлопываем ниже.
+    match_count: 15,
   });
 
   if (error) {
-    // Функция match_session_transcripts создаётся отдельным SQL (см. ниже) —
-    // если её ещё нет в базе, сообщаем понятно вместо непонятной ошибки Postgres.
     throw new AgentToolError(
-      `Similarity search недоступен: ${error.message}. Убедитесь, что применена функция match_session_transcripts (migration_004_agent.sql + supporting function).`,
+      `Similarity search недоступен: ${error.message}. Убедитесь, что применена функция match_session_transcript_chunks (migration_034_session_transcript_chunks.sql).`,
       "search_client_history"
     );
   }
 
-  // raw_text в session_transcripts теперь всегда уже анонимизирован на
-  // этапе сохранения (см. /api/webhooks/recording) — повторная
-  // анонимизация здесь не нужна, возвращаем найденные фрагменты как есть.
-  const rows = (data ?? []) as Array<{ session_id: string; raw_text: string; similarity: number; scheduled_at: string }>;
-  return { results: rows };
+  // chunk_text уже анонимизирован на этапе сохранения (анонимизация
+  // применяется к целому raw_text до чанкинга, см.
+  // lib/transcriptChunking.ts) — повторная анонимизация не нужна.
+  const rows = (data ?? []) as Array<{ session_id: string; chunk_text: string; similarity: number; scheduled_at: string }>;
+
+  // Схлопываем по session_id — модели полезнее 5 разных сессий, чем
+  // 5 лучших чанков из одной и той же (если психолог долго обсуждал
+  // тревогу на одной сессии, все топ-чанки могут быть оттуда). Берём
+  // лучший чанк на сессию, сохраняя порядок по similarity.
+  const bestPerSession = new Map<string, { session_id: string; raw_text: string; similarity: number; scheduled_at: string }>();
+  for (const row of rows) {
+    const existing = bestPerSession.get(row.session_id);
+    if (!existing || row.similarity > existing.similarity) {
+      bestPerSession.set(row.session_id, {
+        session_id: row.session_id,
+        raw_text: row.chunk_text,
+        similarity: row.similarity,
+        scheduled_at: row.scheduled_at,
+      });
+    }
+  }
+  const results = Array.from(bestPerSession.values())
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, 5);
+
+  return { results };
 }
 
 // Использует общую buildPeriodSummary (см. lib/prompts/periodSummary.ts)

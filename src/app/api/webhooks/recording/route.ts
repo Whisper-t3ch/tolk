@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { transcribeAudio, AsrError } from "@/lib/asr";
-import { yandexGptEmbed } from "@/lib/yandexgpt";
 import { anonymizeTranscript } from "@/lib/anonymize";
+import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 
 // POST /api/webhooks/recording
 // Body: { session_id: string, recording_url: string }
@@ -93,23 +93,17 @@ export async function POST(request: NextRequest) {
   // потерять запись сессии целиком.
   const anonymizedText = await anonymizeTranscript(transcript.text, clientName);
 
-  // Эмбеддинг для RAG (search_client_history) строим уже из
-  // анонимизированного текста — если он не посчитается, транскрипт
-  // всё равно полезен для SOAP/суммаризации, поэтому не прерываем
-  // пайплайн из-за сбоя одного лишь embedding-вызова.
-  let embedding: number[] | null = null;
-  try {
-    embedding = await yandexGptEmbed(anonymizedText, "doc");
-  } catch {
-    embedding = null;
-  }
-
   const { error: insertError } = await supabase.from("session_transcripts").insert({
     session_id: sessionId,
     raw_text: anonymizedText,
     source: "jitsi_gigaam",
     duration_seconds: transcript.durationSeconds,
-    embedding,
+    // embedding на уровне целой сессии больше не считаем и не
+    // используем для поиска — YandexGPT Embeddings ограничен 2048
+    // токенами на вход, а часовая сессия обычно 3-6 тысяч токенов
+    // (см. transcriptChunking.ts). Колонка остаётся NULL, RAG работает
+    // через session_transcript_chunks ниже.
+    embedding: null,
   });
   if (insertError) {
     await supabase
@@ -119,10 +113,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
+  // Чанкинг + embedding для RAG (search_client_history) — best-effort
+  // на уровне отдельных чанков, сбой одного не должен ронять весь
+  // пайплайн: транскрипт уже сохранён и полезен для SOAP/суммаризации
+  // даже если поиск по нему временно недоступен.
+  const { chunksTotal, chunksEmbedded } = await chunkAndEmbedTranscript(supabase, sessionId, anonymizedText);
+  if (chunksEmbedded < chunksTotal) {
+    console.error(
+      "webhooks/recording: не все чанки транскрипта проиндексированы",
+      sessionId,
+      `${chunksEmbedded}/${chunksTotal}`
+    );
+  }
+
   await supabase
     .from("sessions")
     .update({ recording_status: "ready", transcript_error: null })
     .eq("id", sessionId);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, chunksTotal, chunksEmbedded });
 }
