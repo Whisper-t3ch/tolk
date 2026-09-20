@@ -315,6 +315,14 @@ export async function POST(request: NextRequest) {
         // включая responseGuard как последний барьер).
         const pseudoCall = parsePseudoToolCall(result.text);
         if (pseudoCall) {
+          // Постоянное (не временное) логирование — нужно для мониторинга
+          // реальной частоты срабатывания на живых данных бета-тестеров
+          // (не только на сегодняшних провокационных тестах). Не включает
+          // сырой текст ответа (в отличие от снятого временного лога
+          // RESPONSE_GUARD_BLOCKED_RAW) — только факт и какой инструмент
+          // был распознан, этого достаточно для отслеживания частоты без
+          // риска логировать фрагменты данных клиента.
+          console.log("PSEUDO_TOOL_CALL_INTERCEPTED", JSON.stringify({ model: selectedModel, tool: pseudoCall.name }));
           const stopResponse = await handleToolCalls([
             { functionCall: { name: pseudoCall.name, arguments: pseudoCall.arguments } },
           ]);
