@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { anonymizeTranscript } from "@/lib/anonymize";
-import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
+import { saveSessionTranscript } from "@/lib/saveSessionTranscript";
 
 // POST /api/sessions/[id]/transcript
 // Body: { text: string }
@@ -69,27 +68,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const clientRel = Array.isArray(session.clients) ? session.clients[0] : session.clients;
   const clientName = (clientRel as { name?: string } | null)?.name ?? "";
 
-  const anonymizedText = await anonymizeTranscript(text, clientName);
-
-  const { error: insertError } = await supabase.from("session_transcripts").insert({
-    session_id: sessionId,
-    raw_text: anonymizedText,
-    source: "manual",
-    // embedding на уровне целой сессии не считаем — см. комментарий
-    // выше и lib/transcriptChunking.ts. RAG работает через
-    // session_transcript_chunks, эта колонка остаётся NULL.
-    embedding: null,
-  });
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+  let chunksTotal: number;
+  let chunksEmbedded: number;
+  try {
+    ({ chunksTotal, chunksEmbedded } = await saveSessionTranscript(supabase, sessionId, clientName, text));
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Не удалось сохранить транскрипт" }, { status: 500 });
   }
-
-  const { chunksTotal, chunksEmbedded } = await chunkAndEmbedTranscript(supabase, sessionId, anonymizedText);
-
-  await supabase
-    .from("sessions")
-    .update({ recording_status: "ready", transcript_error: null })
-    .eq("id", sessionId);
 
   return NextResponse.json({ ok: true, embeddingSaved: chunksEmbedded > 0, chunksTotal, chunksEmbedded });
 }

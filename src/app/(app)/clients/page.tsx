@@ -128,6 +128,14 @@ function ClientsPageInner() {
   const [newClientGender, setNewClientGender] = useState<"male" | "female">("female");
   const [creatingClient, setCreatingClient] = useState(false);
   const [createClientError, setCreateClientError] = useState<string | null>(null);
+  // Необязательная загрузка транскрипта прошлой встречи прямо при
+  // создании клиента — для случая, когда психолог уже вёл клиента до
+  // подключения платформы и не хочет терять историю. showTranscriptField
+  // сворачивает блок по умолчанию, чтобы не перегружать форму для
+  // обычного случая (клиент без предыстории).
+  const [showTranscriptField, setShowTranscriptField] = useState(false);
+  const [newClientTranscript, setNewClientTranscript] = useState("");
+  const [newClientTranscriptDate, setNewClientTranscriptDate] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const selectedClient = selectedClientId ? clients.find(c => c.id === selectedClientId) : null;
@@ -322,6 +330,9 @@ function ClientsPageInner() {
     setNewClientAge("");
     setNewClientGender("female");
     setCreateClientError(null);
+    setShowTranscriptField(false);
+    setNewClientTranscript("");
+    setNewClientTranscriptDate("");
   };
 
   const handleCreateClient = async () => {
@@ -340,6 +351,35 @@ function ClientsPageInner() {
         gender: newClientGender,
       });
       await refreshClients();
+
+      // Транскрипт — необязательный шаг. Ошибку здесь не считаем
+      // блокирующей создание клиента (он уже создан и сохранён) — просто
+      // показываем её психологу, не откатывая ничего, чтобы он мог
+      // дозагрузить транскрипт позже со страницы клиента.
+      const transcriptText = newClientTranscript.trim();
+      if (transcriptText) {
+        try {
+          const res = await fetch(`/api/clients/${created.id}/transcript`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: transcriptText,
+              date: newClientTranscriptDate || undefined,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            alert(
+              `Клиент создан, но транскрипт не удалось сохранить: ${data.error ?? "неизвестная ошибка"}. Попробуйте загрузить его позже со страницы клиента.`
+            );
+          }
+        } catch {
+          alert(
+            "Клиент создан, но транскрипт не удалось сохранить — проверьте соединение. Попробуйте загрузить его позже со страницы клиента."
+          );
+        }
+      }
+
       setShowNewClient(false);
       resetNewClientForm();
       setSelectedClientId(created.id);
@@ -1149,6 +1189,57 @@ function ClientsPageInner() {
                       onChange={e => setNewClientApproach(e.target.value)}
                     />
                   </div>
+
+                  {!showTranscriptField ? (
+                    <button
+                      onClick={() => setShowTranscriptField(true)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        background: "none", border: "none", cursor: "pointer",
+                        color: "#2D6A5C", fontSize: 12.5, fontWeight: 600,
+                        padding: 0, fontFamily: "var(--font-sans)", textAlign: "left",
+                      }}
+                    >
+                      + Уже была встреча? Добавить транскрипт
+                    </button>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, background: "#F5F3EF", borderRadius: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase" }}>
+                          Транскрипт прошлой встречи
+                        </label>
+                        <button
+                          onClick={() => { setShowTranscriptField(false); setNewClientTranscript(""); setNewClientTranscriptDate(""); }}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 2 }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <textarea
+                        placeholder="Вставьте текст встречи — сохранится как отдельная прошедшая сессия в истории клиента"
+                        value={newClientTranscript}
+                        onChange={e => setNewClientTranscript(e.target.value)}
+                        rows={5}
+                        style={{
+                          width: "100%", padding: "9px 12px",
+                          border: "1px solid #E5DFD5", borderRadius: 8,
+                          fontSize: 13, color: "#1C1C1E", fontFamily: "var(--font-sans)",
+                          resize: "vertical",
+                        }}
+                      />
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                          Дата встречи (необязательно, по умолчанию сегодня)
+                        </label>
+                        <Input
+                          type="date"
+                          value={newClientTranscriptDate}
+                          onChange={e => setNewClientTranscriptDate(e.target.value)}
+                          max={new Date().toISOString().slice(0, 10)}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {createClientError && (
                     <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
