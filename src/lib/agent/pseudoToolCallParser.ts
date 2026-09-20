@@ -40,6 +40,13 @@
 // имён, а не пытается угадать по структуре текста в общем виде (это
 // сильно снижает риск ложного срабатывания на легитимном тексте
 // ответа, который случайно похож на JSON).
+//
+// Формат C (см. unwrapPlainMessageEnvelope ниже) — отдельный баг того
+// же семейства, обнаружен 20.09: модель иногда оборачивает ОБЫЧНЫЙ
+// текстовый ответ (не tool call) в тот же JSON-конверт
+// {"role":"assistant","message":"<текст>"}. Это не псевдо-вызов (нет
+// name/arguments), поэтому обрабатывается отдельной функцией, а не
+// parsePseudoToolCall.
 // ============================================================
 import { AGENT_TOOLS } from "./tools";
 import type { AgentToolName } from "./tools";
@@ -226,4 +233,33 @@ export function parsePseudoToolCall(text: string): ParsedPseudoToolCall | null {
     if (a) return a;
   }
   return tryParseFormatB(text);
+}
+
+// Формат C — обнаружен 20.09 при проверке ложных срабатываний (не
+// псевдо-tool-call, отдельный баг того же семейства): модель иногда
+// оборачивает ОБЫЧНЫЙ текстовый ответ (без намерения вызвать
+// инструмент — нет ни name, ни arguments) в тот же JSON-конверт
+// {"role": "assistant", "message": "<текст>"}, который в формате B
+// используется для настоящих псевдо-вызовов. Пример реального случая
+// (вопрос "Какая разница между КПТ и гештальт-терапией?"):
+//   ```
+//   {"role": "assistant", "message": "КПТ фокусируется на..."}
+//   ```
+// Здесь message — строка (не объект с name/arguments), поэтому это не
+// tool call, а просто кривая упаковка нормального ответа. Ни
+// pseudoToolCallParser (нет name/arguments), ни responseGuard (нет
+// технических паттернов) это не ловят — без распаковки психолог видит
+// сырой JSON-конверт вместо текста. Возвращает сам текст сообщения,
+// если он найден; иначе null.
+export function unwrapPlainMessageEnvelope(text: string): string | null {
+  const candidates = extractAllJsonObjects(text);
+  for (const candidate of candidates) {
+    const parsed = tryParseJson(candidate);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    const obj = parsed as Record<string, unknown>;
+    if (obj.role === "assistant" && typeof obj.message === "string" && obj.message.trim().length > 0) {
+      return obj.message;
+    }
+  }
+  return null;
 }

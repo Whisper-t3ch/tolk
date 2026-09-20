@@ -19,7 +19,7 @@ import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptE
 import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
 import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
 import { guardResponseText } from "@/lib/agent/responseGuard";
-import { parsePseudoToolCall } from "@/lib/agent/pseudoToolCallParser";
+import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pseudoToolCallParser";
 import { randomUUID } from "crypto";
 import { waitUntil } from "@vercel/functions";
 
@@ -330,7 +330,15 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        finalText = result.text;
+        // Отдельный (не tool-call) баг того же семейства, найденный
+        // 20.09 при проверке ложных срабатываний: модель иногда
+        // оборачивает обычный текстовый ответ в JSON-конверт
+        // {"role":"assistant","message":"<текст>"} без всякого
+        // намерения вызвать инструмент — см. unwrapPlainMessageEnvelope.
+        // Распаковываем и используем сам текст как финальный ответ,
+        // вместо того чтобы показывать психологу сырой JSON.
+        const unwrapped = unwrapPlainMessageEnvelope(result.text);
+        finalText = unwrapped ?? result.text;
         break;
       }
 
