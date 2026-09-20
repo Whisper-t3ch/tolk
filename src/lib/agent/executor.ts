@@ -151,7 +151,10 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
     match_psychologist_id: ctx.psychologistId,
     // Берём больше чанков, чем нужно результатов — несколько лучших
     // чанков могут прийти из одной и той же сессии, схлопываем ниже.
-    match_count: 15,
+    // ЭКСПЕРИМЕНТ (topK 5→3, см. задачу "Шаг 1"): пропорционально
+    // снижено с 15. Если тест на клиенте с 10 сессиями покажет потерю
+    // качества — вернуть 15/5.
+    match_count: 9,
   });
 
   if (error) {
@@ -182,9 +185,10 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
       });
     }
   }
+  // ЭКСПЕРИМЕНТ (см. задачу "Шаг 1"): было 5, тестируем 3.
   const results = Array.from(bestPerSession.values())
     .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, 5);
+    .slice(0, 3);
 
   return { results };
 }
