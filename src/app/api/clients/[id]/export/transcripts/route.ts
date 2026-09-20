@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-// GET /api/clients/[id]/export/transcripts
-// Выгружает все транскрипты сессий клиента в один .txt файл,
-// отсортированные по дате сессии по возрастанию.
+// GET /api/clients/[id]/export/transcripts?session_ids=uuid1,uuid2
+// Выгружает транскрипты сессий клиента в один .txt файл, отсортированные
+// по дате сессии по возрастанию. Без session_ids — выгружает все сессии
+// клиента (поведение по умолчанию, как было изначально). С session_ids —
+// выгружает только перечисленные сессии (выбор чекбоксами на странице
+// клиента, тот же список сессий, что уже используется для "Срез за
+// период" — переиспользуем selectedSessionIds оттуда).
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: clientId } = await params;
   const supabase = await createClient();
+
+  const sessionIdsParam = request.nextUrl.searchParams.get("session_ids");
+  const requestedSessionIds = sessionIdsParam
+    ? sessionIdsParam.split(",").map(s => s.trim()).filter(Boolean)
+    : null;
 
   const {
     data: { user },
@@ -63,23 +72,35 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
   }
 
+  // Нумерация "Сессия №N" считается по полной хронологии клиента (не по
+  // урезанному списку) — так номер сессии в выгрузке совпадает с тем,
+  // что психолог видит в интерфейсе, даже если выгружена только часть.
+  const requestedSet = requestedSessionIds ? new Set(requestedSessionIds) : null;
+
   const sections: string[] = [];
   let sessionNumber = 0;
   for (const session of sessions) {
     sessionNumber += 1;
-    const text = latestBySession.get(session.id as string);
+    const sessionId = session.id as string;
+    if (requestedSet && !requestedSet.has(sessionId)) continue; // не входит в выбор
+    const text = latestBySession.get(sessionId);
     if (!text) continue; // пропускаем сессии без готового транскрипта
     const date = new Date(session.scheduled_at as string).toISOString().slice(0, 10);
     sections.push(`=== Сессия №${sessionNumber} от ${date} ===\n${text}\n`);
   }
 
   if (sections.length === 0) {
-    return NextResponse.json({ error: "Ни для одной сессии транскрипт ещё не готов" }, { status: 404 });
+    return NextResponse.json(
+      { error: requestedSet ? "Для выбранных сессий транскрипт ещё не готов" : "Ни для одной сессии транскрипт ещё не готов" },
+      { status: 404 }
+    );
   }
 
   const body = sections.join("\n");
   const safeClientName = (client.name as string).replace(/[^\p{L}\p{N}_-]+/gu, "_");
-  const filename = `transcripts_${safeClientName}.txt`;
+  const filename = requestedSet
+    ? `transcripts_${safeClientName}_${sections.length}sessions.txt`
+    : `transcripts_${safeClientName}.txt`;
 
   return new NextResponse(body, {
     status: 200,

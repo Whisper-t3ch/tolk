@@ -278,6 +278,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [attachTypeFilter, setAttachTypeFilter] = useState<string>("");
   const [activeTab, setActiveTab] = useState<TabId>("sessions");
   const [exportingTranscripts, setExportingTranscripts] = useState(false);
+  const [exportingSummaries, setExportingSummaries] = useState(false);
+  const [exportingSelectedTranscripts, setExportingSelectedTranscripts] = useState(false);
   const [showPeriodSummary, setShowPeriodSummary] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [generatingSummary, setGeneratingSummary] = useState(false);
@@ -589,29 +591,75 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const hwCompleted = client.hwCompleted || demoExtras?.hwCompleted || 0;
   const hwPct = hwTotal > 0 ? Math.round((hwCompleted / hwTotal) * 100) : 0;
 
+  // Общая логика скачивания файла из GET-эндпоинта экспорта (используется
+  // для всех трёх кнопок выгрузки — все транскрипты, резюме, выбранные
+  // транскрипты — различается только url и текст ошибки).
+  const downloadExport = async (url: string, fallbackFilename: string, errorFallback: string) => {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? errorFallback);
+      return;
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match?.[1] ?? fallbackFilename;
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(objectUrl);
+  };
+
   const handleExportAllTranscripts = async () => {
     setExportingTranscripts(true);
     try {
-      const res = await fetch(`/api/clients/${client.id}/export/transcripts`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error ?? "Не удалось выгрузить транскрипты");
-        return;
-      }
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") ?? "";
-      const match = disposition.match(/filename="([^"]+)"/);
-      const filename = match?.[1] ?? "transcripts.txt";
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadExport(
+        `/api/clients/${client.id}/export/transcripts`,
+        "transcripts.txt",
+        "Не удалось выгрузить транскрипты"
+      );
     } catch {
       alert("Не удалось выгрузить транскрипты — проверьте соединение");
     } finally {
       setExportingTranscripts(false);
+    }
+  };
+
+  const handleExportSummaries = async () => {
+    setExportingSummaries(true);
+    try {
+      await downloadExport(
+        `/api/clients/${client.id}/export/summaries`,
+        "summaries.txt",
+        "Не удалось выгрузить резюме"
+      );
+    } catch {
+      alert("Не удалось выгрузить резюме — проверьте соединение");
+    } finally {
+      setExportingSummaries(false);
+    }
+  };
+
+  const handleExportSelectedTranscripts = async () => {
+    if (selectedSessionIds.length === 0) {
+      setPeriodSummaryError("Выберите хотя бы одну сессию");
+      return;
+    }
+    setExportingSelectedTranscripts(true);
+    setPeriodSummaryError(null);
+    try {
+      await downloadExport(
+        `/api/clients/${client.id}/export/transcripts?session_ids=${selectedSessionIds.join(",")}`,
+        "transcripts.txt",
+        "Не удалось выгрузить транскрипты выбранных сессий"
+      );
+    } catch {
+      alert("Не удалось выгрузить транскрипты — проверьте соединение");
+    } finally {
+      setExportingSelectedTranscripts(false);
     }
   };
 
@@ -771,6 +819,18 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 <Download size={13} /> {exportingTranscripts ? "Готовлю..." : "Выгрузить все транскрипты"}
               </button>
               <button
+                onClick={handleExportSummaries}
+                disabled={exportingSummaries}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  padding: "8px 12px", background: "#F5F3EF", border: "1px solid #E5DFD5",
+                  borderRadius: 8, fontSize: 12, fontWeight: 600, color: "#1C1C1E",
+                  cursor: exportingSummaries ? "not-allowed" : "pointer", fontFamily: "var(--font-sans)",
+                }}
+              >
+                <Download size={13} /> {exportingSummaries ? "Готовлю..." : "Выгрузить резюме (SOAP)"}
+              </button>
+              <button
                 onClick={() => setShowPeriodSummary(true)}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
@@ -779,7 +839,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   cursor: "pointer", fontFamily: "var(--font-sans)",
                 }}
               >
-                <Sparkles size={13} /> Срез за период
+                <Sparkles size={13} /> Выбрать сессии...
               </button>
             </div>
             <div>
@@ -1335,7 +1395,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       {showPeriodSummary && (
         <>
           <div
-            onClick={() => !generatingSummary && closePeriodSummaryModal()}
+            onClick={() => !generatingSummary && !exportingSelectedTranscripts && closePeriodSummaryModal()}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 70 }}
           />
           <div style={{
@@ -1351,10 +1411,10 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 display: "flex", alignItems: "center", justifyContent: "space-between",
               }}>
                 <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
-                  Срез за период
+                  Выбранные сессии
                 </h2>
                 <button
-                  onClick={() => !generatingSummary && closePeriodSummaryModal()}
+                  onClick={() => !generatingSummary && !exportingSelectedTranscripts && closePeriodSummaryModal()}
                   style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
                 >
                   <X size={18} />
@@ -1403,9 +1463,19 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                       Тяжёлый запрос — стоит 3 из лимита
                     </p>
 
-                    <Button onClick={handleGenerateSummary} variant="primary" disabled={generatingSummary}>
-                      {generatingSummary ? "Генерирую..." : "Сгенерировать"}
-                    </Button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Button onClick={handleGenerateSummary} variant="primary" disabled={generatingSummary}>
+                        {generatingSummary ? "Генерирую..." : "Сгенерировать срез"}
+                      </Button>
+                      <Button
+                        onClick={handleExportSelectedTranscripts}
+                        variant="secondary"
+                        disabled={exportingSelectedTranscripts}
+                      >
+                        <Download size={14} style={{ marginRight: 6 }} />
+                        {exportingSelectedTranscripts ? "Готовлю..." : "Выгрузить транскрипты"}
+                      </Button>
+                    </div>
                   </>
                 )}
 
