@@ -116,12 +116,6 @@ export function checkResponseSafety(text: string): ResponseGuardResult {
 export function guardResponseText(text: string): string {
   const result = checkResponseSafety(text);
   if (result.safe) return text;
-  // ВРЕМЕННО (сбор паттернов псевдо-tool-call, задача #26, 20.09): логируем
-  // ПОЛНЫЙ заблокированный текст, не только reason — иначе шаг 1 (собрать
-  // ВСЕ варианты паттерна) невозможен, т.к. именно этот текст psychолог
-  // никогда не видит. Грепается в Vercel Logs по маркеру
-  // RESPONSE_GUARD_BLOCKED_RAW. Убрать после написания парсера (шаг 2).
   console.error("responseGuard: заблокирован небезопасный ответ", JSON.stringify({ reason: result.reason }));
-  console.error("RESPONSE_GUARD_BLOCKED_RAW", JSON.stringify({ reason: result.reason, raw: text }));
   return FALLBACK_MESSAGE;
 }
