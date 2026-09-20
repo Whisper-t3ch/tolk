@@ -1,0 +1,113 @@
+import type { AgentToolName } from "@/lib/agent/tools";
+import { AGENT_TOOLS } from "@/lib/agent/tools";
+import type { YandexGptTool } from "@/lib/yandexgpt";
+
+// ------------------------------------------------------------
+// Domain routing по группам инструментов — ВТОРОЙ заход на эту идею.
+// Первая попытка (см. комментарии в modelSelection.ts) была отклонена
+// как отдельный класс рычагов экономии (domain routing/tool retrieval)
+// из-за риска, что эвристика ошибочно отфильтрует инструмент, который
+// на самом деле нужен модели, и агент не сможет выполнить задачу —
+// хуже, чем переплата за более крупную схему function calling.
+//
+// Возвращаемся к этому ТОЛЬКО с явным пользовательским протоколом
+// тестирования и жёстким критерием отката: если хотя бы один тест из
+// широкого набора (25-30 вопросов, включая однодоменные, пограничные и
+// worst-case) покажет, что нужный инструмент не попал в урезанный
+// список — весь механизм отключается, а не чинится точечно.
+//
+// Пять доменов — естественная группировка, уже отражённая в
+// комментариях AGENT_TOOLS (# --- Клиенты ---, # --- История и RAG ---
+// и т.д.), не придуманная заново для роутинга.
+// ------------------------------------------------------------
+
+export type ToolDomain = "clients" | "history" | "schedule" | "sessions" | "communication";
+
+const DOMAIN_TOOLS: Record<ToolDomain, AgentToolName[]> = {
+  clients: ["get_clients", "find_client_by_name", "get_client_info", "create_client", "update_client"],
+  history: ["search_client_history", "get_test_results", "get_period_summary", "search_knowledge_base"],
+  schedule: ["get_schedule", "get_preferences", "find_available_slots"],
+  sessions: ["create_session", "cancel_session"],
+  communication: ["send_message_to_client", "send_homework", "send_session_invite", "send_broadcast_message"],
+};
+
+// find_client_by_name нужен почти в любом сценарии, где психолог
+// упоминает клиента по имени, а не по id — независимо от того, какой
+// домен определён по остальному тексту вопроса ("напиши Марине
+// домашнее задание" — это домен "communication", но без
+// find_client_by_name агент не сможет получить client_id). Поэтому он
+// не привязан к одному домену в логике ниже, а добавляется всегда.
+const ALWAYS_INCLUDED: AgentToolName[] = ["find_client_by_name"];
+
+// Ключевые слова на домен — сознательно щедрые (лучше лишний домен,
+// чем упущенный) и пересекающиеся между доменами, где сами инструменты
+// пересекаются по смыслу (например "sessions" и "schedule": создание
+// сессии почти всегда идёт после поиска свободного слота).
+const DOMAIN_KEYWORDS: Record<ToolDomain, string[]> = {
+  clients: [
+    "клиент", "пациент", "создай клиента", "нового клиента", "запрос клиента",
+    "подход", "профиль", "список клиентов", "все клиенты", "карточка",
+  ],
+  history: [
+    "истори", "сесси", "тест", "результат", "балл", "шкал", "динамик",
+    "тревог", "прогресс", "период", "сводк", "резюме", "тема", "паттерн",
+    "протокол", "часовой пояс", "настрой", "интерфейс", "тариф", "лимит",
+    "как поменять", "как настроить", "как подключить", "где найти",
+  ],
+  schedule: [
+    "расписани", "график", "свободн", "слот", "занят", "буфер",
+    "рабочие час", "предпочтени",
+  ],
+  sessions: [
+    "создай сессию", "запланируй", "назначь встречу", "отмени сессию",
+    "отмени встречу", "перенеси",
+  ],
+  communication: [
+    "напиши", "отправь", "сообщени", "домашн", "\\bдз\\b", "ссылк на запись",
+    "рассылк", "всем клиентам", "уведоми", "напомни клиенту",
+  ],
+};
+
+function hasAny(text: string, keywords: string[]): boolean {
+  return keywords.some(kw => new RegExp(kw, "i").test(text));
+}
+
+/**
+ * Определяет 1-2 вероятных домена по тексту вопроса. Возвращает null,
+ * если ни один домен явно не определился (текст слишком короткий,
+ * неоднозначный, или не задел ни одного ключевого слова) — в этом
+ * случае вызывающий код обязан отдать модели ВСЕ инструменты, не
+ * рисковать урезанием при неуверенности.
+ */
+function detectDomains(userMessage: string): ToolDomain[] | null {
+  const text = userMessage.toLowerCase();
+  const matched = (Object.keys(DOMAIN_KEYWORDS) as ToolDomain[]).filter(domain =>
+    hasAny(text, DOMAIN_KEYWORDS[domain])
+  );
+
+  if (matched.length === 0) return null;
+  // Больше 2 доменов — вопрос явно составной/неоднозначный, надёжнее
+  // отдать полный набор, чем гадать, какие 2 из 3+ реально нужны.
+  if (matched.length > 2) return null;
+
+  return matched;
+}
+
+/**
+ * Возвращает урезанный набор инструментов для агентского цикла, либо
+ * null, если роутинг не сработал уверенно и должен использоваться
+ * полный AGENT_TOOLS. Не вызывается для справочных вопросов —
+ * getReferenceOnlyTools() в tools.ts уже покрывает этот случай
+ * отдельно и раньше по цепочке принятия решений в route.ts.
+ */
+export function selectToolsForMessage(userMessage: string): YandexGptTool[] | null {
+  const domains = detectDomains(userMessage);
+  if (!domains) return null;
+
+  const allowedNames = new Set<AgentToolName>(ALWAYS_INCLUDED);
+  for (const domain of domains) {
+    for (const name of DOMAIN_TOOLS[domain]) allowedNames.add(name);
+  }
+
+  return AGENT_TOOLS.filter(t => allowedNames.has(t.function.name as AgentToolName));
+}

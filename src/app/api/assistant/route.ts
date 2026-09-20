@@ -17,6 +17,7 @@ import { buildApproachContextBlock } from "@/lib/approaches";
 import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
 import { getActivePromptAdditions, recordAssistantFeedback } from "@/lib/promptEvolution";
 import { selectAssistantModel, isReferenceOnlyQuestion } from "@/lib/agent/modelSelection";
+import { selectToolsForMessage } from "@/lib/agent/toolRouting";
 import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/agent/referenceAnswerCache";
 import { guardResponseText } from "@/lib/agent/responseGuard";
 import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pseudoToolCallParser";
@@ -186,7 +187,20 @@ export async function POST(request: NextRequest) {
   // тот же ответ, просто модель тратит меньше на описание инструментов,
   // которые ей всё равно не понадобятся для этого вопроса.
   const isReferenceOnly = isReferenceOnlyQuestion(userMessage);
-  const availableTools = isReferenceOnly ? getReferenceOnlyTools() : AGENT_TOOLS;
+  // Domain routing (см. lib/agent/toolRouting.ts) — второй заход на эту
+  // идею, теперь с явным критерием отката: если тест покажет хоть один
+  // случай, где нужный инструмент не попал в урезанный набор, весь
+  // механизм отключается. selectToolsForMessage возвращает null, когда
+  // не уверен в домене — тогда используется полный AGENT_TOOLS, риска
+  // нет по построению.
+  const routedTools = isReferenceOnly ? null : selectToolsForMessage(userMessage);
+  const availableTools = isReferenceOnly ? getReferenceOnlyTools() : (routedTools ?? AGENT_TOOLS);
+  if (!isReferenceOnly) {
+    console.log(
+      "TOOL_ROUTING",
+      JSON.stringify({ routed: routedTools !== null, toolCount: availableTools.length })
+    );
+  }
 
   // Идентификатор ВСЕГО запроса психолога (не одной LLM-итерации) — см.
   // lib/agent/usageLog.ts. Общий и для кэш-хита, и для полного
