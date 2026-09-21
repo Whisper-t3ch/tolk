@@ -147,14 +147,33 @@ export const AGENT_TOOLS: YandexGptTool[] = [
     function: {
       name: "search_client_history",
       description:
-        "Ищет релевантные фрагменты в истории сессий конкретного клиента по смысловому запросу (similarity search по транскриптам).",
+        "Ищет фрагменты в истории сессий конкретного клиента. Для СМЫСЛОВЫХ вопросов (что обсуждали, как менялось состояние по теме) заполни query — сработает similarity search по транскриптам. " +
+        "Для вопросов про ПОРЯДОК или ПЕРИОД сессий (первая сессия, последняя сессия, первые/последние N встреч, за последние N месяцев, с даты по дату) — " +
+        "используй session_position и/или date_from/date_to вместо угадывания через query: они определяют нужные сессии точно, без поиска по смыслу. " +
+        "Можно сочетать: например «как менялась злость в первых 3 сессиях» — задай и session_position, и query, чтобы искать по теме именно внутри этих сессий. " +
+        "Если ни query, ни session_position/даты не подходят под вопрос — задай хотя бы query.",
       parameters: {
         type: "object",
         properties: {
           client_id: { type: "string", description: "UUID клиента" },
-          query: { type: "string", description: "Поисковый запрос (например, «делегирование задач»)" },
+          query: {
+            type: "string",
+            description: "Поисковый запрос по смыслу (например, «делегирование задач»). Не обязателен, если задан session_position без уточнения темы.",
+          },
+          session_position: {
+            type: "string",
+            enum: ["first", "last", "first_n", "last_n"],
+            description:
+              "«first» — первая сессия, «last» — последняя (самая свежая), «first_n»/«last_n» — первые/последние N сессий (укажи session_position_count). Считается по хронологии сессий клиента, не по дате запроса.",
+          },
+          session_position_count: {
+            type: "integer",
+            description: "N для session_position=first_n/last_n (например 3 — «первые 3 сессии»). По умолчанию 3, если не указано.",
+          },
+          date_from: { type: "string", description: "Начало периода, YYYY-MM-DD (например, для «за последние 3 месяца» — дата 3 месяца назад)." },
+          date_to: { type: "string", description: "Конец периода, YYYY-MM-DD." },
         },
-        required: ["client_id", "query"],
+        required: ["client_id"],
       },
     },
   },

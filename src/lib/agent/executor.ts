@@ -137,14 +137,127 @@ async function updateClient(ctx: ExecutorContext, args: { client_id: string; fie
 // ИСТОРИЯ И RAG
 // ------------------------------------------------------------
 
-async function searchClientHistory(ctx: ExecutorContext, args: { client_id: string; query: string }) {
+interface SearchClientHistoryArgs {
+  client_id: string;
+  query?: string;
+  session_position?: "first" | "last" | "first_n" | "last_n";
+  session_position_count?: number;
+  date_from?: string;
+  date_to?: string;
+}
+
+// ------------------------------------------------------------
+// Structure-aware history tool (21.09) — найдено при разборе провалов
+// topK/domain routing (см. пост-мортемы ниже): worst-case "сравни
+// первую и последнюю сессию" не семантический запрос вообще — это
+// ДЕТЕРМИНИРОВАННЫЙ структурный вопрос о порядке сессий. Раньше
+// searchClientHistory заставляла модель угадывать через similarity
+// search по словам "первая"/"последняя", которые не имеют смысловой
+// близости к содержанию сессий — отсюда несколько LLM-итераций и
+// повышенная цена именно на этом сценарии (14.83₽ worst-case).
+//
+// Решение: если психолог спрашивает про ПОРЯДОК/ПЕРИОД (не тему),
+// backend вычисляет нужные session_id напрямую — сортировкой уже
+// прочитанного списка sessions клиента по scheduled_at, без похода в
+// LLM за угадыванием и без семантического поиска. Раз сессия уже
+// точно определена по позиции, резать её на чанки бессмысленно —
+// возвращаем raw_text целиком (не top-k чанк), это не теряет контекст.
+//
+// Комбинация session_position/date + query остаётся возможной (сузить
+// кандидатов по структуре, затем искать по смыслу внутри них) — но
+// НЕ обязательна, в отличие от прежней версии, где query был required.
+// ------------------------------------------------------------
+async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHistoryArgs) {
+  const hasStructuralFilter = !!(args.session_position || args.date_from || args.date_to);
+
+  let candidateSessionIds: string[] | null = null;
+  let sessionsById: Map<string, { scheduled_at: string }> | null = null;
+
+  if (hasStructuralFilter) {
+    const { data: sessions, error: sessionsError } = await ctx.supabase
+      .from("sessions")
+      .select("id, scheduled_at")
+      .eq("client_id", args.client_id)
+      .eq("psychologist_id", ctx.psychologistId)
+      .order("scheduled_at", { ascending: true });
+    if (sessionsError) throw new AgentToolError(sessionsError.message, "search_client_history");
+    if (!sessions || sessions.length === 0) {
+      return { results: [], note: "У клиента нет сессий." };
+    }
+
+    let filtered = sessions as Array<{ id: string; scheduled_at: string }>;
+    // scheduled_at — timestamptz ISO-строка, date_from/date_to от модели —
+    // YYYY-MM-DD. Лексикографическое сравнение ISO-строк корректно
+    // отражает хронологический порядок, но добавляем явное время суток,
+    // чтобы "date_from=2026-06-01" включало сессии, начатые 1 июня в
+    // любое время (без T00:00:00 сравнение всё равно сработало бы за
+    // счёт префиксного порядка, но так явнее и симметрично date_to).
+    if (args.date_from) filtered = filtered.filter(s => s.scheduled_at >= args.date_from! + "T00:00:00");
+    if (args.date_to) filtered = filtered.filter(s => s.scheduled_at <= args.date_to! + "T23:59:59");
+
+    if (args.session_position) {
+      const n = args.session_position_count && args.session_position_count > 0 ? args.session_position_count : 3;
+      if (args.session_position === "first") filtered = filtered.slice(0, 1);
+      else if (args.session_position === "last") filtered = filtered.slice(-1);
+      else if (args.session_position === "first_n") filtered = filtered.slice(0, n);
+      else if (args.session_position === "last_n") filtered = filtered.slice(-n);
+    }
+
+    if (filtered.length === 0) {
+      return { results: [], note: "Нет сессий, удовлетворяющих заданному периоду/позиции." };
+    }
+
+    candidateSessionIds = filtered.map(s => s.id);
+    sessionsById = new Map(filtered.map(s => [s.id, { scheduled_at: s.scheduled_at }]));
+  }
+
+  // Без query, но со структурным фильтром — сессии уже точно определены,
+  // семантический поиск не нужен: отдаём raw_text целиком.
+  if (hasStructuralFilter && !args.query) {
+    const { data: transcripts, error: transcriptsError } = await ctx.supabase
+      .from("session_transcripts")
+      .select("session_id, raw_text, created_at")
+      .in("session_id", candidateSessionIds!)
+      .order("created_at", { ascending: false });
+    if (transcriptsError) throw new AgentToolError(transcriptsError.message, "search_client_history");
+
+    const latestBySession = new Map<string, string>();
+    for (const t of transcripts ?? []) {
+      const sid = t.session_id as string;
+      if (!latestBySession.has(sid) && t.raw_text) latestBySession.set(sid, t.raw_text as string);
+    }
+
+    const results = candidateSessionIds!
+      .filter(id => latestBySession.has(id))
+      .map(id => ({
+        session_id: id,
+        raw_text: latestBySession.get(id)!,
+        similarity: 1,
+        scheduled_at: sessionsById!.get(id)!.scheduled_at,
+      }));
+
+    if (results.length === 0) {
+      return { results: [], note: "Для выбранных сессий транскрипт ещё не готов." };
+    }
+    return { results };
+  }
+
+  // Есть query (с фильтром или без) — семантический поиск, как раньше,
+  // но при наличии candidateSessionIds RPC сужает поиск только на них.
+  if (!args.query) {
+    throw new AgentToolError(
+      "Укажи query (о чём искать) или session_position/date_from/date_to (какие сессии нужны).",
+      "search_client_history"
+    );
+  }
+
   const queryEmbedding = await yandexGptEmbed(args.query, "query");
 
   // match_session_transcript_chunks (не match_session_transcripts) —
   // см. migration_034_session_transcript_chunks.sql. Embedding на
   // уровне целой сессии больше не считается (YandexGPT Embeddings
   // ограничен 2048 токенами на вход, часовая сессия обычно крупнее),
-  // поиск идёт по чанкам ~4000 символов каждый.
+  // поиск идёт по чанкам ~1050 символов каждый (см. lib/transcriptChunking.ts).
   const { data, error } = await ctx.supabase.rpc("match_session_transcript_chunks", {
     query_embedding: queryEmbedding,
     match_client_id: args.client_id,
@@ -160,7 +273,10 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
     // цене между вопросами объясняется не общим числом найденных
     // сессий, а тем, сколько из них модель реально использует —
     // снижать topK, чтобы сэкономить на этом, оказалось рискованно
-    // именно там, где широкий охват нужнее всего.
+    // именно там, где широкий охват нужнее всего. (21.09: теперь этот
+    // конкретный worst-case перехватывается structural-путём выше и
+    // вообще не доходит до similarity search — но topK всё равно не
+    // трогаем для остальных смысловых вопросов, риск тот же.)
     match_count: 15,
   });
 
@@ -174,7 +290,15 @@ async function searchClientHistory(ctx: ExecutorContext, args: { client_id: stri
   // chunk_text уже анонимизирован на этапе сохранения (анонимизация
   // применяется к целому raw_text до чанкинга, см.
   // lib/transcriptChunking.ts) — повторная анонимизация не нужна.
-  const rows = (data ?? []) as Array<{ session_id: string; chunk_text: string; similarity: number; scheduled_at: string }>;
+  let rows = (data ?? []) as Array<{ session_id: string; chunk_text: string; similarity: number; scheduled_at: string }>;
+
+  // Сужаем до кандидатов, определённых структурным фильтром выше (если
+  // он был задан вместе с query) — RPC ищет по всей истории клиента,
+  // фильтрация по session_id делается здесь на JS-стороне.
+  if (candidateSessionIds) {
+    const candidateSet = new Set(candidateSessionIds);
+    rows = rows.filter(r => candidateSet.has(r.session_id));
+  }
 
   // Схлопываем по session_id — модели полезнее 5 разных сессий, чем
   // 5 лучших чанков из одной и той же (если психолог долго обсуждал
@@ -812,7 +936,7 @@ export async function executeAgentTool(
     case "update_client":
       return updateClient(ctx, args as { client_id: string; fields: Record<string, unknown> });
     case "search_client_history":
-      return searchClientHistory(ctx, args as { client_id: string; query: string });
+      return searchClientHistory(ctx, args as unknown as SearchClientHistoryArgs);
     case "get_test_results":
       return getTestResults(ctx, args as { client_id: string });
     case "get_period_summary":
