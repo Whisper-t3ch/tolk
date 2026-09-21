@@ -13,7 +13,6 @@ import {
   limitExceededResponse,
 } from "@/lib/assistantLimits";
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, getReferenceOnlyTools, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
-import { selectRelevantTools } from "@/lib/agent/toolSelection";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { buildApproachContextBlock } from "@/lib/approaches";
 import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
@@ -208,26 +207,33 @@ export async function POST(request: NextRequest) {
   // ТРЕТЬЯ попытка сузить набор из 18 инструментов, и первая через
   // семантическую близость (та же embedding-модель, что уже используется
   // для RAG по транскриптам), а не через жёсткие keyword-правила, как
-  // в отменённом domain routing выше. См. lib/agent/toolSelection.ts —
-  // там подробно про то, чем это отличается от двух предыдущих провалов
-  // и какие защиты встроены (top-7 + find_client_by_name всегда +
-  // fallback на полный набор при низкой уверенности).
+  // в отменённом domain routing выше.
+  //
+  // ОТКАЧЕНО 21.09 — третий подряд провал того же намерения (сузить набор
+  // динамически). Живой тест: "Отправь Кате ссылку на завтрашнюю
+  // видеосессию" (реальная будущая сессия, однозначная формулировка) —
+  // send_session_invite отсутствовал в narrowed списке из 7 инструментов
+  // (TOOL_SELECTION лог: {"count":7,"tools":["find_client_by_name",
+  // "get_client_info","create_session","search_client_history",
+  // "update_client","create_client","get_schedule"]}), модель вместо
+  // этого вызвала create_session — создала лишнюю сессию вместо отправки
+  // ссылки на существующую. Согласованный заранее критерий отката:
+  // любой случай, где routing не даёт модели нужный инструмент —
+  // механизм отключается целиком, не патчится точечно (тот же принцип,
+  // что и для отменённого domain routing выше). См. lib/agent/
+  // toolSelection.ts — файл оставлен в репозитории для истории, не
+  // используется.
+  //
+  // Следующий подход (по решению от 21.09, ещё не реализован): не
+  // ДИНАМИЧЕСКОЕ сужение "какие из 18 показать на этот вопрос", а
+  // ПОСТОЯННОЕ удаление из списка 18 тех write-инструментов, у которых
+  // уже есть полноценная UI-альтернатива — короче схема одинаково для
+  // всех вопросов, без риска ошибочной классификации на лету.
   let availableTools: YandexGptTool[];
   if (isReferenceOnly) {
     availableTools = getReferenceOnlyTools();
   } else {
-    const toolSelection = await selectRelevantTools(userMessage);
-    availableTools = toolSelection.tools;
-    // Постоянное логирование (не временное) — единственный способ узнать
-    // на реальных вопросах бета-тестеров, действительно ли механизм
-    // сужает набор на практике и не идёт ли он вразрез с ожиданиями
-    // (см. критерий отката в комментарии выше — если мониторинг покажет
-    // хотя бы один случай, где нужный инструмент не попал в narrowed
-    // список и модель не справилась, механизм откатывается целиком).
-    console.log(
-      "TOOL_SELECTION",
-      JSON.stringify({ narrowed: toolSelection.narrowed, count: toolSelection.selectedNames.length, tools: toolSelection.selectedNames })
-    );
+    availableTools = AGENT_TOOLS;
   }
 
   // Идентификатор ВСЕГО запроса психолога (не одной LLM-итерации) — см.
