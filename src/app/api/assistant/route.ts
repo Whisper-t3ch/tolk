@@ -5,6 +5,7 @@ import {
   yandexGptCompleteWithTools,
   YandexGptError,
   type YandexGptAnyMessage,
+  type YandexGptTool,
 } from "@/lib/yandexgpt";
 import {
   checkAssistantLimit,
@@ -12,6 +13,7 @@ import {
   limitExceededResponse,
 } from "@/lib/assistantLimits";
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, getReferenceOnlyTools, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
+import { selectRelevantTools } from "@/lib/agent/toolSelection";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { buildApproachContextBlock } from "@/lib/approaches";
 import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
@@ -202,7 +204,31 @@ export async function POST(request: NextRequest) {
   // принципиально неисчерпаем — сегодня не хватило "злости", завтра не
   // хватит другого слова). toolRouting.ts оставлен в репозитории для
   // истории/справки, но не используется.
-  const availableTools = isReferenceOnly ? getReferenceOnlyTools() : AGENT_TOOLS;
+  // Embedding retrieval для выбора инструментов (Уровень 2.4, 21.09) —
+  // ТРЕТЬЯ попытка сузить набор из 18 инструментов, и первая через
+  // семантическую близость (та же embedding-модель, что уже используется
+  // для RAG по транскриптам), а не через жёсткие keyword-правила, как
+  // в отменённом domain routing выше. См. lib/agent/toolSelection.ts —
+  // там подробно про то, чем это отличается от двух предыдущих провалов
+  // и какие защиты встроены (top-7 + find_client_by_name всегда +
+  // fallback на полный набор при низкой уверенности).
+  let availableTools: YandexGptTool[];
+  if (isReferenceOnly) {
+    availableTools = getReferenceOnlyTools();
+  } else {
+    const toolSelection = await selectRelevantTools(userMessage);
+    availableTools = toolSelection.tools;
+    // Постоянное логирование (не временное) — единственный способ узнать
+    // на реальных вопросах бета-тестеров, действительно ли механизм
+    // сужает набор на практике и не идёт ли он вразрез с ожиданиями
+    // (см. критерий отката в комментарии выше — если мониторинг покажет
+    // хотя бы один случай, где нужный инструмент не попал в narrowed
+    // список и модель не справилась, механизм откатывается целиком).
+    console.log(
+      "TOOL_SELECTION",
+      JSON.stringify({ narrowed: toolSelection.narrowed, count: toolSelection.selectedNames.length, tools: toolSelection.selectedNames })
+    );
+  }
 
   // Идентификатор ВСЕГО запроса психолога (не одной LLM-итерации) — см.
   // lib/agent/usageLog.ts. Общий и для кэш-хита, и для полного
