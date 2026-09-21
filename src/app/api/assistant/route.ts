@@ -629,9 +629,36 @@ export async function POST(request: NextRequest) {
             candidateText
           );
 
-        if (looksLikeUnfulfilledIntent) {
+        // Четвёртый баг того же семейства, найденный 21.09 при сквозной
+        // проверке веб-поиска: системный промпт учит модель при
+        // suggestWebSearch:true отвечать ФИКСИРОВАННОЙ фразой "...Хотите,
+        // чтобы я поискал информацию в интернете?" (см. tools.ts) — но
+        // модель иногда пишет эту же фразу текстом, ВООБЩЕ не вызвав
+        // search_knowledge_base (ни настоящим tool call, ни псевдо-
+        // вызовом), то есть suggestWebSearch физически не мог быть true.
+        // Живой пример: вопрос про "протокол EMDR для ДРИ" — модель сразу
+        // ответила "в базе знаний не нашлось... хотите чтобы я поискал в
+        // интернете?" без единого вызова инструмента (llm_calls_count=1,
+        // tool_calls_count=0, нет PSEUDO_TOOL_CALL_INTERCEPTED в логе).
+        // Итог для психолога: кнопка веб-поиска не появляется, хотя текст
+        // её обещал — выглядит как баг интерфейса, хотя на деле модель
+        // просто не выполнила предпосылку для этой фразы. В отличие от
+        // паттерна выше (короткое "намерение в будущем"), здесь текст
+        // оформлен как ЗАВЕРШЁННЫЙ факт ("не нашлось") и длиннее 15 слов,
+        // поэтому не ограничиваем по длине и не по номеру итерации —
+        // проверяем ТОЛЬКО что во всём запросе не было ни одного вызова
+        // инструмента (иначе легитимный случай, когда suggestWebSearch
+        // реально true, и эта же фраза — корректный ответ, не должен
+        // задевать эвристику).
+        const looksLikeFakeWebSearchOffer =
+          toolCallsCount === 0 &&
+          /(хотите,?\s*чтобы\s*я\s*поиска[лн]|поискать\s*(?:информацию\s*)?в\s*интернете|поищу\s*(?:информацию\s*)?в\s*интернете)/i.test(
+            candidateText
+          );
+
+        if (looksLikeUnfulfilledIntent || looksLikeFakeWebSearchOffer) {
           console.log(
-            "UNFULFILLED_INTENT_RETRY",
+            looksLikeFakeWebSearchOffer ? "FAKE_WEB_SEARCH_OFFER_RETRY" : "UNFULFILLED_INTENT_RETRY",
             JSON.stringify({ model: selectedModel, textPreview: candidateText.slice(0, 80) })
           );
           repeatedLoopCount += 1;
