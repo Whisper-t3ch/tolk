@@ -431,7 +431,24 @@ async function searchKnowledgeBase(ctx: ExecutorContext, args: { query: string; 
       "search_knowledge_base"
     );
   }
-  return { results: data ?? [] };
+
+  const results = data ?? [];
+
+  // Веб-поиск при пустой базе знаний (21.09) — НЕ новый инструмент в
+  // схеме function calling (это осталось бы вне схемы 18, см. решение
+  // от 21.09 про исчерпанную ветку "сузить/расширить список
+  // инструментов"), а просто данные внутри результата уже существующего
+  // вызова search_knowledge_base. Модель видит suggestWebSearch в этом
+  // же tool result и по инструкции в AGENT_SYSTEM_PROMPT предлагает
+  // психологу веб-поиск текстом — сам веб-поиск, если психолог
+  // согласится, идёт отдельным узким путём (/api/assistant/web-search),
+  // который не проходит через основной agent loop и не платит за схему
+  // 18 инструментов вообще.
+  if (results.length === 0) {
+    return { results, suggestWebSearch: true, query: args.query };
+  }
+
+  return { results };
 }
 
 // ------------------------------------------------------------

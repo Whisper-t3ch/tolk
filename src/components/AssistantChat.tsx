@@ -45,6 +45,25 @@ interface PendingAction {
   description: string;
 }
 
+interface WebSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+// Веб-поиск при пустой базе знаний (21.09) — узкий, отдельный от
+// pendingAction поток: сначала предложение ("Хотите чтобы я поискал в
+// интернете?"), потом (если психолог согласился) сами результаты с
+// обязательной пометкой источника, потом отдельное подтверждение
+// "сохранить в базу знаний?" на каждый результат отдельно. НЕ проходит
+// через /api/assistant (agent loop) — только через узкий
+// /api/assistant/web-search и уже существующий POST /api/knowledge.
+type WebSearchState =
+  | { stage: "suggested"; query: string }
+  | { stage: "searching"; query: string }
+  | { stage: "results"; query: string; results: WebSearchResultItem[] }
+  | { stage: "error"; query: string; error: string };
+
 // Простая эвристика "похоже на переформулировку": сравниваем множества
 // значимых слов (без стоп-слов и коротких слов) двух реплик — если
 // пересечение достаточно большое, считаем, что психолог задал по сути
@@ -104,6 +123,8 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   const [agentSessionId, setAgentSessionId] = useState<string | undefined>(undefined);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [webSearchState, setWebSearchState] = useState<WebSearchState | null>(null);
+  const [savedResultUrls, setSavedResultUrls] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   // Для неявного сигнала was_reformulated: запоминаем последний ответ
@@ -231,6 +252,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
     setInput("");
     setError(null);
     setIsLoading(true);
+    setWebSearchState(null);
 
     try {
       const res = await fetch("/api/assistant", {
@@ -262,6 +284,14 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
         ]);
         if (feedbackId) {
           lastExchangeRef.current = { feedbackId, question: text, answeredAt: Date.now() };
+        }
+        // Веб-поиск при пустой базе знаний (21.09) — сервер сам решил,
+        // предлагать ли это (см. suggestWebSearch в executor.ts), здесь
+        // только показываем кнопку, если он прислал запрос.
+        if (typeof data.suggested_web_search_query === "string" && data.suggested_web_search_query) {
+          setWebSearchState({ stage: "suggested", query: data.suggested_web_search_query });
+        } else {
+          setWebSearchState(null);
         }
       }
       if (data.agent_session_id) setAgentSessionId(data.agent_session_id);
@@ -317,6 +347,53 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
     }
   };
 
+  // Веб-поиск при пустой базе знаний (21.09) — психолог согласился на
+  // предложение. Узкий изолированный вызов, не через /api/assistant.
+  const runWebSearch = async () => {
+    if (!webSearchState || webSearchState.stage !== "suggested") return;
+    const query = webSearchState.query;
+    setWebSearchState({ stage: "searching", query });
+    try {
+      const res = await fetch("/api/assistant/web-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setWebSearchState({ stage: "error", query, error: data?.error ?? "Не удалось выполнить поиск" });
+        return;
+      }
+      setWebSearchState({ stage: "results", query, results: data.results ?? [] });
+    } catch {
+      setWebSearchState({ stage: "error", query, error: "Не удалось связаться с сервером" });
+    }
+  };
+
+  const dismissWebSearch = () => setWebSearchState(null);
+
+  // Сохранение одного найденного результата в базу знаний — ТОЛЬКО по
+  // явному подтверждению психолога на каждый результат отдельно (не
+  // массово), с обязательной пометкой источника в самом content, чтобы
+  // при повторном чтении material было видно, откуда он взят.
+  const saveWebResultToKnowledge = async (item: WebSearchResultItem) => {
+    const content = `${item.snippet}\n\nИсточник: ${item.url}`;
+    try {
+      const res = await fetch("/api/knowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: item.title, content, source_type: "article" }),
+      });
+      if (res.ok) {
+        setSavedResultUrls(prev => new Set(prev).add(item.url));
+      } else {
+        setError("Не удалось сохранить материал в базу знаний");
+      }
+    } catch {
+      setError("Не удалось связаться с сервером");
+    }
+  };
+
   // Сброс диалога: история копилась бесконечно и сбросить её было
   // нечем, а модель, видя свой прежний ответ со слотами, переписывала
   // его вместо нового вызова инструмента (см. правило в
@@ -334,6 +411,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
       }
       setMessages([WELCOME_MESSAGE]);
       setPendingAction(null);
+      setWebSearchState(null);
       setAgentSessionId(undefined);
       lastExchangeRef.current = null;
     } catch {
@@ -482,6 +560,95 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
                 <XIcon size={13} /> Отменить
               </button>
             </div>
+          </motion.div>
+        )}
+
+        {webSearchState && webSearchState.stage === "suggested" && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              alignSelf: "flex-start", maxWidth: "90%",
+              background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 10, padding: 12,
+            }}
+          >
+            <div style={{ fontSize, color: "#1C1C1E", marginBottom: 10 }}>
+              В вашей базе знаний пока нет материалов по этой теме. Хотите чтобы я поискал информацию в интернете?
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={runWebSearch}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  background: "#2D6A5C", color: "#fff", border: "none",
+                  borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                <Check size={13} /> Да, поискать
+              </button>
+              <button
+                onClick={dismissWebSearch}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  background: "#F5F3EF", color: "#6B6058", border: "1px solid #E5DFD5",
+                  borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                <XIcon size={13} /> Нет, спасибо
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {webSearchState && webSearchState.stage === "searching" && (
+          <div style={{ display: "flex", gap: 4 }}>
+            <div style={{ width: 6, height: 6, background: "#8C7355", borderRadius: "50%", animation: "assistantBounce 1.4s infinite" }} />
+            <div style={{ width: 6, height: 6, background: "#8C7355", borderRadius: "50%", animation: "assistantBounce 1.4s infinite", animationDelay: "0.2s" }} />
+            <div style={{ width: 6, height: 6, background: "#8C7355", borderRadius: "50%", animation: "assistantBounce 1.4s infinite", animationDelay: "0.4s" }} />
+          </div>
+        )}
+
+        {webSearchState && webSearchState.stage === "error" && (
+          <div style={{ alignSelf: "flex-start", maxWidth: "90%", fontSize: 12, color: "#EF4444", padding: "4px 0" }}>
+            {webSearchState.error}
+          </div>
+        )}
+
+        {webSearchState && webSearchState.stage === "results" && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{ display: "flex", flexDirection: "column", gap: 8, alignSelf: "flex-start", maxWidth: "90%" }}
+          >
+            {webSearchState.results.length === 0 && (
+              <div style={{ fontSize, color: "#6B6058" }}>Ничего не нашлось по этому запросу.</div>
+            )}
+            {webSearchState.results.map(item => (
+              <div
+                key={item.url}
+                style={{ background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 10, padding: 12 }}
+              >
+                <div style={{ fontSize, fontWeight: 600, color: "#1C1C1E", marginBottom: 4 }}>{item.title}</div>
+                <div style={{ fontSize: 11, color: "#8C7355", marginBottom: 6, wordBreak: "break-all" }}>
+                  Источник: {item.url}
+                </div>
+                <div style={{ fontSize, color: "#1C1C1E", marginBottom: 10 }}>{item.snippet}</div>
+                {savedResultUrls.has(item.url) ? (
+                  <div style={{ fontSize: 12, color: "#2D6A5C", fontWeight: 600 }}>Сохранено в базу знаний</div>
+                ) : (
+                  <button
+                    onClick={() => saveWebResultToKnowledge(item)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 4,
+                      background: "#F5F3EF", color: "#2D6A5C", border: "1px solid #E5DFD5",
+                      borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    }}
+                  >
+                    Сохранить в базу знаний
+                  </button>
+                )}
+              </div>
+            ))}
           </motion.div>
         )}
 

@@ -358,6 +358,15 @@ export async function POST(request: NextRequest) {
   // сдвинутся с места — обрываем сразу, не дожидаясь MAX_AGENT_ITERATIONS.
   let repeatedLoopCount = 0;
 
+  // Веб-поиск при пустой базе знаний (21.09) — если ХОТЯ БЫ ОДИН вызов
+  // search_knowledge_base в этом запросе вернул suggestWebSearch:true
+  // (см. lib/agent/executor.ts), запоминаем исходный поисковый запрос,
+  // чтобы прокинуть его в финальный JSON-ответ психологу. Фронтенд
+  // (AssistantChat.tsx) увидит его и покажет кнопку "Да, поискать в
+  // интернете" — САМ веб-поиск идёт отдельным узким эндпоинтом
+  // (/api/assistant/web-search), не через этот agent loop.
+  let suggestedWebSearchQuery: string | null = null;
+
   // Возвращает NextResponse, если цикл должен немедленно остановиться
   // (нужно подтверждение психолога); { shortCircuitText } если результат
   // инструмента уже самодостаточен как финальный ответ психологу (см.
@@ -475,6 +484,20 @@ export async function POST(request: NextRequest) {
           typeof (output as { summary: unknown }).summary === "string"
         ) {
           periodSummaryShortCircuitText = (output as { summary: string }).summary;
+        }
+
+        // Веб-поиск при пустой базе знаний (21.09, см. комментарий у
+        // объявления suggestedWebSearchQuery выше) — запоминаем запрос,
+        // не прерывая цикл: модель всё равно должна ответить психологу
+        // текстом с явным предложением, это не short-circuit.
+        if (
+          call.functionCall.name === "search_knowledge_base" &&
+          output &&
+          typeof output === "object" &&
+          (output as { suggestWebSearch?: boolean }).suggestWebSearch === true &&
+          typeof (output as { query?: unknown }).query === "string"
+        ) {
+          suggestedWebSearchQuery = (output as { query: string }).query;
         }
       } catch (e) {
         const message = e instanceof AgentToolError ? e.message : "Ошибка выполнения инструмента";
@@ -746,6 +769,12 @@ export async function POST(request: NextRequest) {
     actions_taken: usedTools,
     agent_session_id: agentSessionId,
     message_id: assistantMessageId,
+    // Веб-поиск при пустой базе знаний (21.09) — если задано, фронтенд
+    // показывает кнопку "Да, поискать в интернете" под этим ответом.
+    // Сам веб-поиск идёт отдельным узким путём (POST /api/assistant/
+    // web-search), не через этот agent loop и не через схему 18
+    // инструментов — см. комментарий у объявления переменной выше.
+    suggested_web_search_query: suggestedWebSearchQuery,
   });
 }
 
