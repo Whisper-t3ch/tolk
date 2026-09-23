@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PhoneOff, Clock, AlertTriangle } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
-import JitsiCallView from "@/components/JitsiCallView";
+import JitsiCallView, { type JitsiCallViewHandle } from "@/components/JitsiCallView";
 import { buildJitsiRoomName } from "@/lib/jitsi";
 
 // ============================================================
@@ -17,6 +17,17 @@ import { buildJitsiRoomName } from "@/lib/jitsi";
 // синтетических потоках ещё 22.09) был нечем кормить. JitsiCallView
 // сам поднимает звонок, преflight и запись — эта страница только
 // передаёт ему roomName/sessionId и держит таймер + заметки.
+//
+// 23.09 (Этап 2): перед уходом со страницы обязательно дожидаемся
+// callViewRef.current.finishRecording() — это останавливает recorder,
+// дожидается выгрузки отставших фрагментов и отправляет manifest на
+// backend (/api/sessions/[id]/recording/*, см.
+// claude/browser-recording-architecture-spec.md в проекте). Раньше
+// handleEnd() сразу сохранял заметки и уходил на /soap, не дожидаясь
+// записи вообще — теперь без этого шага последние фрагменты консультации
+// рисковали остаться невыгруженными (компонент размонтируется вместе с
+// навигацией, а unmount-cleanup в JitsiCallView — best-effort, без
+// ожидания сети).
 //
 // - id в URL — это session_id, данные грузятся через уже
 //   существующий GET /api/sessions/[id]/soap (там же лежит videoRoomUrl,
@@ -58,6 +69,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const notesRef = useRef(notes);
   notesRef.current = notes;
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const callViewRef = useRef<JitsiCallViewHandle>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +130,20 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   async function handleEnd() {
     setEnding(true);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    // Запись — до заметок: заметки можно досохранить и позже, а
+    // manifest должен уйти именно сейчас, пока компонент ещё
+    // смонтирован (после router.push JitsiCallView размонтируется и
+    // отправлять manifest будет уже не из чего). Ошибки записи не
+    // должны блокировать завершение консультации для психолога —
+    // finishRecording() сама не бросает исключений при сбое сети
+    // (см. ChunkUploader.sendManifest), но на всякий случай всё равно
+    // оборачиваем в try/catch.
+    try {
+      await callViewRef.current?.finishRecording();
+    } catch {
+      // Не блокируем завершение сессии из-за сбоя в записи — психолог
+      // не должен застрять на экране звонка из-за проблем с выгрузкой.
+    }
     await saveNotes(notesRef.current);
     setTimeout(() => router.push(`/session/${sessionId}/soap`), 600);
   }
@@ -162,6 +188,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             </div>
 
             <JitsiCallView
+              ref={callViewRef}
               sessionId={sessionId}
               roomName={buildJitsiRoomName(sessionId)}
               clientName={data.clientName}

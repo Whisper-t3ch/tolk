@@ -23,19 +23,31 @@
 //     сразу идёт в SessionRecorder.start(); удалённый — в
 //     attachRemoteStream(), когда клиент подключится.
 //
-// ВАЖНО про загрузку фрагментов: backend для приёма chunks (pre-signed
-// upload, manifest, heartbeat — Этап 2 архитектуры) ЕЩЁ НЕ построен.
-// onChunk здесь только считает фрагменты и байты для видимого
-// индикатора психологу — реальная выгрузка в Object Storage не
-// происходит, фрагменты нигде не сохраняются за пределами вкладки.
-// Не путать этот индикатор с гарантией сохранности записи.
+// 23.09: подключён backend Этапа 2 (src/lib/recording/uploader.ts +
+// /api/sessions/[id]/recording/*) — фрагменты реально выгружаются в
+// Object Storage по мере записи, каждые ~12с уходит heartbeat, а по
+// завершении родительская страница обязана вызвать finishRecording()
+// (через ref) ДО навигации: это останавливает recorder, дожидается
+// незавершённых выгрузок и отправляет manifest. Без явного вызова
+// finishRecording() (например, если вкладка просто закрыта) manifest
+// не уйдёт и сессия останется в статусе 'recording' — это тот же
+// компромисс "браузер психолога — единственный источник записи", что
+// описан в architecture-spec, раздел "Непреодолимое ограничение".
 // ============================================================
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { Mic, MicOff, Video, VideoOff, AlertTriangle, Loader2 } from "lucide-react";
 import { JitsiCallSession, type CallConnectionState } from "@/lib/jitsi/connection";
 import { isUsingPublicTestServer } from "@/lib/jitsi/config";
 import { runPreflight, type PreflightResult, type PreflightVerdict } from "@/lib/recording/preflight";
 import { SessionRecorder, type RecordingStatusSnapshot } from "@/lib/recording/sessionRecorder";
+import { ChunkUploader } from "@/lib/recording/uploader";
 
 interface JitsiCallViewProps {
   sessionId: string;
@@ -43,6 +55,20 @@ interface JitsiCallViewProps {
   clientName: string;
   /** Вызывается один раз, когда звонок реально поднялся (для таймера сессии на родительской странице). */
   onConnected?: () => void;
+}
+
+/** Императивный API для родительской страницы — см. finishRecording(). */
+export interface JitsiCallViewHandle {
+  /**
+   * Останавливает запись, дожидается выгрузки оставшихся фрагментов
+   * (с ограничением по времени — см. ChunkUploader.waitForIdle) и
+   * отправляет manifest на backend. Вызывать ДО навигации со страницы
+   * звонка — после unmount отправить manifest уже не из чего: сам
+   * компонент к этому моменту исчезнет вместе с recorder/uploader.
+   * Безопасно вызывать даже если запись не начиналась (recorder ещё
+   * null) — тогда просто ничего не делает.
+   */
+  finishRecording: () => Promise<{ manifestSent: boolean; status?: string }>;
 }
 
 const BLOCKING_VERDICTS: PreflightVerdict[] = [
@@ -59,6 +85,9 @@ const PREFLIGHT_MESSAGES: Partial<Record<PreflightVerdict, string>> = {
   insufficient_storage: "Недостаточно места в браузере для буфера записи. Освободите место на устройстве или используйте другое.",
 };
 
+/** Как часто слать heartbeat, пока идёт запись — середина диапазона 10-15с из architecture-spec. */
+const HEARTBEAT_INTERVAL_MS = 12_000;
+
 type ViewState =
   | "preflight"
   | "preflight_blocked"
@@ -67,7 +96,10 @@ type ViewState =
   | "call_failed"
   | "ended";
 
-export default function JitsiCallView({ sessionId, roomName, clientName, onConnected }: JitsiCallViewProps) {
+function JitsiCallView(
+  { sessionId, roomName, clientName, onConnected }: JitsiCallViewProps,
+  ref: React.Ref<JitsiCallViewHandle>
+) {
   const [viewState, setViewState] = useState<ViewState>("preflight");
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
@@ -75,16 +107,18 @@ export default function JitsiCallView({ sessionId, roomName, clientName, onConne
   const [camMuted, setCamMuted] = useState(true); // видео выключено по умолчанию — платформа аудио-центричная
   const [remoteConnected, setRemoteConnected] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatusSnapshot | null>(null);
-  const [chunkStats, setChunkStats] = useState({ count: 0, bytes: 0 });
+  const [chunkStats, setChunkStats] = useState({ count: 0, bytes: 0, failed: 0 });
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const sessionRef = useRef<JitsiCallSession | null>(null);
   const recorderRef = useRef<SessionRecorder | null>(null);
+  const uploaderRef = useRef<ChunkUploader | null>(null);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
+  const finishedRef = useRef(false);
 
   useEffect(() => {
     if (viewState === "in_call" && !notifiedConnectedRef.current) {
@@ -95,16 +129,27 @@ export default function JitsiCallView({ sessionId, roomName, clientName, onConne
 
   const startRecorder = useCallback((localStream: MediaStream) => {
     if (recorderRef.current) return;
+
+    const uploader = new ChunkUploader({
+      sessionId,
+      onChunkGaveUp: (chunk, error) => {
+        // Фрагмент остался в IndexedDB (см. uploader.ts) — не потерян
+        // физически, но не подтверждён backend'ом. Считаем в счётчике
+        // ошибок, чтобы психолог видел проблему, а не только "N фрагм.".
+        console.error(`Фрагмент ${chunk.role}#${chunk.sequence} не выгружен после всех попыток:`, error);
+        setChunkStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+      },
+    });
+    uploaderRef.current = uploader;
+    void uploader.flushPending(); // осиротевшие фрагменты прошлого монтирования этой же вкладки, если есть
+
     const recorder = new SessionRecorder({
       sessionId,
       localStream,
       timesliceMs: 20_000,
       onChunk: chunk => {
-        setChunkStats(prev => ({ count: prev.count + 1, bytes: prev.bytes + chunk.size }));
-        // TODO(этап 2): здесь должна быть постановка фрагмента в очередь
-        // IndexedDB → pre-signed upload → Object Storage. Backend для
-        // этого ещё не готов (см. claude/browser-recording-architecture-spec.md
-        // в проекте) — сейчас фрагмент нигде не сохраняется.
+        setChunkStats(prev => ({ ...prev, count: prev.count + 1, bytes: prev.bytes + chunk.size }));
+        uploaderRef.current?.enqueue(chunk);
       },
       onStatusChange: status => {
         if (mountedRef.current) setRecordingStatus(status);
@@ -114,6 +159,21 @@ export default function JitsiCallView({ sessionId, roomName, clientName, onConne
     recorderRef.current = recorder;
     setRecordingStatus(recorder.getStatus());
   }, [sessionId]);
+
+  // Heartbeat каждые ~12с, пока идёт запись — независимый от потока
+  // фрагментов сигнал "recorder жив", см. комментарий в
+  // /api/sessions/[id]/recording/heartbeat/route.ts.
+  useEffect(() => {
+    if (viewState !== "in_call") return;
+    const interval = setInterval(() => {
+      const recorder = recorderRef.current;
+      const uploader = uploaderRef.current;
+      if (recorder && uploader) {
+        void uploader.sendHeartbeat(recorder.getStatus());
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [viewState]);
 
   const joinCall = useCallback(() => {
     setViewState("connecting");
@@ -166,6 +226,33 @@ export default function JitsiCallView({ sessionId, roomName, clientName, onConne
     });
   }, [roomName, camMuted, startRecorder]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      finishRecording: async () => {
+        if (finishedRef.current) return { manifestSent: false };
+        finishedRef.current = true;
+
+        const recorder = recorderRef.current;
+        const uploader = uploaderRef.current;
+        if (!recorder || !uploader) {
+          // Запись не успела начаться (например, консультация
+          // завершена прямо на preflight) — отправлять нечего.
+          return { manifestSent: false };
+        }
+
+        const manifest = await recorder.stop();
+        // Дожидаемся отставших фрагментов, иначе backend увидит дыру в
+        // реестре только потому, что последний фрагмент ещё в пути —
+        // см. комментарий у ChunkUploader.waitForIdle().
+        await uploader.waitForIdle();
+        const result = await uploader.sendManifest(manifest);
+        return { manifestSent: result.ok, status: result.status };
+      },
+    }),
+    []
+  );
+
   // Preflight — один раз при монтировании. testRecordingMs короткий (500мс
   // по умолчанию в runPreflight), психолог не должен ждать заметно.
   useEffect(() => {
@@ -185,6 +272,11 @@ export default function JitsiCallView({ sessionId, roomName, clientName, onConne
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      // Best-effort подстраховка на случай, если страница ушла в
+      // unmount БЕЗ явного вызова finishRecording() (например, вкладка
+      // просто закрылась) — manifest в этом случае не уйдёт (сеть на
+      // выходе из вкладки ненадёжна), но хотя бы recorder не остаётся
+      // висеть фоновым таймером после исчезновения компонента.
       recorderRef.current?.stop().catch(() => undefined);
       sessionRef.current?.leave().catch(() => undefined);
     };
@@ -306,6 +398,7 @@ export default function JitsiCallView({ sessionId, roomName, clientName, onConne
             {chunkStats.count > 0 && (
               <span style={{ color: "rgba(255,255,255,0.6)" }}>
                 &middot; {chunkStats.count} фрагм. &middot; {(chunkStats.bytes / 1024).toFixed(0)} КБ
+                {chunkStats.failed > 0 && <> &middot; <span style={{ color: "#EF4444" }}>{chunkStats.failed} не выгружено</span></>}
               </span>
             )}
           </div>
@@ -325,6 +418,8 @@ export default function JitsiCallView({ sessionId, roomName, clientName, onConne
     </div>
   );
 }
+
+export default forwardRef(JitsiCallView);
 
 function describeRecordingStatus(
   status: RecordingStatusSnapshot | null,
