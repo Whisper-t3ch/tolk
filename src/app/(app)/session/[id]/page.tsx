@@ -3,25 +3,32 @@ import { useState, useEffect, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PhoneOff, Clock, AlertTriangle } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
+import JitsiCallView from "@/components/JitsiCallView";
+import { buildJitsiRoomName } from "@/lib/jitsi";
 
 // ============================================================
-// Страница видеозвонка. Раньше вся видеочасть была анимированной
-// подделкой (случайный таймер "клиент подключился", статичная иконка
-// вместо потока, кнопки mic/cam ничего не переключали) поверх mock
-// clients — не реальной сессии из БД. Теперь:
-// - id в URL — это session_id (раньше передавался client_id, страница
-//   не могла достать конкретную сессию), данные грузятся через уже
-//   существующий GET /api/sessions/[id]/soap (там же лежит videoRoomUrl).
-// - Реальный Jitsi Meet через iframe (Jitsi Meet External API не
-//   обязателен для MVP — обычный iframe с параметрами конфигурации
-//   в query string работает и покрывает mic/cam toggle/leave через
-//   встроенный тулбар Jitsi, что снимает необходимость дублировать
-//   эти контролы в нашем UI).
+// Страница видеозвонка.
+//
+// 23.09: iframe на чужом домене (Jitsi Meet iframe API) заменён на
+// JitsiCallView — собственный UI звонка поверх lib-jitsi-meet
+// (src/lib/jitsi/connection.ts). Причина: same-origin policy не
+// давала получить MediaStream дорожки клиента изнутри iframe, поэтому
+// SessionRecorder (src/lib/recording/, написан и протестирован на
+// синтетических потоках ещё 22.09) был нечем кормить. JitsiCallView
+// сам поднимает звонок, преflight и запись — эта страница только
+// передаёт ему roomName/sessionId и держит таймер + заметки.
+//
+// - id в URL — это session_id, данные грузятся через уже
+//   существующий GET /api/sessions/[id]/soap (там же лежит videoRoomUrl,
+//   он больше не используется для отображения звонка, но поле в ответе
+//   API оставлено как есть — не трогаем контракт без необходимости).
 // - Заметки сохраняются в soap_notes.s_subjective через уже
-//   существующий PUT /api/sessions/[id]/soap (autosave с debounce),
-//   а не теряются при уходе со страницы.
-// - Если NEXT_PUBLIC_JITSI_DOMAIN ещё не настроен (ВМ не подключена),
-//   videoRoomUrl пустой — показываем понятный экран вместо мёртвого iframe.
+//   существующий PUT /api/sessions/[id]/soap (autosave с debounce).
+// - Собственной ВМ с Jitsi-инфраструктурой пока нет — JitsiCallView
+//   по умолчанию подключается к публичному meet.jit.si (см.
+//   src/lib/jitsi/config.ts) и показывает предупреждение об этом.
+//   Когда ВМ появится — NEXT_PUBLIC_JITSI_DOMAIN переключит и звонок,
+//   и запись на неё без изменений в этом файле.
 // ============================================================
 
 interface SessionSoapData {
@@ -45,6 +52,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
+  const [callConnected, setCallConnected] = useState(false);
   const [notes, setNotes] = useState("");
   const [ending, setEnding] = useState(false);
   const notesRef = useRef(notes);
@@ -71,15 +79,14 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     };
   }, [sessionId]);
 
-  // Таймер запускается только когда звонок реально показан (jitsiReady),
-  // а не с момента открытия страницы — раньше он тикал даже пока клиент
-  // читал заметки или ждал, пока подключится видео.
-  const jitsiReady = Boolean(data?.videoRoomUrl);
+  // Таймер запускается только когда звонок реально поднялся
+  // (JitsiCallView.onConnected), а не с момента открытия страницы —
+  // иначе он тикал бы даже пока идёт preflight/подключение к комнате.
   useEffect(() => {
-    if (!jitsiReady) return;
+    if (!callConnected) return;
     const interval = setInterval(() => setSeconds(s => s + 1), 1000);
     return () => clearInterval(interval);
-  }, [jitsiReady]);
+  }, [callConnected]);
 
   const saveNotes = useCallback(async (text: string) => {
     try {
@@ -141,46 +148,29 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         <Card className="h-full flex flex-col">
           <div style={{
             flex: 1,
-            background: "#1a2240",
             display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
             position: "relative",
             borderRadius: "8px 8px 0 0",
             overflow: "hidden",
           }}>
             {/* Таймер */}
-            <div style={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.5)", padding: "8px 12px", borderRadius: 8, zIndex: 2 }}>
+            <div style={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.5)", padding: "8px 12px", borderRadius: 8, zIndex: 4 }}>
               <Clock size={16} color="#fff" />
               <span style={{ color: "#fff", fontSize: 14, fontWeight: 600, fontFamily: "monospace" }}>
                 {formatTime(seconds)}
               </span>
             </div>
 
-            {jitsiReady ? (
-              <iframe
-                src={data.videoRoomUrl}
-                allow="camera; microphone; fullscreen; display-capture; autoplay"
-                style={{ width: "100%", height: "100%", border: "none" }}
-                title="Видеозвонок"
-              />
-            ) : (
-              <div style={{ textAlign: "center", padding: 24 }}>
-                <AlertTriangle size={40} style={{ color: "#F59E0B", marginBottom: 12 }} />
-                <p style={{ color: "#fff", fontSize: 14, maxWidth: 320, margin: "0 auto" }}>
-                  Видеосервер ещё не подключён. Заметки сессии сохраняются как обычно —
-                  звонок можно провести вне платформы, а протокол заполнить здесь.
-                </p>
-              </div>
-            )}
-
-            {/* Информация о клиенте */}
-            <div style={{ position: "absolute", bottom: 16, left: 16, background: "rgba(0,0,0,0.6)", padding: "10px 14px", borderRadius: 8, zIndex: 2 }}>
-              <div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>{data.clientName}</div>
-            </div>
+            <JitsiCallView
+              sessionId={sessionId}
+              roomName={buildJitsiRoomName(sessionId)}
+              clientName={data.clientName}
+              onConnected={() => setCallConnected(true)}
+            />
           </div>
 
-          {/* Контролы — mic/cam переключаются встроенным тулбаром Jitsi
-              внутри iframe, здесь остаётся только явное завершение сессии. */}
+          {/* Контролы mic/cam — внутри JitsiCallView; здесь остаётся
+              только явное завершение сессии. */}
           <CardContent className="pb-4 pt-4">
             <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
               <Button
