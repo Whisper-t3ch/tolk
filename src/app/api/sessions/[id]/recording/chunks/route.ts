@@ -1,27 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { extensionForMimeType } from "@/lib/recording/mime";
 
 // POST /api/sessions/[id]/recording/chunks
-// multipart/form-data: track, sequence, startedAtMs, durationMs, checksum,
-// mimeType, blob (файл). Отправляется src/lib/recording/uploader.ts из
-// браузера психолога — одна консультация, десятки вызовов (фрагмент
-// каждые ~20с на дорожку).
 //
-// Аутентификация — обычная cookie-сессия психолога (createClient(),
-// как в soap/route.ts), НЕ service role: это первый запрос в цепочке
-// Этапа 2, где реально нужна проверка "эта сессия принадлежит именно
-// этому психологу" перед тем, как положить байты в Storage — тот же
-// принцип владения, что у RLS-политик session_recording_chunks
-// (migration_036) и session-recordings (migration_037, см. её
-// комментарии про то, какая политика что разрешает).
+// ИЗМЕНЕНО 24.09.2026: раньше это был единственный шаг — сюда шёл
+// multipart/form-data с самим Blob фрагмента, route handler сам грузил
+// байты в Storage. Теперь это ВТОРОЙ шаг ("confirm") двухшаговой
+// схемы прямой загрузки:
+//   1. POST .../chunks/authorize — сервер выдаёт подписанный токен на
+//      конкретный путь (без байт, см. тот route).
+//   2. Браузер сам грузит Blob напрямую в Supabase Storage через
+//      uploadToSignedUrl (см. uploader.ts) — Vercel байты не видит.
+//   3. Этот route — маленький JSON-запрос с метаданными фрагмента,
+//      подтверждающий, что шаг 2 реально прошёл, и записывающий строку
+//      в session_recording_chunks.
 //
-// Идемпотентность: retry одного и того же фрагмента (see uploader.ts)
-// не должен плодить дубли и не должен считаться ошибкой — upsert и в
-// Storage (upload с upsert:true), и в БД (on_conflict по
-// session_id,track,sequence) делают повтор безопасным no-op с тем же
-// результатом.
+// Контракт с браузером (см. src/lib/recording/uploader.ts,
+// uploadOnce()) сознательно несовместим со старым multipart-контрактом
+// — это ломающее изменение API, но оправданное: пайплайн записи ни
+// разу не был живым (0 строк в session_recording_chunks на 24.09), так
+// что совместимость поддерживать не с чем.
+//
+// ЧЕСТНАЯ ОГОВОРКА ПРО ЦЕЛОСТНОСТЬ (регрессия, не скрывать): раньше
+// сервер сам считал sha256 от реальных байт ДО того, как положить их в
+// Storage, и мог гарантированно отвергнуть повреждённый фрагмент. Тут
+// сервер байт не видит вообще — checksum, который присылает браузер,
+// сервером НЕ пересчитывается и НЕ может быть пересчитан без скачивания
+// объекта обратно (что снова означало бы прогонять байты через Vercel
+// и убивало бы весь смысл прямой загрузки). Вместо этого здесь
+// проверяется только то, что объект действительно существует в
+// Storage по заявленному пути и что его реальный размер (из
+// Storage API, не от браузера) совпадает с заявленным — это ловит
+// случай "клиент соврал про confirm, а загрузки не было" или "загрузка
+// оборвалась на середине", но НЕ ловит побитово повреждённый, но
+// правильного размера файл. Полная проверка контейнера (WebM/fMP4
+// парсится и озвучивается корректно) в любом случае возможна только на
+// этапе сборки дорожки перед GigaAM (Этап 3) — там байты и так придётся
+// скачивать целиком, там и есть правильное место для сильной проверки,
+// не здесь.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = await params;
   const supabase = await createClient();
@@ -46,31 +63,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Сессия не найдена" }, { status: 404 });
   }
 
-  let form: FormData;
+  let body: {
+    track?: string;
+    sequence?: number;
+    startedAtMs?: number;
+    durationMs?: number;
+    checksum?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+  };
   try {
-    form = await request.formData();
+    body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Некорректное тело запроса (ожидался multipart/form-data)" }, { status: 400 });
+    return NextResponse.json({ error: "Некорректное тело запроса (ожидался JSON)" }, { status: 400 });
   }
 
-  const track = form.get("track");
-  const sequenceRaw = form.get("sequence");
-  const startedAtMsRaw = form.get("startedAtMs");
-  const durationMsRaw = form.get("durationMs");
-  const checksum = form.get("checksum");
-  const mimeType = form.get("mimeType");
-  const blob = form.get("blob");
+  const { track, sequence, startedAtMs, durationMs, checksum, mimeType, sizeBytes } = body;
 
   if (track !== "psychologist" && track !== "client") {
     return NextResponse.json({ error: "track должен быть 'psychologist' или 'client'" }, { status: 400 });
   }
-  const sequence = Number(sequenceRaw);
-  const startedAtMs = Number(startedAtMsRaw);
-  const durationMs = Number(durationMsRaw);
-  if (!Number.isInteger(sequence) || sequence < 0) {
+  if (!Number.isInteger(sequence) || (sequence as number) < 0) {
     return NextResponse.json({ error: "sequence должен быть неотрицательным целым" }, { status: 400 });
   }
-  if (!Number.isFinite(startedAtMs) || startedAtMs < 0 || !Number.isFinite(durationMs) || durationMs < 0) {
+  if (!Number.isFinite(startedAtMs) || (startedAtMs as number) < 0 || !Number.isFinite(durationMs) || (durationMs as number) < 0) {
     return NextResponse.json({ error: "startedAtMs/durationMs некорректны" }, { status: 400 });
   }
   if (typeof checksum !== "string" || !checksum.startsWith("sha256:")) {
@@ -79,32 +95,43 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (typeof mimeType !== "string" || !mimeType) {
     return NextResponse.json({ error: "mimeType обязателен" }, { status: 400 });
   }
-  if (!(blob instanceof Blob) || blob.size === 0) {
-    return NextResponse.json({ error: "blob отсутствует или пуст" }, { status: 400 });
-  }
-
-  const buffer = Buffer.from(await blob.arrayBuffer());
-
-  // Сверка checksum ДО записи куда-либо — фрагмент, дошедший битым
-  // (оборванная выгрузка, сбойный прокси), не должен попасть ни в
-  // Storage, ни в реестр: иначе backend решит, что фрагмент цел, а
-  // при сборке дорожки получит повреждённый контейнер.
-  const actualChecksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
-  if (actualChecksum !== checksum) {
-    return NextResponse.json(
-      { error: "checksum не совпал — фрагмент дошёл повреждённым, нужен повтор" },
-      { status: 422 }
-    );
+  if (!Number.isFinite(sizeBytes) || (sizeBytes as number) <= 0) {
+    return NextResponse.json({ error: "sizeBytes обязателен и должен быть положительным" }, { status: 400 });
   }
 
   const ext = extensionForMimeType(mimeType);
   const storageKey = `recordings/${sessionId}/${track}/${String(sequence).padStart(6, "0")}.${ext}`;
+  const folder = `recordings/${sessionId}/${track}`;
+  const filename = `${String(sequence).padStart(6, "0")}.${ext}`;
 
-  const { error: uploadError } = await supabase.storage
+  // Единственная проверка, доступная серверу без скачивания байт:
+  // объект реально лежит в Storage по этому пути, и его размер (из
+  // Storage API, source of truth) совпадает с тем, что заявил браузер.
+  // См. оговорку про целостность в комментарии к route выше.
+  const { data: listing, error: listError } = await supabase.storage
     .from("session-recordings")
-    .upload(storageKey, buffer, { contentType: mimeType, upsert: true });
-  if (uploadError) {
-    return NextResponse.json({ error: `Не удалось сохранить фрагмент в хранилище: ${uploadError.message}` }, { status: 502 });
+    .list(folder, { search: filename, limit: 1 });
+  if (listError) {
+    return NextResponse.json(
+      { error: `Не удалось проверить наличие фрагмента в хранилище: ${listError.message}` },
+      { status: 502 }
+    );
+  }
+  const stored = listing?.find(f => f.name === filename);
+  if (!stored) {
+    return NextResponse.json(
+      { error: "Фрагмент не найден в хранилище — похоже, прямая загрузка не завершилась" },
+      { status: 409 }
+    );
+  }
+  const storedSize = stored.metadata?.size;
+  if (typeof storedSize === "number" && storedSize !== sizeBytes) {
+    return NextResponse.json(
+      {
+        error: `Размер в хранилище (${storedSize}) не совпал с заявленным (${sizeBytes}) — похоже, загрузка оборвалась`,
+      },
+      { status: 422 }
+    );
   }
 
   const { error: insertError } = await supabase
@@ -116,10 +143,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         sequence,
         storage_key: storageKey,
         mime_type: mimeType,
-        size_bytes: buffer.byteLength,
+        size_bytes: sizeBytes,
         checksum,
-        started_at_ms: Math.round(startedAtMs),
-        duration_ms: Math.round(durationMs),
+        started_at_ms: Math.round(startedAtMs as number),
+        duration_ms: Math.round(durationMs as number),
       },
       { onConflict: "session_id,track,sequence" }
     );

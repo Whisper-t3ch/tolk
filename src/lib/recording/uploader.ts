@@ -1,14 +1,36 @@
 // ============================================================
 // Выгрузка фрагментов записи на backend (Этап 2 архитектуры).
 //
-// Последовательность на фрагмент (см. architecture-spec, раздел
+// ИЗМЕНЕНО 24.09.2026 — прямая загрузка в Storage вместо проксирования
+// байт через Vercel:
+//   1. authorize: маленький JSON-запрос на
+//      /api/sessions/[id]/recording/chunks/authorize — сервер проверяет
+//      владение сессией и выдаёт подписанный Supabase-токен на
+//      конкретный путь (createSignedUploadUrl, upsert:true — важно для
+//      идемпотентности retry, см. ниже).
+//   2. upload: Blob фрагмента грузится НАПРЯМУЮ в Supabase Storage из
+//      браузера через uploadToSignedUrl — Vercel эти байты не видит и
+//      не тратит на них execution time/квоту serverless-функции.
+//   3. confirm: маленький JSON-запрос на .../recording/chunks (теперь
+//      это JSON-only endpoint, не multipart) с метаданными фрагмента —
+//      сервер сверяет размер объекта в Storage (не байты) и пишет
+//      строку в session_recording_chunks.
+//
+// Раньше (до этого изменения) шаг был один: multipart/form-data POST с
+// самим Blob на /recording/chunks, backend сам грузил байты в Storage.
+// Работало, но каждый фрагмент дважды проезжал через Vercel serverless
+// function — лишний прыжок, который сейчас устранён. См. комментарии в
+// route.ts обоих эндпоинтов для деталей и честной оговорки про то, что
+// сервер больше не пересчитывает checksum от реальных байт (это теперь
+// делается только на этапе сборки дорожки перед GigaAM, Этап 3).
+//
+// Последовательность на фрагмент (архитектурный документ, раздел
 // "Запись фрагментами"): получить Blob → сохранить в IndexedDB
-// (chunkStore.ts, ДО первой попытки) → отправить на backend
-// (/api/sessions/[id]/recording/chunks) → удалить из IndexedDB по
-// подтверждению. Backend хранит идемпотентность через уникальность
-// (session_id, track, sequence) и upsert и в БД, и в Storage — поэтому
-// повторная отправка одного и того же фрагмента при retry безопасна и
-// не создаёт дублей.
+// (chunkStore.ts, ДО первой попытки) → authorize → upload → confirm →
+// удалить из IndexedDB по подтверждению. Backend хранит идемпотентность
+// через уникальность (session_id, track, sequence) и upsert и в БД, и
+// в Storage (upsert:true на signed URL) — поэтому повторная отправка
+// одного и того же фрагмента при retry безопасна и не создаёт дублей.
 //
 // Namespace для двух дорожек не разделяется: очередь общая, но каждый
 // фрагмент несёт свою role/sequence, backend раскладывает по треку сам.
@@ -18,14 +40,19 @@ import type { RecordedChunk } from "./types";
 import type { RecordingManifest } from "./types";
 import type { RecordingStatusSnapshot } from "./sessionRecorder";
 import { putPendingChunk, deletePendingChunk, getAllPendingChunks } from "./chunkStore";
+import { createClient } from "@/lib/supabase/client";
 
 const RETRY_DELAYS_MS = [1000, 3000, 8000, 20000, 60000];
 const MAX_RETRIES = RETRY_DELAYS_MS.length;
+
+const RECORDING_BUCKET = "session-recordings";
 
 export interface ChunkUploaderOptions {
   sessionId: string;
   /** Подменяется в тестах; по умолчанию — глобальный fetch. */
   fetchImpl?: typeof fetch;
+  /** Подменяется в тестах; по умолчанию — обычный browser Supabase client. */
+  storageClient?: ReturnType<typeof createClient>;
   onChunkUploaded?: (chunk: RecordedChunk) => void;
   /** Фрагмент исчерпал все попытки retry — backend недоступен слишком долго. */
   onChunkGaveUp?: (chunk: RecordedChunk, error: Error) => void;
@@ -38,6 +65,7 @@ export interface ChunkUploaderOptions {
 export class ChunkUploader {
   private readonly sessionId: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly storage: ReturnType<typeof createClient>;
   private readonly onChunkUploaded?: (chunk: RecordedChunk) => void;
   private readonly onChunkGaveUp?: (chunk: RecordedChunk, error: Error) => void;
   /** Незавершённые задачи выгрузки (включая retry-цепочку) — нужно для waitForIdle(). */
@@ -46,6 +74,7 @@ export class ChunkUploader {
   constructor(options: ChunkUploaderOptions) {
     this.sessionId = options.sessionId;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.storage = options.storageClient ?? createClient();
     this.onChunkUploaded = options.onChunkUploaded;
     this.onChunkGaveUp = options.onChunkGaveUp;
   }
@@ -125,24 +154,64 @@ export class ChunkUploader {
     }
   }
 
+  /**
+   * Три шага: authorize (JSON, маленький) → upload (Blob, напрямую в
+   * Storage, Vercel не видит) → confirm (JSON, маленький). Если
+   * ЛЮБОЙ из трёх шагов упал — весь метод бросает, uploadWithRetry
+   * повторит все три шага заново с нуля (не пытается продолжить с
+   * середины — так проще рассуждать о состоянии, а upsert:true на
+   * signed URL и upsert в БД делают повтор с начала безопасным).
+   */
   private async uploadOnce(chunk: RecordedChunk): Promise<void> {
-    const form = new FormData();
-    form.set("track", chunk.role);
-    form.set("sequence", String(chunk.sequence));
-    form.set("startedAtMs", String(chunk.startedAtMs));
-    form.set("durationMs", String(chunk.durationMs));
-    form.set("checksum", chunk.checksum);
-    form.set("mimeType", chunk.mimeType);
-    form.set("blob", chunk.blob, `${chunk.sequence}`);
+    const authorizeResponse = await this.fetchImpl(
+      `/api/sessions/${this.sessionId}/recording/chunks/authorize`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          track: chunk.role,
+          sequence: chunk.sequence,
+          mimeType: chunk.mimeType,
+        }),
+      }
+    );
+    if (!authorizeResponse.ok) {
+      const text = await authorizeResponse.text().catch(() => "");
+      throw new Error(
+        `Не удалось получить разрешение на загрузку фрагмента ${chunk.role}#${chunk.sequence}: ${authorizeResponse.status} ${text}`
+      );
+    }
+    const authorized = (await authorizeResponse.json()) as { path: string; token: string };
 
-    const response = await this.fetchImpl(`/api/sessions/${this.sessionId}/recording/chunks`, {
+    const { error: uploadError } = await this.storage.storage
+      .from(RECORDING_BUCKET)
+      .uploadToSignedUrl(authorized.path, authorized.token, chunk.blob, {
+        contentType: chunk.mimeType,
+      });
+    if (uploadError) {
+      throw new Error(
+        `Прямая загрузка фрагмента ${chunk.role}#${chunk.sequence} в хранилище не удалась: ${uploadError.message}`
+      );
+    }
+
+    const confirmResponse = await this.fetchImpl(`/api/sessions/${this.sessionId}/recording/chunks`, {
       method: "POST",
-      body: form,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        track: chunk.role,
+        sequence: chunk.sequence,
+        startedAtMs: chunk.startedAtMs,
+        durationMs: chunk.durationMs,
+        checksum: chunk.checksum,
+        mimeType: chunk.mimeType,
+        sizeBytes: chunk.size,
+      }),
     });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`Выгрузка фрагмента ${chunk.role}#${chunk.sequence} не удалась: ${response.status} ${text}`);
+    if (!confirmResponse.ok) {
+      const text = await confirmResponse.text().catch(() => "");
+      throw new Error(
+        `Подтверждение фрагмента ${chunk.role}#${chunk.sequence} не удалось: ${confirmResponse.status} ${text}`
+      );
     }
   }
 
