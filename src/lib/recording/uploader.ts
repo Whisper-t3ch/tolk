@@ -47,6 +47,16 @@ const MAX_RETRIES = RETRY_DELAYS_MS.length;
 
 const RECORDING_BUCKET = "session-recordings";
 
+/**
+ * Ошибка, повтор которой заведомо не поможет — тот же запрос с тем же
+ * телом снова получит тот же 4xx (например, 409 "коллизия checksum на
+ * confirm", см. route.ts). uploadWithRetry прекращает попытки сразу,
+ * не тратя всю цепочку RETRY_DELAYS_MS впустую (~90с) на то, что не
+ * может исправиться само. Добавлено 24.09 вместе с идемпотентной
+ * проверкой на confirm-эндпоинте.
+ */
+class NonRetryableUploadError extends Error {}
+
 export interface ChunkUploaderOptions {
   sessionId: string;
   /** Подменяется в тестах; по умолчанию — глобальный fetch. */
@@ -141,6 +151,14 @@ export class ChunkUploader {
       this.onChunkUploaded?.(chunk);
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
+      if (error instanceof NonRetryableUploadError) {
+        // 4xx от authorize/confirm — тот же запрос с тем же телом
+        // снова получит тот же ответ (например, 409-коллизия
+        // checksum). Повтор не поможет, сразу считаем попытки
+        // исчерпанными вместо ~90с бессмысленных retry.
+        this.onChunkGaveUp?.(chunk, error);
+        return;
+      }
       if (attempt >= MAX_RETRIES) {
         // Фрагмент остаётся в IndexedDB — при следующем flushPending()
         // (например, новая попытка heartbeat нашла живую сеть) будет
@@ -177,9 +195,11 @@ export class ChunkUploader {
     );
     if (!authorizeResponse.ok) {
       const text = await authorizeResponse.text().catch(() => "");
-      throw new Error(
-        `Не удалось получить разрешение на загрузку фрагмента ${chunk.role}#${chunk.sequence}: ${authorizeResponse.status} ${text}`
-      );
+      const message = `Не удалось получить разрешение на загрузку фрагмента ${chunk.role}#${chunk.sequence}: ${authorizeResponse.status} ${text}`;
+      if (authorizeResponse.status >= 400 && authorizeResponse.status < 500) {
+        throw new NonRetryableUploadError(message);
+      }
+      throw new Error(message);
     }
     const authorized = (await authorizeResponse.json()) as { path: string; token: string };
 
@@ -209,9 +229,13 @@ export class ChunkUploader {
     });
     if (!confirmResponse.ok) {
       const text = await confirmResponse.text().catch(() => "");
-      throw new Error(
-        `Подтверждение фрагмента ${chunk.role}#${chunk.sequence} не удалось: ${confirmResponse.status} ${text}`
-      );
+      const message = `Подтверждение фрагмента ${chunk.role}#${chunk.sequence} не удалось: ${confirmResponse.status} ${text}`;
+      if (confirmResponse.status >= 400 && confirmResponse.status < 500) {
+        // 409 "коллизия checksum" (см. route.ts) чаще всего — 4xx в
+        // принципе не тот случай, где повтор того же тела спасает.
+        throw new NonRetryableUploadError(message);
+      }
+      throw new Error(message);
     }
   }
 
