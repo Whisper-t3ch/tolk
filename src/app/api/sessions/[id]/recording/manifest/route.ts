@@ -38,6 +38,14 @@ interface ManifestBody {
   sessionId?: string;
   startedAt?: string;
   finishedAt?: string;
+  /**
+   * recording_attempt_id этой попытки (см. migration_038_recording_
+   * attempt_id.sql) — ChunkUploader.sendManifest() подставляет его из
+   * своего закэшированного attemptId. null только если за всю попытку
+   * не выгрузили ни одного фрагмента (тогда фильтр по attempt_id ниже
+   * не применяется — см. validateTrack).
+   */
+  attemptId?: string | null;
   tracks?: ManifestTrack[];
 }
 
@@ -50,14 +58,29 @@ interface TrackValidation {
 async function validateTrack(
   supabase: SupabaseClient,
   sessionId: string,
+  attemptId: string | null,
   track: ManifestTrack
 ): Promise<TrackValidation> {
-  const { data: rows, error } = await supabase
+  // ВАЖНО (24.09, вместе с migration_038): фильтр по recording_attempt_id
+  // обязателен, если он известен. Без него при НЕСКОЛЬКИХ попытках
+  // записи одной сессии (психолог перезагрузил вкладку) здесь бы
+  // суммировались фрагменты из РАЗНЫХ попыток с независимой
+  // нумерацией sequence с нуля в каждой — это выглядело бы как
+  // "дубли"/"дыры в нумерации", хотя реально это просто две разные
+  // попытки. attemptId=null (за всю попытку не выгружено ни одного
+  // фрагмента) — единственный случай, когда фильтр опускается и
+  // сверка идёт по всей сессии; в этом случае track.chunkCount по
+  // manifest тоже 0, так что расхождение обнаружится, если в БД
+  // внезапно НЕ 0 строк.
+  let query = supabase
     .from("session_recording_chunks")
     .select("sequence")
     .eq("session_id", sessionId)
-    .eq("track", track.role)
-    .order("sequence", { ascending: true });
+    .eq("track", track.role);
+  if (attemptId) {
+    query = query.eq("recording_attempt_id", attemptId);
+  }
+  const { data: rows, error } = await query.order("sequence", { ascending: true });
 
   if (error) {
     return { role: track.role, ok: false, reason: `Не удалось прочитать реестр фрагментов: ${error.message}` };
@@ -136,7 +159,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "tracks обязателен и не может быть пустым" }, { status: 400 });
   }
 
-  const validations = await Promise.all(body.tracks.map(track => validateTrack(supabase, sessionId, track)));
+  const attemptId = body.attemptId ?? null;
+  const validations = await Promise.all(body.tracks.map(track => validateTrack(supabase, sessionId, attemptId, track)));
   const allOk = validations.every(v => v.ok);
   const finalStatus = allOk ? "processing" : "incomplete";
 

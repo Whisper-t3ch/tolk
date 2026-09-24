@@ -76,6 +76,19 @@ export interface RecordingManifest {
   sessionId: string;
   startedAt: string;
   finishedAt: string;
+  /**
+   * recording_attempt_id этой попытки записи (см. .../recording/
+   * attempts/route.ts и migration_038_recording_attempt_id.sql).
+   * Подставляется в ChunkUploader.sendManifest() из его собственного
+   * закэшированного attemptId, не отсюда — SessionRecorder ничего не
+   * знает про attempt_id, это забота uploader'а. null — только если
+   * ни один фрагмент так и не пытались выгрузить за всю попытку
+   * (например, консультация завершилась мгновенно после preflight);
+   * backend в этом случае не сможет отфильтровать проверку по
+   * попытке и сверяет по сессии в целом (см. комментарий в
+   * .../recording/manifest/route.ts).
+   */
+  attemptId?: string | null;
   tracks: Array<{
     role: TrackRole;
     mimeType: string | null;

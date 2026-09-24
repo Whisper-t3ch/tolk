@@ -1,35 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { extensionForMimeType } from "@/lib/recording/mime";
 
 // POST /api/sessions/[id]/recording/chunks/authorize
 //
-// Первый шаг прямой (не через Vercel) выгрузки фрагмента. Раньше
-// (до 24.09) весь Blob фрагмента шёл в теле POST-запроса на
-// /api/sessions/[id]/recording/chunks, и route handler сам грузил
-// байты в Storage через supabase.storage(...).upload() — то есть
-// каждый фрагмент дважды проезжал через Vercel serverless function
-// (один HTTP-запрос браузер→Vercel, один Vercel→Supabase). Это
-// работало (chunks в этой архитектуре маленькие — opus 20с ~100-200KB,
-// далеко от лимита тела запроса Vercel), но лишний прыжок через
-// serverless-функцию не нужен и упирается в её лимиты при более
-// крупных фрагментах или худшем битрейте.
+// ПЕРЕРАБОТАНО 24.09.2026 по прямому требованию пользователя —
+// закрывает конкретную проблему "коллизия байтов в Storage до JSON-
+// подтверждения": прежняя идемпотентная проверка на confirm (409 при
+// несовпадении checksum) защищала только строку в БД, а не физический
+// объект — к моменту confirm-проверки Blob уже мог лежать в Storage
+// поверх старого, потому что upsert:true на этом route разрешал
+// перезапись БЕЗ КАКИХ-ЛИБО условий, а путь строился только из
+// (session_id, track, sequence) — того же ключа, что заново начинался
+// с нуля при каждой перезагрузке вкладки психолога.
 //
-// Теперь: этот route НЕ видит байт фрагмента вообще. Он только
-// проверяет, что сессия принадлежит психологу (тот же owner-check,
-// что был в старом chunks route), и выдаёт Supabase-подписанный токен
-// на загрузку в ЗАРАНЕЕ ВЫЧИСЛЕННЫЙ путь — createSignedUploadUrl()
-// требует INSERT-права на storage.objects ПРЯМО В МОМЕНТ выдачи
-// токена (RLS-политика migration_037, тот же JOIN на
-// sessions.psychologist_id, что и раньше) — то есть проверка владения
-// никуда не делась, просто переместилась на шаг раньше. upsert:true
-// нужен, чтобы повторная попытка (см. uploader.ts retry) могла
-// перезаписать тот же путь, а не упасть на "уже существует".
+// Два независимых изменения:
 //
-// Дальше браузер сам грузит Blob напрямую в Supabase Storage
-// (uploadToSignedUrl, минуя Vercel полностью) и зовёт
-// /recording/chunks (теперь JSON-only "confirm" endpoint, см. тот
-// route) с метаданными, БЕЗ байт.
+//   1) Путь объекта больше не (session_id, track, sequence), а
+//      (session_id, recording_attempt_id, track, sequence) — см.
+//      migration_038_recording_attempt_id.sql. attempt_id браузер
+//      получает от .../recording/attempts (тоже новое, см. тот route)
+//      и присылает сюда как есть; этот route НЕ генерирует его сам и
+//      не принимает путь целиком от браузера — только сырые поля,
+//      путь вычисляется здесь.
+//
+//   2) upsert:true выдаётся signed URL ТОЛЬКО если для этого
+//      (attempt_id, track, sequence) ЕЩЁ НЕТ подтверждённой строки в
+//      session_recording_chunks. Если строка УЖЕ подтверждена —
+//      НИКАКОЙ новый токен не выдаётся вообще (ни с upsert, ни без) —
+//      это и есть буквальное требование "нельзя выдавать новую
+//      возможность записи по пути уже подтверждённого chunk". Вместо
+//      токена возвращается alreadyConfirmed:true — ChunkUploader (см.
+//      uploader.ts) интерпретирует это как "этот фрагмент уже
+//      реально долетел в прошлый раз, просто ответ не дошёл до
+//      браузера" и не делает upload/confirm заново, сразу считает
+//      фрагмент выгруженным.
+//
+//      upsert:true для НЕ-подтверждённых путей осознанно оставлен —
+//      это безопасный повтор незавершённой попытки (authorize прошёл,
+//      upload прервался или confirm не дошёл) на путь, где ещё нет
+//      подтверждённых данных, которые можно было бы испортить.
+//      Технически это НЕ "upsert решает коллизию" (пользователь прав,
+//      что предполагать это нельзя) — коллизию решает разделение
+//      путей по attempt_id; upsert здесь остаётся только ради
+//      идемпотентности retry ВНУТРИ одной ещё не подтверждённой
+//      попытки записи одного и того же фрагмента, где перезапись
+//      ничего ценного не уничтожает.
+//
+// Владение сессией по-прежнему проверяется обычным cookie-сессионным
+// клиентом (createClient() из ./server.ts) ДО какого-либо обращения к
+// admin-клиенту — см. комментарий в src/lib/supabase/admin.ts про то,
+// почему здесь вообще появился service-role и что он НЕ закрывает сам
+// по себе (RLS storage.objects всё ещё разрешает психологу писать в
+// обход этого route напрямую — отдельный, пока не применённый пункт
+// миграции).
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = await params;
   const supabase = await createClient();
@@ -54,14 +79,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Сессия не найдена" }, { status: 404 });
   }
 
-  let body: { track?: string; sequence?: number; mimeType?: string };
+  let body: { attemptId?: string; track?: string; sequence?: number; mimeType?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Некорректное тело запроса" }, { status: 400 });
   }
 
-  const { track, sequence, mimeType } = body;
+  const { attemptId, track, sequence, mimeType } = body;
+  if (typeof attemptId !== "string" || !attemptId) {
+    return NextResponse.json({ error: "attemptId обязателен" }, { status: 400 });
+  }
   if (track !== "psychologist" && track !== "client") {
     return NextResponse.json({ error: "track должен быть 'psychologist' или 'client'" }, { status: 400 });
   }
@@ -72,10 +100,52 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "mimeType обязателен" }, { status: 400 });
   }
 
-  const ext = extensionForMimeType(mimeType);
-  const storageKey = `recordings/${sessionId}/${track}/${String(sequence).padStart(6, "0")}.${ext}`;
+  // attemptId обязан принадлежать ЭТОЙ сессии — та же RLS-гарантия,
+  // что действует в /recording/attempts на создании (own_recording_
+  // attempts_select), проверяем явно здесь ещё раз, а не полагаемся
+  // только на то, что клиент "честно" переслал то, что получил.
+  const { data: attempt, error: attemptError } = await supabase
+    .from("recording_attempts")
+    .select("id")
+    .eq("id", attemptId)
+    .eq("session_id", sessionId)
+    .maybeSingle();
+  if (attemptError) {
+    return NextResponse.json({ error: attemptError.message }, { status: 500 });
+  }
+  if (!attempt) {
+    return NextResponse.json(
+      { error: "attemptId не найден для этой сессии — вызовите /recording/attempts заново" },
+      { status: 404 }
+    );
+  }
 
-  const { data, error } = await supabase.storage
+  // Нельзя выдавать новую возможность записи по пути уже
+  // подтверждённого chunk — ни с upsert, ни без. Если строка уже
+  // есть, upload на самом деле не нужен: сигнализируем об этом вместо
+  // токена.
+  const { data: existingChunk, error: existingError } = await supabase
+    .from("session_recording_chunks")
+    .select("id")
+    .eq("recording_attempt_id", attemptId)
+    .eq("track", track)
+    .eq("sequence", sequence)
+    .maybeSingle();
+  if (existingError) {
+    return NextResponse.json({ error: existingError.message }, { status: 500 });
+  }
+  if (existingChunk) {
+    return NextResponse.json({ ok: true, alreadyConfirmed: true });
+  }
+
+  const ext = extensionForMimeType(mimeType);
+  const storageKey = `${sessionId}/${attemptId}/${track}/${String(sequence).padStart(6, "0")}.${ext}`;
+
+  // service-role — ТОЛЬКО для этого вызова, ТОЛЬКО после владения и
+  // "не подтверждён ли уже" проверенных выше через RLS-клиент. См.
+  // комментарий в src/lib/supabase/admin.ts.
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage
     .from("session-recordings")
     .createSignedUploadUrl(storageKey, { upsert: true });
 
@@ -88,6 +158,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   return NextResponse.json({
     ok: true,
+    alreadyConfirmed: false,
     path: data.path,
     token: data.token,
     signedUrl: data.signedUrl,

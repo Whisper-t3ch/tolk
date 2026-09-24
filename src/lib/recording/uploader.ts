@@ -1,39 +1,62 @@
 // ============================================================
 // Выгрузка фрагментов записи на backend (Этап 2 архитектуры).
 //
-// ИЗМЕНЕНО 24.09.2026 — прямая загрузка в Storage вместо проксирования
-// байт через Vercel:
+// 24.09.2026 — прямая загрузка в Storage вместо проксирования байт
+// через Vercel:
+//   0. ensureAttempt (новое, тот же день, вторая правка): один раз за
+//      время жизни этого ChunkUploader — POST .../recording/attempts,
+//      сервер сам генерирует recording_attempt_id (см. тот route и
+//      migration_038_recording_attempt_id.sql) и с этого момента
+//      участвует в КАЖДОМ authorize/confirm запросе этого uploader'а.
+//      Перезагрузка вкладки создаёт новый ChunkUploader → новый
+//      attempt_id → новый префикс пути в Storage — коллизия путей
+//      между "старой" и "новой" попыткой записи одной консультации
+//      структурно невозможна, а не просто поймана постфактум.
 //   1. authorize: маленький JSON-запрос на
-//      /api/sessions/[id]/recording/chunks/authorize — сервер проверяет
-//      владение сессией и выдаёт подписанный Supabase-токен на
-//      конкретный путь (createSignedUploadUrl, upsert:true — важно для
-//      идемпотентности retry, см. ниже).
-//   2. upload: Blob фрагмента грузится НАПРЯМУЮ в Supabase Storage из
-//      браузера через uploadToSignedUrl — Vercel эти байты не видит и
-//      не тратит на них execution time/квоту serverless-функции.
-//   3. confirm: маленький JSON-запрос на .../recording/chunks (теперь
-//      это JSON-only endpoint, не multipart) с метаданными фрагмента —
+//      /api/sessions/[id]/recording/chunks/authorize (теперь включает
+//      attemptId) — сервер проверяет владение сессией и attempt_id, и
+//      либо отвечает alreadyConfirmed:true (этот фрагмент уже реально
+//      долетел в прошлый раз — см. ниже), либо выдаёт подписанный
+//      Supabase-токен на конкретный путь. upsert:true на этом токене
+//      выдаётся ТОЛЬКО если фрагмент ещё НЕ подтверждён — см.
+//      комментарий в route.ts, почему это больше не "upsert решает
+//      коллизию", а просто безопасный retry внутри ещё не
+//      подтверждённой попытки.
+//   2. upload (пропускается, если authorize вернул alreadyConfirmed):
+//      Blob фрагмента грузится НАПРЯМУЮ в Supabase Storage из браузера
+//      через uploadToSignedUrl — Vercel эти байты не видит.
+//   3. confirm (тоже пропускается при alreadyConfirmed): маленький
+//      JSON-запрос на .../recording/chunks с метаданными фрагмента —
 //      сервер сверяет размер объекта в Storage (не байты) и пишет
 //      строку в session_recording_chunks.
 //
-// Раньше (до этого изменения) шаг был один: multipart/form-data POST с
-// самим Blob на /recording/chunks, backend сам грузил байты в Storage.
-// Работало, но каждый фрагмент дважды проезжал через Vercel serverless
-// function — лишний прыжок, который сейчас устранён. См. комментарии в
-// route.ts обоих эндпоинтов для деталей и честной оговорки про то, что
-// сервер больше не пересчитывает checksum от реальных байт (это теперь
-// делается только на этапе сборки дорожки перед GigaAM, Этап 3).
+// alreadyConfirmed — это НЕ то же самое, что "upsert решает
+// идемпотентность": это ответ на вопрос "если браузер честно не
+// получил ответ confirm в прошлый раз (сеть оборвалась ПОСЛЕ того,
+// как сервер уже записал строку), нужно ли гонять Blob повторно?" —
+// нет, потому что сервер уже знает, что этот (attempt_id, track,
+// sequence) подтверждён, и НЕ выдаст новый токен на его перезапись
+// (см. route.ts) — простой ретрай с начала (authorize→upload→confirm)
+// в этом случае просто получает alreadyConfirmed:true на первом же
+// шаге вместо токена, ничего заново не грузит.
+//
+// Раньше (до 24.09) шаг был один: multipart/form-data POST с самим
+// Blob на /recording/chunks, backend сам грузил байты в Storage —
+// каждый фрагмент дважды проезжал через Vercel serverless function.
+// См. комментарии в route.ts обоих эндпоинтов про честную оговорку о
+// том, что сервер не пересчитывает checksum от реальных байт (это
+// теперь делается только на этапе сборки дорожки перед GigaAM, Этап 3).
 //
 // Последовательность на фрагмент (архитектурный документ, раздел
 // "Запись фрагментами"): получить Blob → сохранить в IndexedDB
-// (chunkStore.ts, ДО первой попытки) → authorize → upload → confirm →
-// удалить из IndexedDB по подтверждению. Backend хранит идемпотентность
-// через уникальность (session_id, track, sequence) и upsert и в БД, и
-// в Storage (upsert:true на signed URL) — поэтому повторная отправка
-// одного и того же фрагмента при retry безопасна и не создаёт дублей.
+// (chunkStore.ts, ДО первой попытки) → ensureAttempt → authorize →
+// upload → confirm → удалить из IndexedDB по подтверждению.
 //
 // Namespace для двух дорожек не разделяется: очередь общая, но каждый
 // фрагмент несёт свою role/sequence, backend раскладывает по треку сам.
+// Обе дорожки одного uploader'а используют ОДИН И ТОТ ЖЕ attempt_id —
+// это одна попытка записи консультации, а не отдельная попытка на
+// дорожку.
 // ============================================================
 
 import type { RecordedChunk } from "./types";
@@ -80,6 +103,15 @@ export class ChunkUploader {
   private readonly onChunkGaveUp?: (chunk: RecordedChunk, error: Error) => void;
   /** Незавершённые задачи выгрузки (включая retry-цепочку) — нужно для waitForIdle(). */
   private readonly inFlight = new Map<string, Promise<void>>();
+  /**
+   * Кэш recording_attempt_id для этого uploader'а (см. ensureAttempt()
+   * ниже) — один на весь его жизненный цикл, обе дорожки его
+   * переиспользуют. null, пока ни один фрагмент ещё не пытались
+   * выгрузить.
+   */
+  private attemptId: string | null = null;
+  /** В процессе запроса на создание попытки — чтобы конкурентные вызовы ensureAttempt() не создали две попытки разом. */
+  private attemptRequest: Promise<string> | null = null;
 
   constructor(options: ChunkUploaderOptions) {
     this.sessionId = options.sessionId;
@@ -173,20 +205,61 @@ export class ChunkUploader {
   }
 
   /**
-   * Три шага: authorize (JSON, маленький) → upload (Blob, напрямую в
-   * Storage, Vercel не видит) → confirm (JSON, маленький). Если
-   * ЛЮБОЙ из трёх шагов упал — весь метод бросает, uploadWithRetry
-   * повторит все три шага заново с нуля (не пытается продолжить с
-   * середины — так проще рассуждать о состоянии, а upsert:true на
-   * signed URL и upsert в БД делают повтор с начала безопасным).
+   * Один раз за время жизни этого uploader'а получает серверный
+   * recording_attempt_id (см. .../recording/attempts/route.ts).
+   * Конкурентные вызовы (несколько фрагментов enqueue'ятся почти
+   * одновременно) синхронно видят один и тот же ещё не завершённый
+   * attemptRequest и ждут его же — не создают вторую попытку. При
+   * неудаче attemptRequest сбрасывается, чтобы следующий вызов
+   * (следующий фрагмент или retry того же) попробовал заново, а не
+   * навсегда остался с отклонённым промисом; attemptId, наоборот,
+   * выставляется ТОЛЬКО при успехе и после этого больше никогда не
+   * запрашивается заново — все фрагменты обеих дорожек этого
+   * uploader'а обязаны попасть в одну и ту же попытку записи.
+   */
+  private async ensureAttempt(): Promise<string> {
+    if (this.attemptId) return this.attemptId;
+    if (!this.attemptRequest) {
+      this.attemptRequest = (async () => {
+        const response = await this.fetchImpl(`/api/sessions/${this.sessionId}/recording/attempts`, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(`Не удалось создать попытку записи: ${response.status} ${text}`);
+        }
+        const data = (await response.json()) as { attemptId: string };
+        return data.attemptId;
+      })();
+    }
+    try {
+      const id = await this.attemptRequest;
+      this.attemptId = id;
+      return id;
+    } finally {
+      this.attemptRequest = null;
+    }
+  }
+
+  /**
+   * Четыре шага: ensureAttempt → authorize (JSON, маленький) → upload
+   * (Blob, напрямую в Storage, Vercel не видит) → confirm (JSON,
+   * маленький) — либо authorize сразу отвечает alreadyConfirmed:true и
+   * шаги upload/confirm пропускаются целиком (см. заголовок файла).
+   * Если ЛЮБОЙ из шагов упал — весь метод бросает, uploadWithRetry
+   * повторит с нуля (кроме attemptId — он к этому моменту уже
+   * закэширован и повторно не запрашивается, см. ensureAttempt()).
    */
   private async uploadOnce(chunk: RecordedChunk): Promise<void> {
+    const attemptId = await this.ensureAttempt();
+
     const authorizeResponse = await this.fetchImpl(
       `/api/sessions/${this.sessionId}/recording/chunks/authorize`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          attemptId,
           track: chunk.role,
           sequence: chunk.sequence,
           mimeType: chunk.mimeType,
@@ -201,7 +274,24 @@ export class ChunkUploader {
       }
       throw new Error(message);
     }
-    const authorized = (await authorizeResponse.json()) as { path: string; token: string };
+    const authorized = (await authorizeResponse.json()) as {
+      alreadyConfirmed: boolean;
+      path?: string;
+      token?: string;
+    };
+
+    if (authorized.alreadyConfirmed) {
+      // Этот (attempt_id, track, sequence) уже подтверждён на backend —
+      // предыдущая попытка реально долетела, просто ответ не дошёл до
+      // браузера (или это повторный вызов flushPending). Grузить и
+      // подтверждать заново нечего.
+      return;
+    }
+    if (!authorized.path || !authorized.token) {
+      throw new Error(
+        `authorize вернул успешный ответ без path/token для фрагмента ${chunk.role}#${chunk.sequence} — некорректный контракт`
+      );
+    }
 
     const { error: uploadError } = await this.storage.storage
       .from(RECORDING_BUCKET)
@@ -218,6 +308,7 @@ export class ChunkUploader {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        attemptId,
         track: chunk.role,
         sequence: chunk.sequence,
         startedAtMs: chunk.startedAtMs,
@@ -254,13 +345,20 @@ export class ChunkUploader {
     }
   }
 
-  /** Manifest после остановки записи — backend сверяет его с реестром фрагментов и решает финальный статус. */
+  /**
+   * Manifest после остановки записи — backend сверяет его с реестром
+   * фрагментов и решает финальный статус. attemptId подставляется
+   * здесь (не в SessionRecorder — он про backend/uploader ничего не
+   * знает) из уже закэшированного this.attemptId; null, если за всю
+   * попытку не выгрузили ни одного фрагмента (тогда backend сверяет
+   * по сессии в целом, см. .../recording/manifest/route.ts).
+   */
   async sendManifest(manifest: RecordingManifest): Promise<{ ok: boolean; status?: string }> {
     try {
       const response = await this.fetchImpl(`/api/sessions/${this.sessionId}/recording/manifest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(manifest),
+        body: JSON.stringify({ ...manifest, attemptId: this.attemptId }),
       });
       if (!response.ok) return { ok: false };
       const data = await response.json().catch(() => null);
