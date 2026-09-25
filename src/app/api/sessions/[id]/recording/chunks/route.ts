@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { extensionForMimeType } from "@/lib/recording/mime";
+import { checkUnresolvedTrack, computeFinalStatus, type TrackValidation } from "@/lib/recording/manifestValidation";
 
 // POST /api/sessions/[id]/recording/chunks
 //
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
-    .select("id, recording_status")
+    .select("id, recording_status, recording_manifest, recording_heartbeat_at")
     .eq("id", sessionId)
     .eq("psychologist_id", user.id)
     .maybeSingle();
@@ -205,13 +206,54 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: `Не удалось записать метаданные фрагмента: ${insertError.message}` }, { status: 500 });
   }
 
+  const nowIso = new Date().toISOString();
+
   if (session.recording_status === "none" || session.recording_status === null) {
     await supabase
       .from("sessions")
-      .update({ recording_status: "recording", recording_heartbeat_at: new Date().toISOString() })
+      .update({ recording_status: "recording", recording_heartbeat_at: nowIso })
       .eq("id", sessionId);
+  } else if (session.recording_status === "uploading") {
+    // Поздняя дозагрузка после manifest, отправленного с неподтверждённой
+    // остановкой (см. claude/recording-stop-fix-plan.md и
+    // .../recording/manifest/route.ts). Пересчитываем ТОЛЬКО ту дорожку,
+    // к которой относится этот фрагмент, и ТОЛЬКО если сохранённый
+    // manifest реально принадлежит ЭТОЙ попытке — иначе более старая/
+    // другая попытка той же сессии могла бы перезаписать чужой результат.
+    const storedManifest = session.recording_manifest as
+      | { attemptId?: string | null; finishedAt?: string; validation?: TrackValidation[] }
+      | null;
+    const trackValidation = storedManifest?.validation?.find(v => v.role === track);
+
+    if (storedManifest?.attemptId === attemptId && trackValidation?.unresolved) {
+      const recomputed = await checkUnresolvedTrack(supabase, sessionId, attemptId, track, storedManifest.finishedAt);
+      const mergedValidations = (storedManifest.validation ?? []).map(v =>
+        v.role === track ? { role: recomputed.role, ok: recomputed.ok, reason: recomputed.reason, unresolved: recomputed.unresolved } : v
+      );
+      const finalStatus = computeFinalStatus(mergedValidations);
+
+      // Лёгкий CAS тем же токеном, что и manifest-роут (см. его
+      // заголовок) — лучшим усилием: если кто-то другой (ещё один
+      // конкурентный confirm, либо сам manifest-роут) успел записать
+      // между нашим чтением session в начале этого запроса и этой
+      // записью, просто пропускаем — следующий confirm этой же дорожки
+      // (если будет) пересчитает заново по уже свежим данным.
+      const casQuery = supabase
+        .from("sessions")
+        .update({
+          recording_status: finalStatus,
+          recording_manifest: { ...storedManifest, validation: mergedValidations },
+          recording_heartbeat_at: nowIso,
+        })
+        .eq("id", sessionId);
+      await (session.recording_heartbeat_at === null
+        ? casQuery.is("recording_heartbeat_at", null)
+        : casQuery.eq("recording_heartbeat_at", session.recording_heartbeat_at));
+    } else {
+      await supabase.from("sessions").update({ recording_heartbeat_at: nowIso }).eq("id", sessionId);
+    }
   } else {
-    await supabase.from("sessions").update({ recording_heartbeat_at: new Date().toISOString() }).eq("id", sessionId);
+    await supabase.from("sessions").update({ recording_heartbeat_at: nowIso }).eq("id", sessionId);
   }
 
   return NextResponse.json({ ok: true, track, sequence });

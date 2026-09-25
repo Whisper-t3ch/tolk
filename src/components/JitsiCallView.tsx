@@ -47,6 +47,7 @@ import { JitsiCallSession, type CallConnectionState } from "@/lib/jitsi/connecti
 import { isUsingPublicTestServer } from "@/lib/jitsi/config";
 import { runPreflight, type PreflightResult, type PreflightVerdict } from "@/lib/recording/preflight";
 import { SessionRecorder, type RecordingStatusSnapshot } from "@/lib/recording/sessionRecorder";
+import type { StopDiagnosticEvent } from "@/lib/recording/types";
 import { ChunkUploader } from "@/lib/recording/uploader";
 
 interface JitsiCallViewProps {
@@ -68,7 +69,18 @@ export interface JitsiCallViewHandle {
    * Безопасно вызывать даже если запись не начиналась (recorder ещё
    * null) — тогда просто ничего не делает.
    */
-  finishRecording: () => Promise<{ manifestSent: boolean; status?: string }>;
+  /**
+   * stopConfirmed=false означает, что хотя бы одна дорожка не смогла
+   * подтвердить реальную остановку MediaRecorder (см.
+   * TrackRecorder.stop(), claude/recording-stop-fix-plan.md) — manifest
+   * всё равно отправляется (см. finishRecording ниже), но родительская
+   * страница не должна показывать это как гарантированный успех.
+   * Фактическое отображение проблемы психологу — на странице /soap по
+   * session.recording_status (см. recordingStatusHint в soap/page.tsx),
+   * не здесь: к моменту, когда стал бы виден результат, эта страница уже
+   * в процессе навигации прочь.
+   */
+  finishRecording: () => Promise<{ manifestSent: boolean; status?: string; stopConfirmed: boolean }>;
 }
 
 const BLOCKING_VERDICTS: PreflightVerdict[] = [
@@ -115,6 +127,8 @@ function JitsiCallView(
   const sessionRef = useRef<JitsiCallSession | null>(null);
   const recorderRef = useRef<SessionRecorder | null>(null);
   const uploaderRef = useRef<ChunkUploader | null>(null);
+  /** Накопленные события диагностики остановки — отправляются одним пакетом в finishRecording(). */
+  const stopDiagnosticsRef = useRef<StopDiagnosticEvent[]>([]);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -153,6 +167,11 @@ function JitsiCallView(
       },
       onStatusChange: status => {
         if (mountedRef.current) setRecordingStatus(status);
+      },
+      onDiagnostic: event => {
+        // Только структурные поля (role/ts/event/state/size/error/confirmed)
+        // — см. StopDiagnosticEvent в types.ts. Не аудио, не ключи.
+        stopDiagnosticsRef.current.push(event);
       },
     });
     recorder.start();
@@ -230,7 +249,7 @@ function JitsiCallView(
     ref,
     () => ({
       finishRecording: async () => {
-        if (finishedRef.current) return { manifestSent: false };
+        if (finishedRef.current) return { manifestSent: false, stopConfirmed: true };
         finishedRef.current = true;
 
         const recorder = recorderRef.current;
@@ -238,16 +257,43 @@ function JitsiCallView(
         if (!recorder || !uploader) {
           // Запись не успела начаться (например, консультация
           // завершена прямо на preflight) — отправлять нечего.
-          return { manifestSent: false };
+          return { manifestSent: false, stopConfirmed: true };
         }
 
         const manifest = await recorder.stop();
+        // Реальная остановка каждой дорожки подтверждена (или явно НЕ
+        // подтверждена) внутри TrackRecorder.stop() — здесь просто
+        // читаем итог по state: "failed" на этом этапе означает именно
+        // stop_unconfirmed (см. комментарий в trackRecorder.ts), а не
+        // произвольную ошибку записи, потому что recorder.stop() —
+        // единственное место, вызывающее setState("failed") между
+        // "recording" и концом finishRecording().
+        const stopConfirmed = manifest.tracks.every(t => t.state !== "failed");
+
+        // Диагностика — лучшим усилием, отдельным вызовом heartbeat-роута
+        // (он и так принимает произвольный JSON-объект в
+        // recording_client_state, см. .../recording/heartbeat/route.ts) —
+        // ДО manifest, чтобы она долетела, даже если сама отправка
+        // manifest ниже не удастся из-за сети.
+        const diagnosticEvents = stopDiagnosticsRef.current;
+        if (diagnosticEvents.length > 0) {
+          const attemptId = uploader.getAttemptId();
+          await uploader.sendHeartbeat({
+            ...recorder.getStatus(),
+            // @ts-expect-error — расширение снапшота доп. полем, сервер валидирует только "это объект"
+            stopDiagnostics: { attemptId, events: diagnosticEvents },
+          });
+        }
+
         // Дожидаемся отставших фрагментов, иначе backend увидит дыру в
         // реестре только потому, что последний фрагмент ещё в пути —
-        // см. комментарий у ChunkUploader.waitForIdle().
+        // см. комментарий у ChunkUploader.waitForIdle(). Это ловит
+        // задержку ВЫГРУЗКИ уже нарезанных фрагментов; сама нарезка
+        // теперь гарантированно завершена (или явно помечена failed)
+        // до этой строки — см. stopConfirmed выше.
         await uploader.waitForIdle();
         const result = await uploader.sendManifest(manifest);
-        return { manifestSent: result.ok, status: result.status };
+        return { manifestSent: result.ok, status: result.status, stopConfirmed };
       },
     }),
     []

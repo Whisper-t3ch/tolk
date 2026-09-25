@@ -130,6 +130,18 @@ export class ChunkUploader {
     this.onChunkGaveUp = options.onChunkGaveUp;
   }
 
+  /**
+   * Текущий recording_attempt_id этого uploader'а, если он уже
+   * получен (см. ensureAttempt()) — null до первой успешной попытки
+   * выгрузки. Нужен снаружи (JitsiCallView) только для того, чтобы
+   * подписать диагностику остановки (StopDiagnosticEvent) тем же
+   * attempt_id, каким подписаны фрагменты этой попытки — сам
+   * uploader ничего не знает о диагностике remoteRecorder'ов.
+   */
+  getAttemptId(): string | null {
+    return this.attemptId;
+  }
+
   /** Новый фрагмент от TrackRecorder. Не блокирует запись — сама выгрузка идёт в фоне. */
   enqueue(chunk: RecordedChunk): void {
     const key = `${chunk.role}:${chunk.sequence}`;
