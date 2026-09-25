@@ -115,7 +115,16 @@ export class ChunkUploader {
 
   constructor(options: ChunkUploaderOptions) {
     this.sessionId = options.sessionId;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // fetch не привязан к window/globalThis по умолчанию — нативная
+    // реализация требует this === window (или globalThis) изнутри, а все
+    // вызовы здесь идут как this.fetchImpl(...), то есть как МЕТОД этого
+    // класса. Без .bind(globalThis) это на каждый вызов кидает
+    // TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation
+    // — исключение уходит ДО реальной попытки сети, поэтому ни один запрос
+    // не долетает до сервера ни разу, даже после всех retry (обнаружено
+    // 25.09.2026 живым тестом: 0 запросов в логах Vercel за всё время теста,
+    // хотя uploadWithRetry честно проходил все 5 попыток и звал onChunkGaveUp).
+    this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
     this.storage = options.storageClient ?? createClient();
     this.onChunkUploaded = options.onChunkUploaded;
     this.onChunkGaveUp = options.onChunkGaveUp;
