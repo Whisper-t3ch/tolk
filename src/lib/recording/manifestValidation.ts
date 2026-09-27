@@ -212,3 +212,41 @@ export function computeFinalStatus(validations: TrackValidation[]): "processing"
   if (validations.every(v => v.ok || v.unresolved)) return "uploading";
   return "incomplete";
 }
+
+// ============================================================
+// recording_attempts.ended_at (27.09.2026) — до этой правки поле
+// обновлялось ТОЛЬКО в POST /recording/attempts, когда НОВАЯ попытка
+// вытесняет предыдущую активную (status: 'superseded', см. тот
+// route.ts). Если консультация просто заканчивалась нормально — без
+// повторного вызова .../recording/attempts — её последняя, реально
+// живая попытка навсегда оставалась status='active', ended_at=NULL:
+// обнаружено живым тестом 27.09.2026 (recording_attempt_id
+// 9c319a3e-9746-42c8-8803-196f539ec7ff), см.
+// claude/jitsi-pilot-test-report-27-09.md в проекте.
+//
+// POST /recording/manifest — это и есть тот самый "нормальный конец":
+// JitsiCallView.finishRecording() шлёт его РОВНО ОДИН РАЗ, сразу после
+// recorder.stop() (см. заголовок uploader.ts, sendManifest). Схема
+// recording_attempts.status уже допускает терминальное значение
+// 'completed' (CHECK-constraint recording_attempts_status_check,
+// migration_038_recording_attempt_id.sql) — просто ни один route его
+// не выставлял.
+//
+// Вынесено в чистую функцию (без обращения к БД), чтобы решение "что
+// именно писать" можно было протестировать без реального
+// SupabaseClient — сам UPDATE и его WHERE-условие (в частности,
+// status='active' — не трогать попытку, которая уже 'superseded' и
+// закрыта РАНЬШЕ, в свой собственный момент) остаются в route.ts.
+export type AttemptCloseAction =
+  | { kind: "close"; attemptId: string; status: "completed"; endedAt: string }
+  | { kind: "skip"; reason: string };
+
+export function planAttemptClose(input: { attemptId: string | null | undefined; nowIso: string }): AttemptCloseAction {
+  if (!input.attemptId) {
+    // За всю попытку не выгрузили ни одного фрагмента (uploader.ts:
+    // this.attemptId остался null) — recording_attempts вообще не
+    // создавалась, закрывать нечего.
+    return { kind: "skip", reason: "attemptId отсутствует — ни один фрагмент не выгружался" };
+  }
+  return { kind: "close", attemptId: input.attemptId, status: "completed", endedAt: input.nowIso };
+}

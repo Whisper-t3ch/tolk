@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isRecordingMaintenanceOn, RECORDING_MAINTENANCE_MESSAGE } from "@/lib/maintenance";
-import { validateTrack, computeFinalStatus, type TrackValidation } from "@/lib/recording/manifestValidation";
+import { validateTrack, computeFinalStatus, planAttemptClose, type TrackValidation } from "@/lib/recording/manifestValidation";
 
 // POST /api/sessions/[id]/recording/manifest
 // Body: RecordingManifest (src/lib/recording/types.ts) — отправляется
@@ -181,6 +181,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .eq("id", sessionId);
     if (forcedError) {
       return NextResponse.json({ error: forcedError.message }, { status: 500 });
+    }
+  }
+
+  // НОВОЕ 27.09.2026 — см. planAttemptClose() в manifestValidation.ts:
+  // это единственное место, где консультация нормально заканчивается
+  // (finishRecording в JitsiCallView шлёт manifest ровно один раз), но
+  // recording_attempts.ended_at раньше выставлялся только при
+  // вытеснении попытки НОВОЙ (см. .../recording/attempts POST) — эта
+  // же, последняя, попытка навсегда оставалась ended_at=NULL. Условие
+  // status='active' в WHERE — намеренная защита: если manifest почему-то
+  // пришёл ПОСЛЕ того, как эту попытку уже вытеснили (гонка с новым
+  // .../recording/attempts), она уже 'superseded' со своим,
+  // более ранним и точным ended_at — этот UPDATE её не заденет (0 строк).
+  // Не блокируем ответ клиенту её ошибкой — manifest для сессии выше уже
+  // записан, а это поле учётное, как и сам "superseded" в attempts/route.ts,
+  // который тоже не проверяет результат update'а.
+  const closeAction = planAttemptClose({ attemptId, nowIso: new Date().toISOString() });
+  if (closeAction.kind === "close") {
+    const { error: attemptCloseError } = await supabase
+      .from("recording_attempts")
+      .update({ status: closeAction.status, ended_at: closeAction.endedAt })
+      .eq("id", closeAction.attemptId)
+      .eq("session_id", sessionId)
+      .eq("status", "active");
+    if (attemptCloseError) {
+      console.error(`Не удалось закрыть recording_attempt ${closeAction.attemptId}:`, attemptCloseError.message);
     }
   }
 
