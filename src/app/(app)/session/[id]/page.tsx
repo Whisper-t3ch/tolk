@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { PhoneOff, Clock, AlertTriangle } from "lucide-react";
+import { PhoneOff, Clock, AlertTriangle, Loader2 } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
 import JitsiCallView, { type JitsiCallViewHandle } from "@/components/JitsiCallView";
 import { buildJitsiRoomName } from "@/lib/jitsi";
@@ -51,6 +51,7 @@ interface SessionSoapData {
     clientName: string;
     status: string;
     videoRoomUrl: string;
+    recordingMaintenanceOn?: boolean;
   };
   soapNote: { s: string } | null;
 }
@@ -167,6 +168,26 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     );
   }
 
+  // Разовая проверка при загрузке страницы (см. src/lib/maintenance.ts,
+  // GET .../soap) — во время окна технических работ с записью JitsiCallView
+  // вообще не монтируется, звонок не начинается. Это дополнение к запрету
+  // записи на уровне recording/* роутов, а не замена ему: сам запрет уже
+  // защищает данные, даже если эта проверка почему-то не сработала (кэш
+  // страницы, открытая раньше вкладка).
+  if (data.recordingMaintenanceOn) {
+    return (
+      <div style={{ display: "flex", height: "calc(100vh - 120px)", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center", maxWidth: 420 }}>
+          <AlertTriangle size={32} style={{ color: "#F59E0B", marginBottom: 12 }} />
+          <p style={{ color: "#6B6058", fontSize: 14 }}>
+            Ведутся технические работы с видеозвонками и записью консультаций.
+            Пожалуйста, начните звонок позже — мы сообщим о завершении работ.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", height: "calc(100vh - 120px)", gap: 16, padding: "0 24px 24px" }}>
       {/* Видео */}
@@ -210,6 +231,20 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                 <PhoneOff size={20} />
               </Button>
             </div>
+            {/* 25.09.2026: раньше кнопка просто становилась disabled без текста —
+                после починки TrackRecorder.stop() finishRecording() честно ждёт
+                подтверждения (до ~5с) и дозагрузки последних фрагментов (до ~10с),
+                и эти секунды без подписи выглядели как зависание. См.
+                claude/recording-stop-fix-plan.md в проекте. */}
+            {ending && (
+              <p style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                fontSize: 12, color: "#8C7355", marginTop: 10,
+              }}>
+                <Loader2 size={13} className="animate-spin" />
+                Завершаем запись и загружаем фрагменты…
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

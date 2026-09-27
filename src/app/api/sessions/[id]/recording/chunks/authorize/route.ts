@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isRecordingMaintenanceOn, RECORDING_MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extensionForMimeType } from "@/lib/recording/mime";
 
@@ -64,6 +65,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  }
+
+  // См. src/lib/maintenance.ts — до выдачи signed URL на запись.
+  if (await isRecordingMaintenanceOn(supabase)) {
+    return NextResponse.json({ error: RECORDING_MAINTENANCE_MESSAGE }, { status: 503 });
   }
 
   const { data: session, error: sessionError } = await supabase

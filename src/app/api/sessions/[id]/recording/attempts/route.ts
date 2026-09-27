@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isRecordingMaintenanceOn, RECORDING_MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 
 // POST /api/sessions/[id]/recording/attempts
 //
@@ -31,6 +32,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  }
+
+  // Проверяется сразу после аутентификации, до какого-либо обращения к
+  // recording_attempts/session_recording_chunks — см. src/lib/maintenance.ts.
+  if (await isRecordingMaintenanceOn(supabase)) {
+    return NextResponse.json({ error: RECORDING_MAINTENANCE_MESSAGE }, { status: 503 });
   }
 
   const { data: session, error: sessionError } = await supabase

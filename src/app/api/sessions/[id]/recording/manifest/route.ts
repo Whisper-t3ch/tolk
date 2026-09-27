@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isRecordingMaintenanceOn, RECORDING_MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { validateTrack, computeFinalStatus, type TrackValidation } from "@/lib/recording/manifestValidation";
 
 // POST /api/sessions/[id]/recording/manifest
@@ -87,6 +88,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  }
+
+  // См. src/lib/maintenance.ts — manifest не пишет в
+  // session_recording_chunks напрямую, но во время окна его тоже
+  // блокируем: иначе он пересчитает "incomplete"/"processing" статус
+  // по заведомо неполным (из-за самого окна, а не реальной потери)
+  // данным.
+  if (await isRecordingMaintenanceOn(supabase)) {
+    return NextResponse.json({ error: RECORDING_MAINTENANCE_MESSAGE }, { status: 503 });
   }
 
   const { data: session, error: sessionError } = await supabase
