@@ -13,7 +13,7 @@
 // Клиент участвует в обычном WebRTC-звонке и видит индикатор записи.
 // ============================================================
 
-import type { RecordedChunk, RecordingManifest, TrackRole, TrackStatus } from "./types";
+import type { RecordedChunk, RecordingManifest, StopDiagnosticEvent, TrackRole, TrackStatus } from "./types";
 import { TrackRecorder, DEFAULT_TIMESLICE_MS } from "./trackRecorder";
 
 export interface SessionRecorderOptions {
@@ -26,6 +26,8 @@ export interface SessionRecorderOptions {
   mimeType?: string;
   onChunk: (chunk: RecordedChunk) => void;
   onStatusChange?: (status: RecordingStatusSnapshot) => void;
+  /** См. StopDiagnosticEvent в types.ts — прокидывается в каждый TrackRecorder как есть. */
+  onDiagnostic?: (event: StopDiagnosticEvent) => void;
   now?: () => number;
 }
 
@@ -85,6 +87,7 @@ export class SessionRecorder {
       now: this.options.now,
       onChunk: this.options.onChunk,
       onStateChange: () => this.emitStatus(),
+      onDiagnostic: this.options.onDiagnostic,
     });
     this.recorders.set(role, recorder);
     recorder.start();

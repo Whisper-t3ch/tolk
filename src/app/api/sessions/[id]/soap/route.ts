@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isRecordingMaintenanceOn } from "@/lib/maintenance";
 import { buildJitsiRoomName, buildJitsiUrl } from "@/lib/jitsi";
 
 // GET /api/sessions/[id]/soap
@@ -58,6 +59,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const clientRel = Array.isArray(session.clients) ? session.clients[0] : session.clients;
   const roomName = (session.jitsi_room_name as string | null) || buildJitsiRoomName(session.id as string);
 
+  // Разовая проверка при загрузке страницы (см. src/lib/maintenance.ts) —
+  // не поллинг и не замена запрету записи на уровне самих recording/*
+  // роутов, а UX-дополнение: не даёт странице звонка вообще подключаться
+  // к Jitsi во время окна технических работ (session/[id]/page.tsx).
+  const recordingMaintenanceOn = await isRecordingMaintenanceOn(supabase);
+
   return NextResponse.json({
     session: {
       id: session.id,
@@ -68,6 +75,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       status: session.status,
       videoRoomUrl: buildJitsiUrl(roomName),
       recordingStatus: session.recording_status,
+      recordingMaintenanceOn,
     },
     soapNote: soapNote
       ? {

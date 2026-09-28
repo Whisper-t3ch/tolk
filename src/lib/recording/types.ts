@@ -67,6 +67,44 @@ export interface TrackStatus {
 }
 
 /**
+ * Диагностика остановки MediaRecorder (25.09.2026, вместе с
+ * исправлением TrackRecorder.stop()) — НЕ источник истины для
+ * целостности записи (это manifest + реестр фрагментов), а
+ * телеметрия для разбора конкретно вопроса "почему запись
+ * продолжилась дольше, чем решил браузер". Класс сам НЕ знает про
+ * attemptId (архитектурно ничего не знает про выгрузку/Jitsi, см.
+ * заголовок файла) — attemptId подставляется тем, кто собирает эти
+ * события (JitsiCallView), аналогично тому, как ChunkUploader
+ * подставляет attemptId в manifest, а не SessionRecorder.
+ *
+ * НИКОГДА не должно содержать: байты/контент фрагмента, checksum как
+ * идентификатор содержимого, подписанные токены/URL хранилища — по
+ * требованию пользователя диагностика не должна протекать аудио или
+ * секреты через этот канал (он уходит в recording_client_state,
+ * который в целом не секретный, но лишний риск ни к чему).
+ */
+export interface StopDiagnosticEvent {
+  role: TrackRole;
+  /** performance.now() в момент события — относительное время, не unix ts. */
+  ts: number;
+  event:
+    | "stop_requested"
+    | "dataavailable_during_stop"
+    | "onstop"
+    | "stop_threw"
+    | "stop_timeout"
+    | "stop_result";
+  /** MediaRecorder.state на момент события, если применимо. */
+  state?: string;
+  /** Размер blob'а (байты) — только число, не содержимое. */
+  size?: number;
+  /** Сообщение ошибки (наше собственное, не содержимое фрагмента). */
+  error?: string;
+  /** Итог stop_result: реально ли подтверждена остановка (см. TrackRecorder.stop()). */
+  confirmed?: boolean;
+}
+
+/**
  * Manifest завершённой записи. Отправляется на backend после остановки —
  * именно по нему проверяется целостность (все ли номера на месте, нет ли
  * дублей, насколько разъехались длительности дорожек) прежде чем сессия
@@ -76,6 +114,19 @@ export interface RecordingManifest {
   sessionId: string;
   startedAt: string;
   finishedAt: string;
+  /**
+   * recording_attempt_id этой попытки записи (см. .../recording/
+   * attempts/route.ts и migration_038_recording_attempt_id.sql).
+   * Подставляется в ChunkUploader.sendManifest() из его собственного
+   * закэшированного attemptId, не отсюда — SessionRecorder ничего не
+   * знает про attempt_id, это забота uploader'а. null — только если
+   * ни один фрагмент так и не пытались выгрузить за всю попытку
+   * (например, консультация завершилась мгновенно после preflight);
+   * backend в этом случае не сможет отфильтровать проверку по
+   * попытке и сверяет по сессии в целом (см. комментарий в
+   * .../recording/manifest/route.ts).
+   */
+  attemptId?: string | null;
   tracks: Array<{
     role: TrackRole;
     mimeType: string | null;

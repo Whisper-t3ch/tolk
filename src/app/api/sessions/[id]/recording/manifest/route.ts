@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { isRecordingMaintenanceOn, RECORDING_MAINTENANCE_MESSAGE } from "@/lib/maintenance";
+import { validateTrack, computeFinalStatus, planAttemptClose, type TrackValidation } from "@/lib/recording/manifestValidation";
 
 // POST /api/sessions/[id]/recording/manifest
 // Body: RecordingManifest (src/lib/recording/types.ts) — отправляется
 // один раз из JitsiCallView после SessionRecorder.stop(), когда
-// консультация завершена и обе дорожки точно дописаны.
+// консультация завершена и обе дорожки точно дописаны (или явно не
+// подтвердили остановку — см. ниже).
 //
 // Это последняя проверка целостности перед тем, как сессия сможет
 // уйти в ASR (Этап 3, ещё не построен): по каждой дорожке сверяем, что
@@ -14,16 +16,42 @@ import { createClient } from "@/lib/supabase/server";
 // sequence. Chunks-роут уже проверил checksum на входе каждого
 // фрагмента — здесь пересчитывать его не нужно, достаточно убедиться,
 // что "все номера на месте, нет дублей" (архитектурный документ,
-// раздел "Manifest сессии").
+// раздел "Manifest сессии"). Сама сверка живёт в manifestValidation.ts
+// — общая с confirm-роутом (см. .../recording/chunks/route.ts),
+// который пересчитывает статус ПОЗЖЕ, по мере дозагрузки.
 //
-// Результат — recording_status:
-//   'processing'  — обе дорожки сошлись с реестром. Готово к ASR
-//                    (когда Этап 3 появится); сейчас просто финальное
-//                    состояние "запись цела".
-//   'incomplete'  — хотя бы одна дорожка разошлась с manifest. Запись
-//                    частично есть и её можно будет использовать (см.
-//                    architecture-spec), но психолога нужно
-//                    предупредить, что часть разговора отсутствует.
+// ИЗМЕНЕНО 25.09.2026 (см. claude/recording-stop-fix-plan.md в
+// проекте, живой тест обнаружил, что TrackRecorder.stop() мог
+// репортировать "остановлено", когда MediaRecorder реально продолжал
+// писать): track.state==="failed" в manifest означает, что браузер САМ
+// не смог подтвердить факт остановки этой дорожки (см. trackRecorder.ts)
+// — в этом случае сверка по заявленному chunkCount не проводится
+// (число заведомо ненадёжно), дорожка помечается unresolved, а не
+// сразу "битой". Итоговый статус — trёхвариантный:
+//   'processing' — все дорожки сошлись с реестром. Готово к ASR.
+//   'uploading'  — хотя бы одна дорожка unresolved (остановка не
+//                  подтверждена или фрагменты ещё летят), но явных
+//                  доказательств потери данных нет. Confirm-роут
+//                  досчитает статус позже, по мере дозагрузки этой же
+//                  попытки (см. UNRESOLVED_GRACE_MS в
+//                  manifestValidation.ts — по его истечении это же
+//                  расхождение станет либо 'processing', либо
+//                  'incomplete', в зависимости от того, нашлась ли
+//                  дыра в реестре).
+//   'incomplete' — хотя бы одна дорожка разошлась с реестром
+//                  доказанно (дыра в нумерации, дорожка не
+//                  записывалась) — само не исчезнет.
+//
+// ЗАЩИТА ОТ ГОНКИ с confirm-роутом (оба route.ts пишут в одни и те же
+// sessions.recording_status/recording_manifest для одной сессии):
+// используем recording_heartbeat_at как лёгкий optimistic-lock токен
+// (compare-and-swap) — читаем его перед вычислением, пишем результат
+// условно (WHERE recording_heartbeat_at = <прочитанное>), и если
+// UPDATE не задел ни одной строки (кто-то другой успел записать между
+// нашим чтением и записью — например, confirm-роут дозагрузки), просто
+// перечитываем токен и повторяем попытку (до MAX_CAS_ATTEMPTS раз).
+// Никакой новой миграции/функции в БД для этого не нужно — колонка уже
+// существует и и так обновляется обоими route.ts при каждой записи.
 interface ManifestTrack {
   role: "psychologist" | "client";
   mimeType: string | null;
@@ -38,68 +66,18 @@ interface ManifestBody {
   sessionId?: string;
   startedAt?: string;
   finishedAt?: string;
+  /**
+   * recording_attempt_id этой попытки (см. migration_038_recording_
+   * attempt_id.sql) — ChunkUploader.sendManifest() подставляет его из
+   * своего закэшированного attemptId. null только если за всю попытку
+   * не выгрузили ни одного фрагмента (тогда фильтр по attempt_id в
+   * validateTrack не применяется).
+   */
+  attemptId?: string | null;
   tracks?: ManifestTrack[];
 }
 
-interface TrackValidation {
-  role: string;
-  ok: boolean;
-  reason?: string;
-}
-
-async function validateTrack(
-  supabase: SupabaseClient,
-  sessionId: string,
-  track: ManifestTrack
-): Promise<TrackValidation> {
-  const { data: rows, error } = await supabase
-    .from("session_recording_chunks")
-    .select("sequence")
-    .eq("session_id", sessionId)
-    .eq("track", track.role)
-    .order("sequence", { ascending: true });
-
-  if (error) {
-    return { role: track.role, ok: false, reason: `Не удалось прочитать реестр фрагментов: ${error.message}` };
-  }
-
-  const sequences = (rows ?? []).map(r => r.sequence as number);
-  const actualCount = sequences.length;
-
-  if (track.chunkCount <= 0) {
-    // Дорожка не писалась (например, клиент так и не подключился) —
-    // это реальная проблема записи, но не проблема ЦЕЛОСТНОСТИ выгрузки
-    // (нечего было терять). Помечаем отдельно, чтобы отличить от дыр.
-    if (actualCount !== 0) {
-      return {
-        role: track.role,
-        ok: false,
-        reason: `manifest заявляет 0 фрагментов, но в реестре есть ${actualCount} — расхождение`,
-      };
-    }
-    return { role: track.role, ok: false, reason: "дорожка не записывалась (0 фрагментов)" };
-  }
-
-  if (actualCount !== track.chunkCount) {
-    return {
-      role: track.role,
-      ok: false,
-      reason: `ожидалось ${track.chunkCount} фрагментов по manifest, в реестре ${actualCount}`,
-    };
-  }
-
-  for (let i = 0; i < sequences.length; i++) {
-    if (sequences[i] !== i) {
-      return { role: track.role, ok: false, reason: `дыра в нумерации на позиции ${i} (sequence=${sequences[i]})` };
-    }
-  }
-
-  if (sequences[0] !== track.firstSequence || sequences[sequences.length - 1] !== track.lastSequence) {
-    return { role: track.role, ok: false, reason: "диапазон sequence не совпал с manifest" };
-  }
-
-  return { role: track.role, ok: true };
-}
+const MAX_CAS_ATTEMPTS = 3;
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = await params;
@@ -112,9 +90,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
+  // См. src/lib/maintenance.ts — manifest не пишет в
+  // session_recording_chunks напрямую, но во время окна его тоже
+  // блокируем: иначе он пересчитает "incomplete"/"processing" статус
+  // по заведомо неполным (из-за самого окна, а не реальной потери)
+  // данным.
+  if (await isRecordingMaintenanceOn(supabase)) {
+    return NextResponse.json({ error: RECORDING_MAINTENANCE_MESSAGE }, { status: 503 });
+  }
+
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
-    .select("id")
+    .select("id, recording_heartbeat_at")
     .eq("id", sessionId)
     .eq("psychologist_id", user.id)
     .maybeSingle();
@@ -136,19 +123,91 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "tracks обязателен и не может быть пустым" }, { status: 400 });
   }
 
-  const validations = await Promise.all(body.tracks.map(track => validateTrack(supabase, sessionId, track)));
-  const allOk = validations.every(v => v.ok);
-  const finalStatus = allOk ? "processing" : "incomplete";
+  const attemptId = body.attemptId ?? null;
+  const validations: TrackValidation[] = await Promise.all(
+    body.tracks.map(track => validateTrack(supabase, sessionId, attemptId, track))
+  );
+  const finalStatus = computeFinalStatus(validations);
+  const manifestToStore = { ...body, validation: validations };
 
-  const { error: updateError } = await supabase
-    .from("sessions")
-    .update({
-      recording_status: finalStatus,
-      recording_manifest: { ...body, validation: validations },
-    })
-    .eq("id", sessionId);
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  let casToken = session.recording_heartbeat_at as string | null;
+  let updated = false;
+  for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS && !updated; attempt++) {
+    const nowIso = new Date().toISOString();
+    let query = supabase
+      .from("sessions")
+      .update({
+        recording_status: finalStatus,
+        recording_manifest: manifestToStore,
+        recording_heartbeat_at: nowIso,
+      })
+      .eq("id", sessionId);
+    query = casToken === null ? query.is("recording_heartbeat_at", null) : query.eq("recording_heartbeat_at", casToken);
+
+    const { data: updatedRows, error: updateError } = await query.select("id");
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+    if (updatedRows && updatedRows.length > 0) {
+      updated = true;
+      break;
+    }
+    // CAS не сработал — кто-то (обычно confirm-роут дозагрузки того же
+    // attempt_id) записал между нашим чтением и попыткой записи.
+    // Перечитываем токен и пробуем ещё раз; сами validations пересчитывать
+    // не нужно — они не зависят от того, что менялось в recording_status
+    // между попытками (тот, кто выиграл гонку, тоже писал по актуальным
+    // на СВОЙ момент данным).
+    const { data: refreshed } = await supabase
+      .from("sessions")
+      .select("recording_heartbeat_at")
+      .eq("id", sessionId)
+      .maybeSingle();
+    casToken = (refreshed?.recording_heartbeat_at as string | null) ?? null;
+  }
+
+  if (!updated) {
+    // Исчерпали попытки CAS (редкая, но не невозможная гонка) — manifest
+    // это итоговая, "последняя" операция для этой попытки записи с точки
+    // зрения клиента, терять её молча хуже, чем один раз перезаписать
+    // безусловно поверх того, что там оказалось.
+    const { error: forcedError } = await supabase
+      .from("sessions")
+      .update({
+        recording_status: finalStatus,
+        recording_manifest: manifestToStore,
+        recording_heartbeat_at: new Date().toISOString(),
+      })
+      .eq("id", sessionId);
+    if (forcedError) {
+      return NextResponse.json({ error: forcedError.message }, { status: 500 });
+    }
+  }
+
+  // НОВОЕ 27.09.2026 — см. planAttemptClose() в manifestValidation.ts:
+  // это единственное место, где консультация нормально заканчивается
+  // (finishRecording в JitsiCallView шлёт manifest ровно один раз), но
+  // recording_attempts.ended_at раньше выставлялся только при
+  // вытеснении попытки НОВОЙ (см. .../recording/attempts POST) — эта
+  // же, последняя, попытка навсегда оставалась ended_at=NULL. Условие
+  // status='active' в WHERE — намеренная защита: если manifest почему-то
+  // пришёл ПОСЛЕ того, как эту попытку уже вытеснили (гонка с новым
+  // .../recording/attempts), она уже 'superseded' со своим,
+  // более ранним и точным ended_at — этот UPDATE её не заденет (0 строк).
+  // Не блокируем ответ клиенту её ошибкой — manifest для сессии выше уже
+  // записан, а это поле учётное, как и сам "superseded" в attempts/route.ts,
+  // который тоже не проверяет результат update'а.
+  const closeAction = planAttemptClose({ attemptId, nowIso: new Date().toISOString() });
+  if (closeAction.kind === "close") {
+    const { error: attemptCloseError } = await supabase
+      .from("recording_attempts")
+      .update({ status: closeAction.status, ended_at: closeAction.endedAt })
+      .eq("id", closeAction.attemptId)
+      .eq("session_id", sessionId)
+      .eq("status", "active");
+    if (attemptCloseError) {
+      console.error(`Не удалось закрыть recording_attempt ${closeAction.attemptId}:`, attemptCloseError.message);
+    }
   }
 
   return NextResponse.json({ ok: true, status: finalStatus, validation: validations });

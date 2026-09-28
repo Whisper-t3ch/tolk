@@ -94,7 +94,21 @@ export function getJitsiConnectionConfig(roomName: string): JitsiConnectionConfi
         // опциональная деталь, а обязательное поле для анонимного
         // (без JWT) подключения на meet.jit.si и Jitsi-совместимых
         // серверах вообще.
-        anonymousdomain: `guest.${domain}`,
+        //
+        // 27.09, пилотный тест на собственной ВМ (docker-jitsi-meet,
+        // образ :unstable): проверка реального prosody.cfg.lua на
+        // сервере показала, что анонимная аутентификация здесь
+        // настроена ПРЯМО на основном VirtualHost (domain), отдельного
+        // guest.{domain}-хоста современный образ по умолчанию не
+        // создаёт (в отличие от meet.jit.si, где guest.{domain} —
+        // реальный отдельный виртуал-хост). muc и focus совпадают в
+        // обоих случаях (conference.{domain} / focus.{domain}).
+        // Поэтому anonymousdomain теперь берётся по-разному: для
+        // публичного тестового контура остаётся исторически
+        // подтверждённый guest.{domain}, а для собственного домена —
+        // сам domain, что подтверждено живой проверкой конфигурации
+        // Prosody на пилотной ВМ 27.09.
+        anonymousdomain: isUsingPublicTestServer() ? `guest.${domain}` : domain,
         muc: `conference.${domain}`,
         focus: `focus.${domain}`,
       },

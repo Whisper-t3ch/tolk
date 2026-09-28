@@ -23,6 +23,34 @@ function recordingStatusHint(status: string) {
       </div>
     );
   }
+  // 25.09.2026: 'uploading' — остановка записи ещё не подтверждена или
+  // фрагменты ещё дозагружаются (см. claude/recording-stop-fix-plan.md
+  // в проекте) — статус обновится сам, как только сервер это увидит;
+  // не ошибка, но психолог не должен думать, что всё уже готово.
+  if (status === "uploading") {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+        fontSize: 12, color: "#8C7355", marginBottom: 12,
+      }}>
+        <Loader2 size={13} className="animate-spin" />
+        Запись ещё дозагружается — статус обновится автоматически, обновите страницу позже
+      </div>
+    );
+  }
+  // 'incomplete' — manifest не сошёлся с реестром доказанно (дыра в
+  // нумерации и т.п.), само не исправится — в отличие от 'uploading'.
+  if (status === "incomplete") {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+        fontSize: 12, color: "#EF4444", marginBottom: 12,
+      }}>
+        <AlertTriangle size={13} />
+        Запись сохранена не полностью — часть разговора может отсутствовать
+      </div>
+    );
+  }
   if (status === "failed") {
     return (
       <div style={{

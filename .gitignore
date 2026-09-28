@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# recording verification scratch (verify_recording_pipeline.mjs writes to
+# os.tmpdir() by default, never here — this entry is a defensive backstop
+# only, in case that ever changes or TMPDIR resolves oddly on some machine)
+_recording_verify_*/
+tolk_recording_verify_*/

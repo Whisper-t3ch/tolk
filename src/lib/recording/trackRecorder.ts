@@ -17,7 +17,7 @@
 // тестировать и чинить независимо от захвата звука.
 // ============================================================
 
-import type { RecordedChunk, TrackRole, TrackState, TrackStatus } from "./types";
+import type { RecordedChunk, StopDiagnosticEvent, TrackRole, TrackState, TrackStatus } from "./types";
 import { checksumBlob } from "./checksum";
 import { selectMimeType } from "./mime";
 
@@ -32,9 +32,18 @@ export interface TrackRecorderOptions {
   mimeType?: string;
   onChunk: (chunk: RecordedChunk) => void;
   onStateChange?: (status: TrackStatus) => void;
+  /**
+   * Диагностика остановки (25.09.2026) — см. StopDiagnosticEvent в
+   * types.ts. Необязательный колбэк: без него класс ведёт себя как
+   * раньше, просто без телеметрии.
+   */
+  onDiagnostic?: (event: StopDiagnosticEvent) => void;
   /** Источник монотонного времени — подменяется в тестах. */
   now?: () => number;
 }
+
+/** Сколько ждать событие stop у MediaRecorder, прежде чем считать остановку зависшей. */
+const STOP_TIMEOUT_MS = 5_000;
 
 export class TrackRecorderError extends Error {
   constructor(
@@ -51,7 +60,10 @@ export class TrackRecorder {
   private readonly timesliceMs: number;
   private readonly onChunk: (chunk: RecordedChunk) => void;
   private readonly onStateChange?: (status: TrackStatus) => void;
+  private readonly onDiagnostic?: (event: StopDiagnosticEvent) => void;
   private readonly now: () => number;
+  /** true между stop_requested и разрешением промиса stop() — см. ondataavailable в start(). */
+  private stopping = false;
 
   private stream: MediaStream;
   private recorder: MediaRecorder | null = null;
@@ -74,6 +86,7 @@ export class TrackRecorder {
     this.timesliceMs = options.timesliceMs ?? DEFAULT_TIMESLICE_MS;
     this.onChunk = options.onChunk;
     this.onStateChange = options.onStateChange;
+    this.onDiagnostic = options.onDiagnostic;
     this.now = options.now ?? (() => performance.now());
     this.mimeType = options.mimeType ?? null;
   }
@@ -99,6 +112,11 @@ export class TrackRecorder {
 
   start(): void {
     if (this.state === "recording") return;
+    // Сброс на случай повторного start() после replaceStream() —
+    // иначе this.stopping навсегда осталась бы true после первой же
+    // остановки, и каждый обычный dataavailable новой дорожки ложно
+    // помечался бы диагностикой dataavailable_during_stop.
+    this.stopping = false;
 
     const audioTracks = this.stream.getAudioTracks();
     if (audioTracks.length === 0) {
@@ -123,7 +141,19 @@ export class TrackRecorder {
 
     this.attachTrackListeners(audioTracks[0]);
 
-    this.recorder.ondataavailable = event => this.enqueueChunk(event.data);
+    this.recorder.ondataavailable = event => {
+      // Данные никогда не отбрасываем независимо от того, идёт ли сейчас
+      // stop() — потерять реальный звук хуже, чем прислать "лишний"
+      // диагностический сигнал. Событие ПОСЛЕ старта stop() само по себе
+      // не аномалия (спецификация гарантирует финальный dataavailable
+      // именно в рамках stop()) — аномалия только если оно приходит
+      // ПОСЛЕ того, как stop() уже отдал управление вызывающему (см.
+      // stop() ниже: слушатель снимается только после этого).
+      if (this.stopping) {
+        this.emitDiagnostic({ event: "dataavailable_during_stop", size: event.data?.size ?? 0 });
+      }
+      this.enqueueChunk(event.data);
+    };
     this.recorder.onerror = event => {
       const err = (event as unknown as { error?: DOMException }).error;
       this.fail("recorder_failed", err?.message ?? "MediaRecorder сообщил об ошибке");
@@ -139,6 +169,34 @@ export class TrackRecorder {
    * Останавливает запись и дожидается, пока последний фрагмент будет
    * нарезан и обработан. MediaRecorder при stop() отдаёт остаток
    * последним dataavailable — его нельзя потерять.
+   *
+   * ИСПРАВЛЕНО 25.09.2026 (обнаружено живым тестом: запись продолжалась
+   * ~142с после того, как этот метод ранее считал её остановленной —
+   * см. claude/recording-stop-fix-plan.md в проекте). Раньше метод
+   * доверял только событию onstop и НИКОГДА не проверял
+   * recorder.state после его срабатывания, а исключение из
+   * recorder.stop() молча проглатывалось — то есть "остановлено"
+   * репортилось на основании одного события, без проверки. По
+   * спецификации (MediaStream Recording, dom-mediarecorder-stop)
+   * порядок гарантирован: state переходит в "inactive" → (если есть
+   * несданные данные) финальный dataavailable → событие stop. Поэтому
+   * САМ ПО СЕБЕ recorder.state==="inactive" ничего не доказывает (он
+   * становится таким в начале внутренней задачи stop(), раньше, чем
+   * дозаписывается последний фрагмент) — а подтверждение, что остановка РЕАЛЬНО
+   * завершилась, даёт только совокупность: событие stop
+   * действительно пришло, ошибок не было, и к этому моменту
+   * recorder.state равен "inactive". Если хотя бы одно не выполнено
+   * (событие не пришло за STOP_TIMEOUT_MS, stop() бросил исключение,
+   * либо state внезапно не "inactive") — это явный сбой
+   * (this.fail("stop_unconfirmed", ...)), а не молчаливое "stopped":
+   * вызывающий код (SessionRecorder → JitsiCallView.finishRecording)
+   * обязан увидеть это через getStatus().state==="failed" и НЕ
+   * отправлять manifest как успешный (см. claude/recording-stop-fix-plan.md).
+   *
+   * Диагностика (state до/после, ошибка stop(), факт и момент
+   * dataavailable/onstop) уходит через onDiagnostic — телеметрия для
+   * разбора КОНКРЕТНОГО следующего теста, не влияет на решение "success
+   * или нет" (оно принимается только по перечисленным выше условиям).
    */
   async stop(): Promise<void> {
     const recorder = this.recorder;
@@ -148,16 +206,77 @@ export class TrackRecorder {
       return;
     }
 
+    this.emitDiagnostic({ event: "stop_requested", state: recorder.state });
+    this.stopping = true;
+
+    let stopEventReceived = false;
+    let stopError: string | null = null;
+    let timedOut = false;
+
     await new Promise<void>(resolve => {
-      recorder.onstop = () => resolve();
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+
+      recorder.onstop = () => {
+        stopEventReceived = true;
+        this.emitDiagnostic({ event: "onstop", state: recorder.state });
+        finish();
+      };
+
       try {
         recorder.stop();
-      } catch {
-        resolve();
+      } catch (e) {
+        stopError = e instanceof Error ? e.message : String(e);
+        this.emitDiagnostic({ event: "stop_threw", error: stopError, state: recorder.state });
+        finish();
       }
+
+      setTimeout(() => {
+        if (settled) return;
+        timedOut = true;
+        this.emitDiagnostic({ event: "stop_timeout", state: recorder.state });
+        finish();
+      }, STOP_TIMEOUT_MS);
     });
 
+    // Слушатель дальше не снимаем явно (у MediaRecorder нет штатного
+    // способа узнать, что он больше никогда не понадобится) — но
+    // this.stopping остаётся true и после этой точки, так что ЛЮБОЙ
+    // dataavailable, пришедший ПОСЛЕ того, как stop() отдал управление
+    // вызывающему, по-прежнему попадёт в диагностику как
+    // dataavailable_during_stop. Это осознанно: если такое событие
+    // всё-таки придёт (не должно по спецификации), мы хотим это
+    // увидеть, а не тихо потерять сигнал, сняв слушатель слишком рано.
+
     await this.chunkQueue;
+
+    // TS иначе сузил бы тип recorder.state до исключающего "inactive"
+    // из-за ранней проверки в начале метода (`recorder.state ===
+    // "inactive"` там) — та проверка была ДО await'ов выше, а между
+    // ней и этим чтением recorder.state реально мог измениться
+    // (это MediaRecorder, а не наш объект) — приведение типа явно
+    // отражает, что здесь это снова любое из трёх состояний.
+    const finalState = recorder.state as RecordingState;
+    const confirmed = stopEventReceived && !stopError && finalState === "inactive";
+
+    this.emitDiagnostic({
+      event: "stop_result",
+      state: finalState,
+      confirmed,
+      error: stopError ?? (timedOut ? "onstop не пришёл за STOP_TIMEOUT_MS" : undefined),
+    });
+
+    if (!confirmed) {
+      this.fail(
+        "recorder_failed",
+        `Остановка записи не подтверждена: onstop=${stopEventReceived}, state=${finalState}, error=${stopError ?? (timedOut ? "timeout" : "нет")}`
+      );
+      return;
+    }
     if (this.state !== "failed") this.setState("stopped");
   }
 
@@ -224,6 +343,10 @@ export class TrackRecorder {
   private fail(_code: string, message: string): void {
     this.error = message;
     this.setState("failed");
+  }
+
+  private emitDiagnostic(event: Omit<StopDiagnosticEvent, "role" | "ts">): void {
+    this.onDiagnostic?.({ role: this.role, ts: this.now(), ...event });
   }
 
   private setState(state: TrackState): void {
