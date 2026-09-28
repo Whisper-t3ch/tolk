@@ -125,7 +125,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // этой сессии).
   const { data: attempt, error: attemptError } = await supabase
     .from("recording_attempts")
-    .select("id")
+    .select("id, started_at")
     .eq("id", attemptId)
     .eq("session_id", sessionId)
     .maybeSingle();
@@ -134,6 +134,47 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   if (!attempt) {
     return NextResponse.json({ error: "attemptId не найден для этой сессии" }, { status: 404 });
+  }
+
+  // ЗАЩИТА ОТ ЧУЖОЙ ПОПЫТКИ (28.09.2026, см. разбор бага 27.09 в
+  // claude/jitsi-pilot-test-report-27-09.md в проекте) — второй, серверный
+  // рубеж инварианта "фрагмент подтверждается только в СВОЮ попытку", в
+  // дополнение к клиентской правке (uploader.ts/chunkStore.ts:
+  // claimPendingChunk/flushPending). Идея: startedAtMs фрагмента — это
+  // offset от РЕАЛЬНОГО начала ЗАПИСИ той попытки, которой он
+  // действительно принадлежит, а не сколько-то там миллисекунд из
+  // воздуха. Он не может быть больше, чем сколько реального времени
+  // прошло с СОЗДАНИЯ ЭТОЙ ЗАПИСИ recording_attempts (started_at) —
+  // иначе фрагмент физически не мог быть записан в рамках ЭТОЙ попытки,
+  // а его пытаются подтвердить именно в неё (ровно то, что случилось
+  // 27.09: фрагменты попытки, работавшей ~1643с, подтвердились под
+  // attemptId попытки, которой на тот момент было ~5с).
+  //
+  // TIMING_GRACE_MS покрывает: (а) задержку между тем, как сервер
+  // создал строку recording_attempts, и тем, как клиент реально начал
+  // писать (обычно <1с, но не гарантировано), и (б) то, что confirm
+  // может прийти ГОРАЗДО позже реального момента захвата фрагмента —
+  // вся цепочка retry в uploader.ts (RETRY_DELAYS_MS) суммарно почти
+  // 92с. 120с — запас поверх этого с небольшим буфером. Проверка НЕ
+  // мешает легитимной поздней дозагрузке (resume) в СОБСТВЕННУЮ,
+  // давно созданную попытку: since started_at попытки фиксирован в
+  // прошлом, (now - started_at) только растёт со временем, а
+  // startedAtMs фрагмента — фиксированная величина, так что чем позже
+  // приходит confirm, тем больше запас, а не меньше.
+  const TIMING_GRACE_MS = 120_000;
+  const attemptStartedAtMs = Date.parse(attempt.started_at as string);
+  if (Number.isFinite(attemptStartedAtMs)) {
+    const elapsedSinceAttemptStart = Date.now() - attemptStartedAtMs;
+    if ((startedAtMs as number) > elapsedSinceAttemptStart + TIMING_GRACE_MS) {
+      return NextResponse.json(
+        {
+          error:
+            `Фрагмент заявляет offset ${startedAtMs}мс от начала записи, но с создания попытки ` +
+            `${attemptId} прошло лишь ~${elapsedSinceAttemptStart}мс — похоже, фрагмент принадлежит другой попытке записи`,
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // Идемпотентность внутри одной попытки: см. заголовок route выше.

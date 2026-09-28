@@ -112,7 +112,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // только на то, что клиент "честно" переслал то, что получил.
   const { data: attempt, error: attemptError } = await supabase
     .from("recording_attempts")
-    .select("id")
+    .select("id, started_at")
     .eq("id", attemptId)
     .eq("session_id", sessionId)
     .maybeSingle();
@@ -124,6 +124,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       { error: "attemptId не найден для этой сессии — вызовите /recording/attempts заново" },
       { status: 404 }
     );
+  }
+
+  // ЗАЩИТА ОТ ЧУЖОЙ ПОПЫТКИ (28.09.2026) — более грубая версия той же
+  // проверки, что в confirm (.../recording/chunks/route.ts): здесь ещё
+  // нет startedAtMs (его браузер присылает только на confirm), но по
+  // sequence и прошедшему с created_at попытки времени уже можно
+  // отсечь совсем неправдоподобные запросы (например, sequence=10
+  // через 5с после создания попытки — ровно баг 27.09, см. отчёт в
+  // проекте). MIN_CHUNK_MS — заведомо заниженная (по сравнению с
+  // реальным DEFAULT_TIMESLICE_MS=20000, см. trackRecorder.ts) оценка
+  // "сколько минимум может длиться один фрагмент", чтобы не отклонять
+  // легитимные короткие тестовые нарезки; это не замена точной
+  // проверке в confirm, а более раннее (и потому дешёвое — не тратим
+  // signed URL) отсечение самых грубых случаев.
+  const MIN_CHUNK_MS = 2_000;
+  const AUTHORIZE_TIMING_GRACE_MS = 120_000;
+  const attemptStartedAtMs = Date.parse(attempt.started_at as string);
+  if (Number.isFinite(attemptStartedAtMs)) {
+    const elapsedSinceAttemptStart = Date.now() - attemptStartedAtMs;
+    const maxPlausibleSequence = Math.ceil((elapsedSinceAttemptStart + AUTHORIZE_TIMING_GRACE_MS) / MIN_CHUNK_MS);
+    if ((sequence as number) > maxPlausibleSequence) {
+      return NextResponse.json(
+        {
+          error:
+            `sequence=${sequence} неправдоподобен: с создания попытки ${attemptId} прошло лишь ` +
+            `~${elapsedSinceAttemptStart}мс — похоже, фрагмент принадлежит другой попытке записи`,
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // Нельзя выдавать новую возможность записи по пути уже
