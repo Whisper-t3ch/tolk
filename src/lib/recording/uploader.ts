@@ -11,7 +11,7 @@
 //      Перезагрузка вкладки создаёт новый ChunkUploader → новый
 //      attempt_id → новый префикс пути в Storage — коллизия путей
 //      между "старой" и "новой" попыткой записи одной консультации
-//      структурно невозможна, а не просто поймана постфактум.
+//      структурно невозможна, а не просто пойманная постфактум.
 //   1. authorize: маленький JSON-запрос на
 //      /api/sessions/[id]/recording/chunks/authorize (теперь включает
 //      attemptId) — сервер проверяет владение сессией и attempt_id, и
@@ -57,16 +57,47 @@
 // Обе дорожки одного uploader'а используют ОДИН И ТОТ ЖЕ attempt_id —
 // это одна попытка записи консультации, а не отдельная попытка на
 // дорожку.
+//
+// ============================================================
+// ИНВАРИАНТ ownership (28.09.2026, см. разбор в
+// claude/jitsi-pilot-test-report-27-09.md в проекте): один фрагмент
+// может быть подтверждён РОВНО в одной попытке — той, к которой он был
+// привязан через claimPendingChunk() (chunkStore.ts), и никогда в
+// какой-либо другой, даже если тот же браузер/вкладка позже начинает
+// СОВЕРШЕННО НОВУЮ попытку записи той же консультации.
+//
+// Раньше flushPending() брал ЛЮБОЙ зависший в IndexedDB фрагмент этой
+// sessionId и грузил его под attemptId ТЕКУЩЕГО (нового) uploader'а —
+// ensureAttempt() всегда создаёт новую попытку на каждое монтирование
+// JitsiCallView, так что ЛЮБОЙ фрагмент из ПРЕДЫДУЩЕГО монтирования
+// автоматически получал чужой, не свой attempt_id. Живой тест
+// 27.09.2026 поймал это: 3 фрагмента отменённой попытки `2e2e3c15`
+// оказались подтверждены под новой `9c319a3e`, раздув реестр этой
+// попытки с честных 9 до 12 записей и ложно показав дорожку психолога
+// "неполной", хотя реальная запись была цельной.
+//
+// Теперь: enqueue()/flushPending() всегда идут через
+// claimAndUpload()/uploadWithRetry(chunk, attempt, targetAttemptId) —
+// targetAttemptId ЯВНО передаётся и НИКОГДА не берётся "текущим" для
+// фрагмента, у которого уже есть свой (см. flushPending() ниже). Для
+// фрагмента без привязки (chunk.attemptId === null, см. chunkStore.ts)
+// claimAndUpload() привязывает его к ТЕКУЩЕЙ попытке РОВНО ОДИН РАЗ —
+// это единственный момент, где "какая попытка" вообще выбирается.
 // ============================================================
 
 import type { RecordedChunk } from "./types";
 import type { RecordingManifest } from "./types";
 import type { RecordingStatusSnapshot } from "./sessionRecorder";
-import { putPendingChunk, deletePendingChunk, getAllPendingChunks } from "./chunkStore";
+import {
+  putPendingChunk,
+  deletePendingChunk,
+  getAllPendingChunks,
+  claimPendingChunk,
+  quarantinePendingChunk,
+} from "./chunkStore";
 import { createClient } from "@/lib/supabase/client";
 
 const RETRY_DELAYS_MS = [1000, 3000, 8000, 20000, 60000];
-const MAX_RETRIES = RETRY_DELAYS_MS.length;
 
 const RECORDING_BUCKET = "session-recordings";
 
@@ -87,8 +118,31 @@ export interface ChunkUploaderOptions {
   /** Подменяется в тестах; по умолчанию — обычный browser Supabase client. */
   storageClient?: ReturnType<typeof createClient>;
   onChunkUploaded?: (chunk: RecordedChunk) => void;
-  /** Фрагмент исчерпал все попытки retry — backend недоступен слишком долго. */
+  /** Фрагмент СВОЕЙ (текущей) попытки исчерпал все попытки retry — backend недоступен слишком долго. */
   onChunkGaveUp?: (chunk: RecordedChunk, error: Error) => void;
+  /**
+   * Фрагмент ЧУЖОЙ (более ранней) попытки этой же сессии успешно
+   * дозагружен в СВОЮ, исходную попытку — см. заголовок файла. Это не
+   * "новый" фрагмент текущей записи, поэтому отдельный колбэк, а не
+   * onChunkUploaded.
+   */
+  onForeignChunkResumed?: (chunk: RecordedChunk, attemptId: string) => void;
+  /**
+   * Фрагмент чужой попытки НЕ удалось дозагрузить в неё же после всех
+   * повторов — ушёл в quarantine (см. chunkStore.ts): данные не
+   * потеряны физически, но забыты автоматической выгрузкой. Явная
+   * изоляция вместо молчаливого смешения с текущей попыткой.
+   */
+  onForeignChunkQuarantined?: (chunk: RecordedChunk, attemptId: string, error: Error) => void;
+  /**
+   * Задержки retry в мс (по умолчанию RETRY_DELAYS_MS, суммарно ~92с) —
+   * инъекция только ради тестов (см. __tests__/uploader.test.ts): дать
+   * пройти всей цепочке give-up/quarantine за миллисекунды реального
+   * времени вместо ~92с настоящего ожидания или хрупкой возни с
+   * fake-таймерами поверх IndexedDB. В продакшене всегда используется
+   * дефолт.
+   */
+  retryDelaysMs?: number[];
 }
 
 /**
@@ -101,6 +155,9 @@ export class ChunkUploader {
   private readonly storage: ReturnType<typeof createClient>;
   private readonly onChunkUploaded?: (chunk: RecordedChunk) => void;
   private readonly onChunkGaveUp?: (chunk: RecordedChunk, error: Error) => void;
+  private readonly onForeignChunkResumed?: (chunk: RecordedChunk, attemptId: string) => void;
+  private readonly onForeignChunkQuarantined?: (chunk: RecordedChunk, attemptId: string, error: Error) => void;
+  private readonly retryDelaysMs: number[];
   /** Незавершённые задачи выгрузки (включая retry-цепочку) — нужно для waitForIdle(). */
   private readonly inFlight = new Map<string, Promise<void>>();
   /**
@@ -128,6 +185,9 @@ export class ChunkUploader {
     this.storage = options.storageClient ?? createClient();
     this.onChunkUploaded = options.onChunkUploaded;
     this.onChunkGaveUp = options.onChunkGaveUp;
+    this.onForeignChunkResumed = options.onForeignChunkResumed;
+    this.onForeignChunkQuarantined = options.onForeignChunkQuarantined;
+    this.retryDelaysMs = options.retryDelaysMs ?? RETRY_DELAYS_MS;
   }
 
   /**
@@ -146,7 +206,7 @@ export class ChunkUploader {
   enqueue(chunk: RecordedChunk): void {
     const key = `${chunk.role}:${chunk.sequence}`;
     const task = putPendingChunk(this.sessionId, chunk)
-      .then(() => this.uploadWithRetry(chunk, 0))
+      .then(() => this.claimAndUpload(chunk))
       .finally(() => {
         this.inFlight.delete(key);
       });
@@ -184,24 +244,73 @@ export class ChunkUploader {
    * прошлого монтирования в этой же вкладке) и можно дополнительно по
    * событию online, если потребуется агрессивнее реагировать на
    * восстановление сети.
+   *
+   * ВАЖНО (см. заголовок файла и chunkStore.ts): фрагмент, у которого
+   * уже ЕСТЬ привязка (chunk.attemptId !== null) — из ПРЕДЫДУЩЕГО
+   * монтирования (см. рассуждение в заголовке файла: ensureAttempt()
+   * этого, текущего, uploader'а ещё ни разу не запускался в момент
+   * первого вызова flushPending() при монтировании, поэтому НИ ОДИН
+   * найденный здесь фрагмент физически не может быть уже привязан к
+   * this.attemptId) — догружается СТРОГО под своим же attemptId,
+   * никогда не под текущим. Только фрагмент без привязки (null,
+   * включая legacy-записи без этого поля вообще, см. chunkStore.ts)
+   * проходит через claimAndUpload() и получает ТЕКУЩИЙ attemptId.
    */
   async flushPending(): Promise<void> {
     const pending = await getAllPendingChunks(this.sessionId);
     for (const chunk of pending) {
       const key = `${chunk.role}:${chunk.sequence}`;
       if (this.inFlight.has(key)) continue;
-      const task = this.uploadWithRetry(chunk, 0).finally(() => {
+      if (chunk.status === "quarantined") continue;
+      const task = (chunk.attemptId
+        ? this.uploadWithRetry(chunk, 0, chunk.attemptId)
+        : this.claimAndUpload(chunk)
+      ).finally(() => {
         this.inFlight.delete(key);
       });
       this.inFlight.set(key, task);
     }
   }
 
-  private async uploadWithRetry(chunk: RecordedChunk, attempt: number): Promise<void> {
+  /**
+   * Единственное место, где фрагмент БЕЗ привязки (attemptId === null)
+   * получает привязку — к ТЕКУЩЕЙ попытке этого uploader'а. Привязка
+   * пишется в IndexedDB (claimPendingChunk) ДО первого authorize:
+   * если вкладка закроется между этой записью и confirm, следующее
+   * монтирование увидит уже привязанный (не null) фрагмент и
+   * догрузит его строго в ЭТУ же попытку через flushPending() выше,
+   * а не "усыновит" повторно какой-то новой.
+   */
+  private async claimAndUpload(chunk: RecordedChunk): Promise<void> {
+    const attemptId = await this.ensureAttempt();
+    await claimPendingChunk(this.sessionId, chunk.role, chunk.sequence, attemptId);
+    return this.uploadWithRetry(chunk, 0, attemptId);
+  }
+
+  /**
+   * Четыре шага на фрагмент (ensureAttempt уже сделан вызывающей
+   * стороной — targetAttemptId передаётся явно, см. заголовок файла):
+   * authorize (JSON, маленький) → upload (Blob, напрямую в Storage,
+   * Vercel не видит) → confirm (JSON, маленький) — либо authorize сразу
+   * отвечает alreadyConfirmed:true и шаги upload/confirm пропускаются
+   * целиком (см. заголовок файла). Если ЛЮБОЙ из шагов упал — весь
+   * метод бросает, вызывающий (uploadWithRetry) повторит с тем же
+   * targetAttemptId.
+   *
+   * isForeign — true, когда targetAttemptId это НЕ attemptId текущего
+   * uploader'а (то есть фрагмент из чужой, более ранней попытки, см.
+   * flushPending()) — решает, какие колбэки звать при успехе/провале.
+   */
+  private async uploadWithRetry(chunk: RecordedChunk, attempt: number, targetAttemptId: string): Promise<void> {
+    const isForeign = targetAttemptId !== this.attemptId;
     try {
-      await this.uploadOnce(chunk);
+      await this.uploadOnce(chunk, targetAttemptId);
       await deletePendingChunk(this.sessionId, chunk.role, chunk.sequence);
-      this.onChunkUploaded?.(chunk);
+      if (isForeign) {
+        this.onForeignChunkResumed?.(chunk, targetAttemptId);
+      } else {
+        this.onChunkUploaded?.(chunk);
+      }
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
       if (error instanceof NonRetryableUploadError) {
@@ -209,19 +318,42 @@ export class ChunkUploader {
         // снова получит тот же ответ (например, 409-коллизия
         // checksum). Повтор не поможет, сразу считаем попытки
         // исчерпанными вместо ~90с бессмысленных retry.
-        this.onChunkGaveUp?.(chunk, error);
+        await this.giveUp(chunk, targetAttemptId, isForeign, error);
         return;
       }
-      if (attempt >= MAX_RETRIES) {
-        // Фрагмент остаётся в IndexedDB — при следующем flushPending()
-        // (например, новая попытка heartbeat нашла живую сеть) будет
-        // предпринята ещё одна серия попыток, а не потерян навсегда.
-        this.onChunkGaveUp?.(chunk, error);
+      if (attempt >= this.retryDelaysMs.length) {
+        await this.giveUp(chunk, targetAttemptId, isForeign, error);
         return;
       }
-      const delay = RETRY_DELAYS_MS[attempt];
+      const delay = this.retryDelaysMs[attempt];
       await new Promise(resolve => setTimeout(resolve, delay));
-      await this.uploadWithRetry(chunk, attempt + 1);
+      await this.uploadWithRetry(chunk, attempt + 1, targetAttemptId);
+    }
+  }
+
+  /**
+   * Исчерпаны все попытки выгрузить фрагмент под targetAttemptId.
+   * "Своя" (текущая) попытка — фрагмент остаётся обычным pending в
+   * IndexedDB, ретрай возможен на следующем flushPending() (поведение
+   * не изменилось с 24.09). "Чужая" попытка — дальше пытаться нечего
+   * (следующий flushPending() снова столкнётся с тем же недоступным
+   * attemptId), поэтому фрагмент явно уходит в quarantine, а не висит
+   * вечным грузом на каждом будущем монтировании этой же сессии.
+   */
+  private async giveUp(chunk: RecordedChunk, targetAttemptId: string, isForeign: boolean, error: Error): Promise<void> {
+    if (isForeign) {
+      await quarantinePendingChunk(
+        this.sessionId,
+        chunk.role,
+        chunk.sequence,
+        `не удалось дозагрузить в исходную попытку ${targetAttemptId}: ${error.message}`
+      );
+      this.onForeignChunkQuarantined?.(chunk, targetAttemptId, error);
+    } else {
+      // Фрагмент остаётся в IndexedDB — при следующем flushPending()
+      // (например, новая попытка heartbeat нашла живую сеть) будет
+      // предпринята ещё одна серия попыток, а не потерян навсегда.
+      this.onChunkGaveUp?.(chunk, error);
     }
   }
 
@@ -263,17 +395,15 @@ export class ChunkUploader {
   }
 
   /**
-   * Четыре шага: ensureAttempt → authorize (JSON, маленький) → upload
-   * (Blob, напрямую в Storage, Vercel не видит) → confirm (JSON,
-   * маленький) — либо authorize сразу отвечает alreadyConfirmed:true и
-   * шаги upload/confirm пропускаются целиком (см. заголовок файла).
-   * Если ЛЮБОЙ из шагов упал — весь метод бросает, uploadWithRetry
-   * повторит с нуля (кроме attemptId — он к этому моменту уже
-   * закэширован и повторно не запрашивается, см. ensureAttempt()).
+   * Три сетевых шага для ОДНОЙ попытки authorize→upload→confirm, под
+   * ЯВНО переданным attemptId (не обязательно this.attemptId — см.
+   * flushPending() для чужих фрагментов). Раньше сам вызывал
+   * ensureAttempt(); теперь этим управляют вызывающие (claimAndUpload
+   * для своих фрагментов, flushPending напрямую для чужих) — иначе
+   * функция сама могла бы незаметно "подставить" attemptId текущего
+   * uploader'а туда, где нужен чужой, и это и был баг 27.09.
    */
-  private async uploadOnce(chunk: RecordedChunk): Promise<void> {
-    const attemptId = await this.ensureAttempt();
-
+  private async uploadOnce(chunk: RecordedChunk, attemptId: string): Promise<void> {
     const authorizeResponse = await this.fetchImpl(
       `/api/sessions/${this.sessionId}/recording/chunks/authorize`,
       {

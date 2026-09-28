@@ -119,7 +119,7 @@ function JitsiCallView(
   const [camMuted, setCamMuted] = useState(true); // видео выключено по умолчанию — платформа аудио-центричная
   const [remoteConnected, setRemoteConnected] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatusSnapshot | null>(null);
-  const [chunkStats, setChunkStats] = useState({ count: 0, bytes: 0, failed: 0 });
+  const [chunkStats, setChunkStats] = useState({ count: 0, bytes: 0, failed: 0, foreignResumed: 0, quarantined: 0 });
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -129,6 +129,17 @@ function JitsiCallView(
   const uploaderRef = useRef<ChunkUploader | null>(null);
   /** Накопленные события диагностики остановки — отправляются одним пакетом в finishRecording(). */
   const stopDiagnosticsRef = useRef<StopDiagnosticEvent[]>([]);
+  /**
+   * События по "чужим" фрагментам (осиротевшим от предыдущей попытки
+   * этой же сессии, см. заголовок uploader.ts и инвариант ownership) —
+   * успешная дозагрузка в исходную попытку или уход в quarantine.
+   * Отправляются с обычным heartbeat и итоговым пакетом в
+   * finishRecording(), чтобы это было видно в recording_client_state,
+   * а не только в консоли браузера.
+   */
+  const foreignChunkEventsRef = useRef<
+    Array<{ type: "resumed" | "quarantined"; role: string; sequence: number; attemptId: string; ts: number; error?: string }>
+  >([]);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -152,6 +163,40 @@ function JitsiCallView(
         // ошибок, чтобы психолог видел проблему, а не только "N фрагм.".
         console.error(`Фрагмент ${chunk.role}#${chunk.sequence} не выгружен после всех попыток:`, error);
         setChunkStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+      },
+      onForeignChunkResumed: (chunk, attemptId) => {
+        // Фрагмент прошлой (не текущей) попытки этой же сессии успешно
+        // дозагружен в СВОЮ исходную попытку — см. инвариант ownership
+        // в заголовке uploader.ts. Не связано с текущей записью, но
+        // стоит знать, что такое было.
+        console.warn(`Фрагмент ${chunk.role}#${chunk.sequence} из прошлой попытки ${attemptId} дозагружен в неё же`);
+        foreignChunkEventsRef.current.push({
+          type: "resumed",
+          role: chunk.role,
+          sequence: chunk.sequence,
+          attemptId,
+          ts: Date.now(),
+        });
+        setChunkStats(prev => ({ ...prev, foreignResumed: prev.foreignResumed + 1 }));
+      },
+      onForeignChunkQuarantined: (chunk, attemptId, error) => {
+        // Фрагмент чужой попытки НЕ удалось дозагрузить в неё же —
+        // ушёл в quarantine (chunkStore.ts): данные остались в
+        // IndexedDB, но выгрузка прекращена. Явная изоляция вместо
+        // молчаливого смешения с текущей попыткой.
+        console.error(
+          `Фрагмент ${chunk.role}#${chunk.sequence} из прошлой попытки ${attemptId} ушёл в quarantine:`,
+          error
+        );
+        foreignChunkEventsRef.current.push({
+          type: "quarantined",
+          role: chunk.role,
+          sequence: chunk.sequence,
+          attemptId,
+          ts: Date.now(),
+          error: error.message,
+        });
+        setChunkStats(prev => ({ ...prev, quarantined: prev.quarantined + 1 }));
       },
     });
     uploaderRef.current = uploader;
@@ -188,7 +233,16 @@ function JitsiCallView(
       const recorder = recorderRef.current;
       const uploader = uploaderRef.current;
       if (recorder && uploader) {
-        void uploader.sendHeartbeat(recorder.getStatus());
+        const foreignChunkEvents = foreignChunkEventsRef.current;
+        if (foreignChunkEvents.length > 0) {
+          void uploader.sendHeartbeat({
+            ...recorder.getStatus(),
+            // @ts-expect-error — расширение снапшота доп. полем, см. stopDiagnostics ниже в finishRecording()
+            foreignChunkEvents,
+          });
+        } else {
+          void uploader.sendHeartbeat(recorder.getStatus());
+        }
       }
     }, HEARTBEAT_INTERVAL_MS);
     return () => clearInterval(interval);
@@ -276,12 +330,14 @@ function JitsiCallView(
         // ДО manifest, чтобы она долетела, даже если сама отправка
         // manifest ниже не удастся из-за сети.
         const diagnosticEvents = stopDiagnosticsRef.current;
-        if (diagnosticEvents.length > 0) {
+        const foreignChunkEvents = foreignChunkEventsRef.current;
+        if (diagnosticEvents.length > 0 || foreignChunkEvents.length > 0) {
           const attemptId = uploader.getAttemptId();
           await uploader.sendHeartbeat({
             ...recorder.getStatus(),
-            // @ts-expect-error — расширение снапшота доп. полем, сервер валидирует только "это объект"
+            // @ts-expect-error — расширение снапшота доп. полями (stopDiagnostics, foreignChunkEvents), сервер валидирует только "это объект"
             stopDiagnostics: { attemptId, events: diagnosticEvents },
+            foreignChunkEvents,
           });
         }
 
