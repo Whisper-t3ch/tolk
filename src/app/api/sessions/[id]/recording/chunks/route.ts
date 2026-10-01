@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isRecordingMaintenanceOn, RECORDING_MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { extensionForMimeType } from "@/lib/recording/mime";
 import { checkUnresolvedTrack, computeFinalStatus, type TrackValidation } from "@/lib/recording/manifestValidation";
@@ -207,7 +208,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const folder = `${sessionId}/${attemptId}/${track}`;
   const filename = `${String(sequence).padStart(6, "0")}.${ext}`;
 
-  const { data: listing, error: listError } = await supabase.storage
+  // ФИКС 01.10.2026 (см. отчёт о продакшн-инциденте после rollout
+  // migration_038 Part 2): проверка факта реальной загрузки обязана
+  // видеть Storage независимо от RLS-политик own_session_recordings_*
+  // на storage.objects — Part 2 их снял. authorize/route.ts уже
+  // использует admin-клиент для выдачи signed URL по той же причине
+  // (см. src/lib/supabase/admin.ts) — раньше здесь, в confirm, этот
+  // шаг пропустили. Без этого обычный cookie-клиент видит ПУСТОЙ
+  // список ВСЕГДА (RLS enabled + 0 policies = deny all для
+  // authenticated), и confirm отклоняет КАЖДЫЙ реально загруженный
+  // фрагмент как "не найден в хранилище" — это и произошло в
+  // production 01.10.2026 (22 из 22 confirm вернули 409 при 22
+  // реально дошедших чанках, upload через signed URL работал
+  // нормально). Владение сессией/попыткой уже проверено ВЫШЕ через
+  // обычный cookie-клиент (session+attempt), поэтому privileged-чтение
+  // здесь безопасно — та же модель, что уже в authorize/route.ts.
+  const admin = createAdminClient();
+  const { data: listing, error: listError } = await admin.storage
     .from("session-recordings")
     .list(folder, { search: filename, limit: 1 });
   if (listError) {
