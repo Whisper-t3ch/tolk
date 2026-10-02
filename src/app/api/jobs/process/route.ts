@@ -1,51 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processNextRecordingJob, type JobOutcome } from "@/lib/recording/jobQueue";
-import { checkAsrEnv } from "@/lib/asr";
+import { processNextRecordingJob, type JobOutcome, type RecordingJobRow } from "@/lib/recording/jobQueue";
+import { transcribeAssembledSession } from "@/lib/recording/transcribeSession";
+import { createMockAsrAdapter, createHttpAsrAdapter, type AsrAdapter } from "@/lib/recording/asrAdapter";
 import type { SessionAssemblyOk } from "@/lib/recording/attemptAssembly";
 
-// GET/POST /api/jobs/process — Этап 3.4, воркер-контур без выделенной
-// ВМ: Vercel Cron бьёт сюда по расписанию (см. vercel.json) GET-
-// запросом с заголовком `Authorization: Bearer ${CRON_SECRET}` — это
-// документированная Vercel'ом конвенция авторизации cron-вызовов
-// (переменная CRON_SECRET), не наш собственный секрет "с нуля". POST с
-// тем же заголовком — для ручного запуска на Preview при проверке.
+// GET/POST /api/jobs/process — Этап 3.4/3.5, воркер-контур без
+// выделенной ВМ: Vercel Cron бьёт сюда по расписанию (см. vercel.json)
+// GET-запросом с заголовком `Authorization: Bearer ${CRON_SECRET}` —
+// документированная Vercel'ом конвенция авторизации cron-вызовов. POST
+// с тем же заголовком — для ручного запуска на Preview при проверке.
 //
-// За один HTTP-вызов обрабатывается РОВНО ОДНА задача (один claim) —
-// проще держать каждый вызов коротким и укладываться в лимит времени
-// Vercel-функции, чем рисковать таймаутом на пачке тяжёлых сессий;
-// расписание в vercel.json достаточно частое, чтобы очередь не
-// накапливалась заметно при ожидаемой нагрузке (15-20 сессий/день).
+// За один HTTP-вызов обрабатывается РОВНО ОДНА задача (один claim).
 //
 // ============================================================
-// transcribeStub() — ЗАГЛУШКА (Этап 3.5, следующая ветка, подставит
-// сюда настоящий вызов GigaAM + запись в session_transcripts +
-// анонимизацию + триггер SOAP). На 02.10.2026 ASR_SERVICE_URL не
-// задан НИ В ОДНОМ окружении (своей ВМ ещё нет) — единственный
-// честный исход прямо сейчас — 'blocked' с понятной причиной, а не
-// притворяться, что транскрипция произошла, когда её не было.
+// ВЫБОР ASR-АДАПТЕРА — по прямому требованию пользователя (02.10):
+// "реальные платные или внешние ASR-вызовы не включай без отдельного
+// решения; сначала тесты, mock/local adapter". Поэтому НИЧЕГО не
+// включается само по себе:
+//
+//   RECORDING_ASR_ADAPTER не задан (по умолчанию) — ASR не включён
+//     вообще, задача помечается 'blocked' с понятной причиной. Это
+//     ТЕКУЩЕЕ состояние во всех окружениях на 02.10.2026 — своей ВМ с
+//     GigaAM ещё нет.
+//   RECORDING_ASR_ADAPTER=mock — локальная заглушка (asrAdapter.ts),
+//     без сети и без денег: позволяет прогнать весь пайплайн сборка →
+//     ASR → анонимизация → session_transcripts/session_transcript_
+//     segments → RAG-чанкинг → SOAP на Preview для проверки механики.
+//   RECORDING_ASR_ADAPTER=http (плюс обязательно ASR_SERVICE_URL) —
+//     реальный self-hosted GigaAM. Включать только отдельным,
+//     осознанным решением после появления ВМ — НЕ включать просто
+//     потому что ASR_SERVICE_URL когда-нибудь будет задан "попутно".
 // ============================================================
-async function transcribeStub(assembly: SessionAssemblyOk): Promise<JobOutcome> {
-  const tracksSummary = Object.fromEntries(
-    Object.entries(assembly.tracks).map(([track, data]) => [
-      track,
-      { bytes: data?.buffer.length ?? 0, chunks: data?.totalChunks ?? 0 },
-    ])
-  );
-  const asrStatus = checkAsrEnv();
-  if (!asrStatus.configured) {
-    return {
-      kind: "blocked",
-      reason: "ASR (GigaAM) ещё не настроен (ASR_SERVICE_URL не задан) — сборка прошла успешно, ждём инфраструктуру",
-      result: { assembled: tracksSummary },
-    };
+function pickAdapter(): { adapter: AsrAdapter } | { blockedReason: string } {
+  const mode = process.env.RECORDING_ASR_ADAPTER;
+  if (mode === "mock") {
+    return { adapter: createMockAsrAdapter() };
+  }
+  if (mode === "http") {
+    const serviceUrl = process.env.ASR_SERVICE_URL;
+    if (!serviceUrl) {
+      return { blockedReason: "RECORDING_ASR_ADAPTER=http, но ASR_SERVICE_URL не задан — реальный ASR не может быть вызван" };
+    }
+    return { adapter: createHttpAsrAdapter(serviceUrl) };
   }
   return {
-    kind: "blocked",
-    reason: "ASR_SERVICE_URL настроен, но вызов GigaAM для нового browser-pipeline ещё не реализован (Этап 3.5)",
-    result: { assembled: tracksSummary },
+    blockedReason:
+      "ASR ещё не включён ни в каком виде (RECORDING_ASR_ADAPTER не задан) — сборка записи прошла успешно, ждём либо " +
+      "явного включения mock-адаптера для тестов, либо развёртывания своей ВМ с GigaAM (RECORDING_ASR_ADAPTER=http)",
   };
+}
+
+function summarizeAssembly(assembly: SessionAssemblyOk): Record<string, { bytes: number; chunks: number }> {
+  return Object.fromEntries(
+    Object.entries(assembly.tracks).map(([track, data]) => [track, { bytes: data?.buffer.length ?? 0, chunks: data?.totalChunks ?? 0 }])
+  );
+}
+
+async function transcribe(
+  admin: ReturnType<typeof createAdminClient>,
+  assembly: SessionAssemblyOk,
+  job: RecordingJobRow
+): Promise<JobOutcome> {
+  const picked = pickAdapter();
+  if ("blockedReason" in picked) {
+    return { kind: "blocked", reason: picked.blockedReason, result: { assembled: summarizeAssembly(assembly) } };
+  }
+  return transcribeAssembledSession(admin, { sessionId: job.session_id, assembly, adapter: picked.adapter });
 }
 
 function checkAuth(request: NextRequest): boolean {
@@ -64,7 +86,7 @@ async function handle(request: NextRequest) {
 
   let result;
   try {
-    result = await processNextRecordingJob(admin, workerId, transcribeStub);
+    result = await processNextRecordingJob(admin, workerId, (assembly, job) => transcribe(admin, assembly, job));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
