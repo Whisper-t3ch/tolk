@@ -3,11 +3,14 @@ import { createHash } from "crypto";
 import { assembleAttemptTrack, assembleSessionRecording } from "../attemptAssembly";
 
 // ============================================================
-// Этап 3.1 — тесты сборки на синтетических байтах (не настоящем
-// аудио, см. честную оговорку в заголовке attemptAssembly.ts: сама
-// склейка WebM-фрагментов конкатенацией подтверждена здесь только
-// структурно — "правильные байты в правильном порядке", не то, что
-// результат реально проигрывается как аудио).
+// Этап 3.1 — тесты сборки на синтетических байтах ("правильные байты
+// в правильном порядке", не настоящее аудио). Реальная играбельность
+// (decode/длительность/сигнал) проверена ОТДЕЛЬНО 02.10.2026 живым
+// Preview-тестом на настоящих браузерных WebM/Opus-чанках — см.
+// заголовок attemptAssembly.ts и CLAUDE_CONTEXT_HANDOFF.md. Тот живой
+// тест также обнаружил, что склейка МЕЖДУ попытками не работает —
+// тесты ниже на блокировку этого случая (не только структурные) это
+// отражают.
 //
 // Мок Supabase-клиента ниже — тот же паттерн, что в
 // .../recording/chunks/__tests__/route.test.ts: общий backend-объект
@@ -230,7 +233,12 @@ describe("assembleAttemptTrack", () => {
 });
 
 describe("assembleSessionRecording", () => {
-  it("склеивает несколько попыток (reload/retry) в хронологическом порядке", async () => {
+  // Было (до 02.10.2026 live-теста): эта попытка предполагала, что
+  // байтовая склейка между ДВУМЯ попытками безопасна ("A1A2B1B2").
+  // Живой тест на настоящих браузерных WebM-чанках показал, что это
+  // не так (см. заголовок attemptAssembly.ts) — теперь такой случай
+  // должен явно блокироваться, а не молча отдавать повреждённый буфер.
+  it("блокирует сборку, если одна и та же дорожка записана в нескольких попытках (байтовая склейка между попытками не реализована)", async () => {
     const backend = makeBackend();
     backend.attempts.push(
       { id: "attempt-1", session_id: SESSION_ID, status: "superseded", started_at: "2026-10-02T10:00:00Z" },
@@ -244,12 +252,32 @@ describe("assembleSessionRecording", () => {
 
     const result = await assembleSessionRecording(client, SESSION_ID);
 
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected blocked");
+    expect(result.reason).toMatch(/нескольких попытках/i);
+    expect(result.track).toBe("psychologist");
+    expect(result.attemptId).toBe("attempt-2");
+  });
+
+  it("НЕ блокирует, если у каждой дорожки есть данные только в ОДНОЙ попытке (разные попытки дают разные дорожки — не пересекаются)", async () => {
+    const backend = makeBackend();
+    backend.attempts.push(
+      { id: "attempt-1", session_id: SESSION_ID, status: "superseded", started_at: "2026-10-02T10:00:00Z" },
+      { id: "attempt-2", session_id: SESSION_ID, status: "completed", started_at: "2026-10-02T10:05:00Z" }
+    );
+    // attempt-1: только psychologist (например, клиент подключился не сразу и попал уже во вторую попытку).
+    addChunk(backend, { sessionId: SESSION_ID, attemptId: "attempt-1", track: "psychologist", sequence: 0, content: "A1" });
+    // attempt-2: только client — psychologist в этой попытке пуст, это НЕ конфликт с attempt-1.
+    addChunk(backend, { sessionId: SESSION_ID, attemptId: "attempt-2", track: "client", sequence: 0, content: "B1c" });
+    const client = makeClient(backend);
+
+    const result = await assembleSessionRecording(client, SESSION_ID);
+
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("expected ok");
+    if (!result.ok) throw new Error("expected ok, got blocked: " + JSON.stringify(result));
+    expect(result.tracks.psychologist?.buffer.toString()).toBe("A1");
+    expect(result.tracks.client?.buffer.toString()).toBe("B1c");
     expect(result.attemptsUsed).toEqual(["attempt-1", "attempt-2"]);
-    expect(result.tracks.psychologist?.buffer.toString()).toBe("A1A2B1B2");
-    expect(result.tracks.psychologist?.totalChunks).toBe(4);
-    expect(result.tracks.client).toBeUndefined();
   });
 
   it("блокирует сборку сессии целиком, если есть незавершённая (active) попытка", async () => {
