@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, use } from "react";
 import { Check, Video, ShieldCheck } from "lucide-react";
+import { buildJitsiRoomName } from "@/lib/jitsi";
+import ClientCallView from "@/components/ClientCallView";
 
 type ViewState =
   | { kind: "loading" }
@@ -10,7 +12,7 @@ type ViewState =
       psychologistName: string;
       scheduledAt: string | null;
     }
-  | { kind: "consented" };
+  | { kind: "consented"; sessionId: string; psychologistName: string };
 
 const INVALID_REASON_LABELS: Record<string, string> = {
   not_found: "Ссылка для подключения не найдена — проверьте, что скопировали её полностью",
@@ -68,7 +70,8 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
   }, [token]);
 
   async function handleConnect() {
-    if (!consentChecked || submitting) return;
+    if (!consentChecked || submitting || state.kind !== "ready") return;
+    const psychologistName = state.psychologistName;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -84,7 +87,11 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
         );
         return;
       }
-      setState({ kind: "consented" });
+      // data.jitsi (clientJwt), если backend его выдал (JITSI_JWT_APP_ID/SECRET
+      // настроены), сюда СОЗНАТЕЛЬНО не передаётся — см. заголовок
+      // ClientCallView.tsx и jwt.ts: подключение остаётся анонимным, пока
+      // отдельное решение не включит проверку токена на самой ВМ.
+      setState({ kind: "consented", sessionId: data.sessionId, psychologistName });
     } catch {
       setSubmitError("Не удалось связаться с сервером");
     } finally {
@@ -239,31 +246,32 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
               background: "#fff",
               borderRadius: 16,
               border: "1px solid #E5DFD5",
-              padding: 28,
-              textAlign: "center",
+              padding: 16,
             }}
           >
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: "50%",
-                background: "#E6F7F2",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 16px",
-              }}
-            >
-              <Check size={24} style={{ color: "#1BAF7A" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 12px" }}>
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  background: "#E6F7F2",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Check size={16} style={{ color: "#1BAF7A" }} />
+              </div>
+              <p style={{ fontSize: 13, color: "#8C7355", margin: 0 }}>
+                Согласие подтверждено — эта ссылка больше не может быть использована повторно
+              </p>
             </div>
-            <p style={{ fontSize: 15, color: "#1C1C1E", fontWeight: 600, marginBottom: 8 }}>
-              Согласие подтверждено
-            </p>
-            <p style={{ fontSize: 13, color: "#8C7355", lineHeight: 1.5 }}>
-              Подключение к видеозвонку станет доступно здесь на следующем этапе.
-              Пока эта ссылка больше не может быть использована повторно.
-            </p>
+            <ClientCallView
+              roomName={buildJitsiRoomName(state.sessionId)}
+              psychologistName={state.psychologistName}
+            />
           </div>
         )}
 
