@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isRecordingMaintenanceOn, RECORDING_MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { validateTrack, computeFinalStatus, planAttemptClose, type TrackValidation } from "@/lib/recording/manifestValidation";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { enqueueTranscriptionJob } from "@/lib/recording/jobQueue";
 
 // POST /api/sessions/[id]/recording/manifest
 // Body: RecordingManifest (src/lib/recording/types.ts) — отправляется
@@ -207,6 +209,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .eq("status", "active");
     if (attemptCloseError) {
       console.error(`Не удалось закрыть recording_attempt ${closeAction.attemptId}:`, attemptCloseError.message);
+    }
+  }
+
+  // НОВОЕ 02.10.2026 (Этап 3.4, см. claude/production-rollout-runbook.md) —
+  // если эта попытка признана полностью готовой к расшифровке,
+  // ставим в очередь задачу на транскрипцию (recording_jobs,
+  // src/lib/recording/jobQueue.ts). Через service-role: таблица без
+  // RLS-политик для authenticated (см. заголовок
+  // migration_041_recording_jobs.sql) — обычный cookie-клиент сюда
+  // писать не может и не должен. Идемпотентно (unique(session_id,
+  // job_type)) — повторный manifest той же сессии (например, после
+  // ещё одной попытки/reload, которая тоже дошла до 'processing') не
+  // создаёт вторую задачу, просто не делает ничего нового. Best-effort:
+  // ошибка постановки в очередь не должна ронять ответ психологу — его
+  // запись уже сохранена и провалидирована, это сугубо учётная операция
+  // (тот же принцип, что у planAttemptClose выше).
+  if (finalStatus === "processing") {
+    try {
+      const admin = createAdminClient();
+      const enqueueResult = await enqueueTranscriptionJob(admin, sessionId);
+      if (!enqueueResult.ok) {
+        console.error(`Не удалось поставить сессию ${sessionId} в очередь на транскрипцию:`, enqueueResult.error);
+      }
+    } catch (e) {
+      console.error(`Не удалось поставить сессию ${sessionId} в очередь на транскрипцию:`, e instanceof Error ? e.message : e);
     }
   }
 
