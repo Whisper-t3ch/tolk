@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { consumeInviteToken } from "@/lib/invites/sessionInvites";
+import { buildJitsiRoomName } from "@/lib/jitsi";
+import { issueClientJwt, isJitsiJwtConfigured } from "@/lib/jitsi/jwt";
 
 /**
  * POST /api/join/[token]/consent
@@ -8,11 +10,22 @@ import { consumeInviteToken } from "@/lib/invites/sessionInvites";
  * Публичный (без auth) эндпоинт — клиент подтверждает согласие на запись
  * и тем самым ОДНОКРАТНО потребляет invite-токен.
  *
- * Важно: этот роут только фиксирует потребление токена и возвращает
- * session_id для дальнейшего использования фронтендом. Собственно
- * подключение к Jitsi-звонку (выдача JWT для роли client) — отдельная
- * задача (Этап 4 / задача №44), ещё не реализована. Здесь мы НЕ
- * выпускаем никакого токена доступа к звонку.
+ * Момент потребления токена — единственный момент, когда у нас есть
+ * доказанное право клиента войти в звонок (сам факт владения
+ * одноразовым токеном). Поэтому выдача Jitsi JWT для роли client
+ * сделана ЗДЕСЬ, а не отдельным публичным роутом, принимающим
+ * sessionId — такой роут было бы нечем защитить после того, как
+ * токен уже потреблён.
+ *
+ * ВАЖНО (задача №44, 02.10.2026): JWT выдаётся только если
+ * isJitsiJwtConfigured() === true, то есть JITSI_JWT_APP_ID/
+ * JITSI_JWT_APP_SECRET заданы в env — а они не заданы ни в одном
+ * окружении на 02.10.2026 (своей ВМ ещё нет). Поэтому поведение
+ * этого роута СЕЙЧАС не меняется: jitsi-поле просто отсутствует в
+ * ответе, фронтенд (src/app/join/[token]/page.tsx) его не читает.
+ * Когда ВМ появится — потребуется отдельное решение, чтобы реально
+ * подключаться к ней с этим токеном (см. комментарий в
+ * src/lib/jitsi/jwt.ts).
  */
 export async function POST(
   request: NextRequest,
@@ -54,8 +67,12 @@ export async function POST(
     );
   }
 
+  const roomName = buildJitsiRoomName(resolution.invite.session_id);
+  const jitsi = isJitsiJwtConfigured() ? issueClientJwt({ roomName }) : null;
+
   return NextResponse.json({
     ok: true,
     sessionId: resolution.invite.session_id,
+    ...(jitsi ? { jitsi } : {}),
   });
 }
