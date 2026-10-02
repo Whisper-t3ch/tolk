@@ -70,6 +70,16 @@ export interface SessionAssemblyBlocked {
   reason: string;
   attemptId?: string;
   track?: Track;
+  /**
+   * true — блокировка временная и САМА исчезнет позже без вмешательства
+   * (сейчас это только случай "есть активная попытка" — запись либо
+   * ещё идёт, либо недавно стартовала новая попытка после reload):
+   * вызывающий код (см. jobQueue.ts, processNextRecordingJob) должен
+   * вернуть задачу в очередь ('pending'), а не считать её сбоем.
+   * Отсутствует/false — расхождение доказано и само не исчезнет (дыра,
+   * checksum) — это реальный сбой, требующий внимания, не повтора.
+   */
+  transient?: boolean;
 }
 export type SessionAssemblyResult = SessionAssemblyOk | SessionAssemblyBlocked;
 
@@ -246,6 +256,7 @@ export async function assembleSessionRecording(
         "есть незавершённая попытка записи (status='active') — запись либо ещё идёт, либо завершилась " +
         "нештатно без manifest; сборка сессии до её завершения не выполняется",
       attemptId: activeAttempt.id,
+      transient: true,
     };
   }
 
