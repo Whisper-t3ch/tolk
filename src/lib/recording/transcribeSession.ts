@@ -48,6 +48,8 @@ export function mergeTrackResults(tracks: Partial<Record<Track, AsrTrackResult>>
     const result = tracks[track];
     if (!result) continue;
     for (const segment of result.segments) {
+      // Реальный ASR превращает тишину в сегменты из одной пунктуации ("."): без букв и цифр не нужны ни в диалоге, ни в SOAP.
+      if (!/[\p{L}\p{N}]/u.test(segment.text)) continue;
       merged.push({ speaker: track, startMs: segment.startMs, endMs: segment.endMs, text: segment.text });
     }
   }

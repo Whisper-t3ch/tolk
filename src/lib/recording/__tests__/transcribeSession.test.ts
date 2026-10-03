@@ -19,6 +19,21 @@ import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 const SESSION_ID = "33333333-3333-3333-3333-333333333333";
 
 describe("mergeTrackResults", () => {
+  it("отбрасывает сегменты без букв и цифр (тишина, распознанная как пунктуация)", () => {
+    const merged = mergeTrackResults({
+      psychologist: {
+        text: "",
+        durationSeconds: null,
+        segments: [
+          { startMs: 0, endMs: 1000, text: "." },
+          { startMs: 1000, endMs: 2000, text: "Здравствуйте" },
+          { startMs: 2000, endMs: 3000, text: " … " },
+        ],
+      },
+    });
+    expect(merged.map(s => s.text)).toEqual(["Здравствуйте"]);
+  });
+
   it("сводит сегменты обеих дорожек по возрастанию startMs, сохраняя порядок при равенстве", () => {
     const tracks: Partial<Record<"psychologist" | "client", AsrTrackResult>> = {
       psychologist: {
