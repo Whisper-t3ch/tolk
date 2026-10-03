@@ -115,9 +115,10 @@ export async function transcribeAssembledSession(
   const anonymizedSegments = merged.map((segment, i) => ({ ...segment, text: anonymizedTexts[i] ?? segment.text }));
   const dialogueText = anonymizedSegments.map(s => `${SPEAKER_LABEL[s.speaker]}: ${s.text}`).join("\n\n");
 
-  const durationSeconds = Math.max(
-    0,
-    ...Object.values(trackResults).map(r => r?.durationSeconds ?? 0)
+  // session_transcripts.duration_seconds — integer: реальный ASR отдаёт дробные секунды
+  // (например 300.72), mock отдавал целые, поэтому округляем здесь.
+  const durationSeconds = Math.round(
+    Math.max(0, ...Object.values(trackResults).map(r => r?.durationSeconds ?? 0))
   );
 
   const { data: transcriptRow, error: transcriptError } = await supabase

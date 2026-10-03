@@ -133,6 +133,19 @@ describe("transcribeAssembledSession", () => {
     }
   });
 
+  it("дробная длительность от реального ASR округляется до целого (duration_seconds — integer)", async () => {
+    const { client, inserted } = makeSupabaseMock();
+    const assembly = makeAssembly("audio-p");
+    const adapter = makeAdapter({
+      psychologist: { text: "", durationSeconds: 300.72, segments: [{ startMs: 0, endMs: 2000, text: "Привет" }] },
+    });
+
+    const outcome = await transcribeAssembledSession(client, { sessionId: SESSION_ID, assembly, adapter });
+
+    expect(outcome.kind).toBe("completed");
+    expect(inserted.transcripts[0].duration_seconds).toBe(301);
+  });
+
   it("ошибка ASR на одной дорожке → failed, не падает молча", async () => {
     const { client } = makeSupabaseMock();
     const assembly = makeAssembly("audio-p");
