@@ -24,7 +24,13 @@ const PUBLIC_PATHS = ["/", "/login"];
 // в /join/[token] и /api/join/* сам по себе служит доказательством права
 // доступа (одноразовый, с TTL, хэшированный в БД) — отдельная сессия
 // психолога для этих путей не нужна и не ожидается.
-const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/join/", "/api/public/", "/api/join/", "/api/webhooks/"];
+// /api/jobs/* — воркер очереди транскрипции (Vercel Cron / ручной вызов с
+// `Authorization: Bearer ${CRON_SECRET}`). Cron и ручной запуск не имеют
+// cookie-сессии психолога, поэтому без этого префикса middleware отдавал
+// 307 на /login и до обработчика запрос не доходил. Авторизация — не
+// сессией, а CRON_SECRET в самом обработчике (checkAuth): пока секрет не
+// задан, любой запрос получает 401.
+const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/join/", "/api/public/", "/api/join/", "/api/webhooks/", "/api/jobs/"];
 
 /**
  * Middleware выполняется на каждый запрос: обновляет сессию Supabase

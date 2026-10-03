@@ -84,7 +84,7 @@ export function createMockAsrAdapter(options?: { windowBytes?: number; segmentDu
  * их в Storage ради URL). НЕ вызывается без явного выбора адаптера на
  * уровне роута (RECORDING_ASR_ADAPTER=http) — см. заголовок файла.
  */
-export function createHttpAsrAdapter(serviceUrl: string): AsrAdapter {
+export function createHttpAsrAdapter(serviceUrl: string, options?: { authToken?: string }): AsrAdapter {
   return {
     async transcribeTrack(buffer: Buffer, track: Track): Promise<AsrTrackResult> {
       const form = new FormData();
@@ -93,7 +93,9 @@ export function createHttpAsrAdapter(serviceUrl: string): AsrAdapter {
 
       let response: Response;
       try {
-        response = await fetch(`${serviceUrl.replace(/\/$/, "")}/transcribe_track`, { method: "POST", body: form });
+        const headers: Record<string, string> = {};
+        if (options?.authToken) headers.Authorization = `Bearer ${options.authToken}`;
+        response = await fetch(`${serviceUrl.replace(/\/$/, "")}/transcribe_track`, { method: "POST", body: form, headers });
       } catch (e) {
         throw new AsrError(`Не удалось связаться с ASR-сервисом: ${e instanceof Error ? e.message : String(e)}`, "request_failed");
       }

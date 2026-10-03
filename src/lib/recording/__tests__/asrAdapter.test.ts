@@ -59,6 +59,17 @@ describe("createHttpAsrAdapter", () => {
     expect(result.durationSeconds).toBe(5);
   });
 
+  it("передаёт Bearer-токен, если он задан, и не шлёт Authorization без него", async () => {
+    const fetchMock = vi.fn(async (_url?: string, _init?: RequestInit) => new Response(JSON.stringify({ text: "ок" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createHttpAsrAdapter("http://asr.local", { authToken: "tok123" }).transcribeTrack(Buffer.from("x"), "client");
+    expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).Authorization).toBe("Bearer tok123");
+
+    await createHttpAsrAdapter("http://asr.local").transcribeTrack(Buffer.from("x"), "client");
+    expect((fetchMock.mock.calls[1][1]?.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
   it("строит один сегмент из text, если ASR не вернул segments", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ text: "только текст", duration_seconds: 3 }), { status: 200 })));
     const adapter = createHttpAsrAdapter("http://asr.local");

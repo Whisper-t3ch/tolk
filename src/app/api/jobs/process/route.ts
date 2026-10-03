@@ -53,7 +53,7 @@ function pickAdapter(): { adapter: AsrAdapter } | { blockedReason: string } {
     if (!serviceUrl) {
       return { blockedReason: "RECORDING_ASR_ADAPTER=http, но ASR_SERVICE_URL не задан — реальный ASR не может быть вызван" };
     }
-    return { adapter: createHttpAsrAdapter(serviceUrl) };
+    return { adapter: createHttpAsrAdapter(serviceUrl, { authToken: process.env.ASR_SERVICE_TOKEN }) };
   }
   return {
     blockedReason:
@@ -61,6 +61,13 @@ function pickAdapter(): { adapter: AsrAdapter } | { blockedReason: string } {
       "явного включения mock-адаптера для тестов, либо развёртывания своей ВМ с GigaAM (RECORDING_ASR_ADAPTER=http)",
   };
 }
+
+// Один вызов обрабатывает одну задачу целиком, включая ASR двух дорожек —
+// без явного лимита функция может оборваться по дефолтному таймауту Vercel
+// на середине транскрибации. 300 с — потолок, доступный на любом тарифе
+// при Fluid Compute; если реальных записей окажется больше, воркер надо
+// выносить на ВМ (схема recording_jobs это допускает).
+export const maxDuration = 300;
 
 function summarizeAssembly(assembly: SessionAssemblyOk): Record<string, { bytes: number; chunks: number }> {
   return Object.fromEntries(
