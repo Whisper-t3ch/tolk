@@ -21,6 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
+# Каталог кэша весов должен принадлежать app ещё до монтирования тома: иначе Docker создаёт его от root,
+# и GigaAM падает с PermissionError при скачивании модели.
+RUN mkdir -p /home/app/.cache && chown -R app:app /home/app
+
 USER app
 ENV HOME=/home/app PYTHONUNBUFFERED=1
 EXPOSE 8000
