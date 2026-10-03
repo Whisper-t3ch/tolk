@@ -1,0 +1,23 @@
+{$ASR_DOMAIN} {
+	encode zstd gzip
+
+	# /healthz — открыт (для проверки живости); всё остальное — только с Bearer-токеном.
+	# Первая линия защиты на уровне прокси; вторая — проверка токена в самом сервисе.
+	@unauthorized {
+		not path /healthz
+		not header Authorization "Bearer {$ASR_SERVICE_TOKEN}"
+	}
+	respond @unauthorized "unauthorized" 401
+
+	request_body {
+		max_size 200MB
+	}
+
+	reverse_proxy asr:8000 {
+		transport http {
+			# транскрибация длинной дорожки на CPU может идти минутами
+			response_header_timeout 15m
+			read_timeout 15m
+		}
+	}
+}

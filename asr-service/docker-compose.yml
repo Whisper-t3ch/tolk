@@ -1,0 +1,38 @@
+services:
+  asr:
+    build:
+      context: .
+      args:
+        GIGAAM_REF: ${GIGAAM_REF:-main}
+    restart: unless-stopped
+    environment:
+      ASR_SERVICE_TOKEN: ${ASR_SERVICE_TOKEN:?задайте в .env}
+      GIGAAM_MODEL: ${GIGAAM_MODEL:-v3_e2e_ctc}
+      TORCH_THREADS: ${TORCH_THREADS:-8}
+      ASR_PRELOAD: "1"
+      ASR_MAX_CONCURRENCY: ${ASR_MAX_CONCURRENCY:-1}
+    volumes:
+      - gigaam-cache:/home/app/.cache   # веса модели переживают пересборку контейнера
+    expose:
+      - "8000"                           # наружу не публикуется — только через Caddy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - asr
+    environment:
+      ASR_DOMAIN: ${ASR_DOMAIN:?задайте в .env}
+      ASR_SERVICE_TOKEN: ${ASR_SERVICE_TOKEN:?задайте в .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  gigaam-cache:
+  caddy-data:
+  caddy-config:
