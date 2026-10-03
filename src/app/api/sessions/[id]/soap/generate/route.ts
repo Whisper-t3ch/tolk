@@ -195,6 +195,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       { role: "user", text: userMessage },
     ]);
   } catch (e) {
+    // Диагностика: тело ошибки YandexGPT (причина 400/403 и т.п.) раньше нигде не логировалось.
+    // Ключи и текст транскрипта не пишем — только статус, ответ API и размеры промпта.
+    console.error("soap/generate: YandexGPT async start failed", {
+      sessionId,
+      status: e instanceof YandexGptError ? e.status : undefined,
+      details: e instanceof YandexGptError ? e.details : String(e),
+      systemPromptChars: systemPrompt.length,
+      userMessageChars: userMessage.length,
+    });
     const message = e instanceof YandexGptError ? e.message : "Не удалось запустить генерацию протокола";
     return NextResponse.json({ error: message }, { status: 502 });
   }
