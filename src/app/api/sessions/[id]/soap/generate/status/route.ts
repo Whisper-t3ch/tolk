@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { yandexGptGetAsyncOperation, YandexGptError } from "@/lib/yandexgpt";
-import type { SoapResult } from "@/lib/prompts/soap";
+import { guardSoapDraft, parseSoapJson } from "@/lib/soap/groundedness";
+import { buildGroundingCorpus, loadSoapSourceMaterial } from "@/lib/soap/sourceMaterial";
+import { MODERATION_MANUAL_MESSAGE } from "@/lib/soap/messages";
 
 // GET /api/sessions/[id]/soap/generate/status?job_id=...
 //
@@ -49,7 +51,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // готовый soap_notes, не обращаемся к YandexGPT снова.
   if (job.status === "done") {
     const soapNote = await loadSoapNote(supabase, sessionId);
-    return NextResponse.json({ status: "done", soapNote });
+    const guardIssues = (job.result as { guardIssues?: unknown } | null)?.guardIssues ?? [];
+    return NextResponse.json({ status: "done", soapNote: soapNote ? { ...soapNote, aiGenerated: true } : soapNote, guardIssues });
+  }
+  if (job.status === "manual_review_required") {
+    return NextResponse.json({
+      status: "manual_review_required",
+      code: "manual_review_required",
+      error: MODERATION_MANUAL_MESSAGE,
+    });
   }
   if (job.status === "error") {
     return NextResponse.json({ status: "error", error: job.error_message ?? "Не удалось сгенерировать протокол" });
@@ -72,6 +82,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ status: "pending" });
   }
 
+  // Модерация отклонила уже саму генерацию (после старта) — не «ошибка», а
+  // сценарий ручного заполнения: статус manual_review_required, без текста сессии.
+  if (opStatus.moderated) {
+    await supabase
+      .from("soap_generation_jobs")
+      .update({ status: "manual_review_required", error_message: "yandexgpt_moderation_rejected (async result)" })
+      .eq("id", jobId);
+    return NextResponse.json({
+      status: "manual_review_required",
+      code: "manual_review_required",
+      error: MODERATION_MANUAL_MESSAGE,
+    });
+  }
+
   if (opStatus.error || opStatus.text === null) {
     const message = opStatus.error ?? "YandexGPT не вернул результат генерации";
     await supabase.from("soap_generation_jobs").update({ status: "error", error_message: message }).eq("id", jobId);
@@ -80,26 +104,37 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   // Готово — парсим JSON так же, как раньше делал yandexGptCompleteJson
   // (модель просит вернуть строгий JSON текстом, см. soap.ts JSON_CONTRACT).
-  let result: SoapResult;
+  let parsed;
   try {
-    const cleaned = opStatus.text
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
-    result = JSON.parse(cleaned) as SoapResult;
+    parsed = parseSoapJson(opStatus.text);
   } catch {
     const message = "Не удалось разобрать ответ YandexGPT (не JSON)";
     await supabase.from("soap_generation_jobs").update({ status: "error", error_message: message }).eq("id", jobId);
     return NextResponse.json({ status: "error", error: message });
   }
 
+  // Пост-проверка «только из записи»: разделы с выдуманными диагнозами,
+  // заданиями, рекомендациями, числами и цитатами заменяются на
+  // «Недостаточно данных…» (lib/soap/groundedness.ts). Сверяемся с теми же
+  // материалами, что видела модель.
+  const { data: sessionRow } = await supabase
+    .from("sessions")
+    .select("client_id")
+    .eq("id", sessionId)
+    .eq("psychologist_id", user.id)
+    .maybeSingle();
+  const material = await loadSoapSourceMaterial(supabase, {
+    sessionId,
+    clientId: (sessionRow?.client_id as string | undefined) ?? "",
+    psychologistId: user.id,
+  });
+  const { result, issues } = guardSoapDraft(parsed, buildGroundingCorpus(material));
+
   const patch = {
-    s_subjective: result.s ?? "",
-    o_objective: result.o ?? "",
-    a_assessment: result.a ?? "",
-    p_plan: result.p ?? "",
+    s_subjective: result.s,
+    o_objective: result.o,
+    a_assessment: result.a,
+    p_plan: result.p,
     ai_generated: true,
     protocol_template_id: job.template_id ?? null,
   };
@@ -125,7 +160,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ status: "error", error: saveError.message });
   }
 
-  await supabase.from("soap_generation_jobs").update({ status: "done" }).eq("id", jobId);
+  // Только блок и тип проблемы — без текста сессии.
+  await supabase.from("soap_generation_jobs").update({ status: "done", result: { guardIssues: issues } }).eq("id", jobId);
 
   return NextResponse.json({
     status: "done",
@@ -136,7 +172,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       a: saved.a_assessment ?? "",
       p: saved.p_plan ?? "",
       updatedAt: saved.updated_at,
+      aiGenerated: true,
     },
+    guardIssues: issues,
   });
 }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { transcribeAudio, AsrError } from "@/lib/asr";
-import { anonymizeTranscript } from "@/lib/anonymize";
+import { anonymizeTranscript, AnonymizationError, MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST } from "@/lib/anonymize";
 import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 
 // POST /api/webhooks/recording
@@ -87,11 +87,25 @@ export async function POST(request: NextRequest) {
   // Анонимизируем СРАЗУ, до первой записи в БД — сырой текст от GigaAM
   // дальше этой переменной не переживает. Имя клиента (clientName)
   // сохраняется как есть, персональные данные третьих лиц заменяются на
-  // роли/обобщения (см. lib/anonymize.ts). При сбое анонимизации
-  // anonymizeTranscript возвращает исходный текст без изменений — в этом
-  // редком случае лучше сохранить неанонимизированный транскрипт, чем
-  // потерять запись сессии целиком.
-  const anonymizedText = await anonymizeTranscript(transcript.text, clientName);
+  // роли/обобщения (см. lib/anonymize.ts).
+  //
+  // FAIL-CLOSED (04.10.2026): при сбое анонимизации транскрипт НЕ
+  // сохраняется (раньше сохранялся сырой текст). Сессия получает статус
+  // manual_review_required с технической причиной (без текста сессии).
+  let anonymizedText: string;
+  try {
+    anonymizedText = await anonymizeTranscript(transcript.text, clientName);
+  } catch (e) {
+    const technical = e instanceof AnonymizationError ? `anonymization_${e.reason}: ${e.technical}` : "anonymization_unexpected_error";
+    await supabase
+      .from("sessions")
+      .update({ recording_status: "manual_review_required", transcript_error: technical })
+      .eq("id", sessionId);
+    return NextResponse.json(
+      { error: MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST, code: "manual_review_required" },
+      { status: 422 }
+    );
+  }
 
   const { error: insertError } = await supabase.from("session_transcripts").insert({
     session_id: sessionId,

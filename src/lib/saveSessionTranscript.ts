@@ -10,7 +10,8 @@ import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 // анонимизация → session_transcripts insert → чанкинг+embedding.
 //
 // Всегда: анонимизация ДО первой записи в БД (raw_text в базе — уже
-// анонимизированный текст), затем чанкинг на ~4000 символов и embedding
+// анонимизированный текст; при сбое анонимизации бросается
+// AnonymizationError, и в БД ничего не пишется — fail-closed), затем чанкинг на ~4000 символов и embedding
 // на каждый чанк отдельно (best-effort — см. lib/transcriptChunking.ts,
 // YandexGPT Embeddings ограничен 2048 токенами на вход).
 // ------------------------------------------------------------

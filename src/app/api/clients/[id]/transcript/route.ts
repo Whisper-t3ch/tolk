@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildJitsiRoomName } from "@/lib/jitsi";
 import { saveSessionTranscript } from "@/lib/saveSessionTranscript";
+import { AnonymizationError, MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST } from "@/lib/anonymize";
 
 // POST /api/clients/[id]/transcript
 // Body: { text: string, date?: string /* YYYY-MM-DD, по умолчанию сегодня */ }
@@ -102,6 +103,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
     return NextResponse.json({ ok: true, sessionId, embeddingSaved: chunksEmbedded > 0, chunksTotal, chunksEmbedded });
   } catch (e) {
+    if (e instanceof AnonymizationError) {
+      return NextResponse.json(
+        { error: MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST, code: "manual_review_required", sessionId },
+        { status: 422 }
+      );
+    }
     // Сессия уже создана — не откатываем её: транскрипт можно будет
     // дозагрузить вручную через сессию (api/sessions/[id]/transcript),
     // а пустая "историческая" сессия без транскрипта не мешает работе.

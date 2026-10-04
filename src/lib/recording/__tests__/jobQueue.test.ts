@@ -34,6 +34,7 @@ interface AttemptRow {
 }
 
 interface Backend {
+  sessionUpdates: Array<{ id: string; patch: Record<string, unknown> }>;
   chunks: ChunkRow[];
   storageObjects: Map<string, Buffer>;
   attempts: AttemptRow[];
@@ -42,7 +43,7 @@ interface Backend {
 }
 
 function makeBackend(): Backend {
-  return { chunks: [], storageObjects: new Map(), attempts: [], jobs: [], jobSeq: 0 };
+  return { sessionUpdates: [], chunks: [], storageObjects: new Map(), attempts: [], jobs: [], jobSeq: 0 };
 }
 
 function addChunk(backend: Backend, opts: { sessionId: string; attemptId: string; track: string; sequence: number; content: string }) {
@@ -176,6 +177,18 @@ function makeClient(backend: Backend) {
       }
       if (table === "recording_jobs") {
         return makeJobsTable(backend);
+      }
+      if (table === "sessions") {
+        return {
+          update(patch: Record<string, unknown>) {
+            return {
+              async eq(_key: string, id: string) {
+                backend.sessionUpdates.push({ id, patch });
+                return { error: null };
+              },
+            };
+          },
+        };
       }
       throw new Error(`unexpected table ${table}`);
     },
@@ -321,6 +334,36 @@ describe("processNextRecordingJob", () => {
     expect(result?.outcome.kind).toBe("failed");
     expect(backend.jobs[0].status).toBe("failed");
     expect(backend.jobs[0].last_error).toMatch(/дыра/i);
+  });
+
+  it("completed → sessions.recording_status='ready' (раньше оставался 'processing')", async () => {
+    const backend = makeBackend();
+    backend.attempts.push({ id: "attempt-1", session_id: SESSION_ID, status: "completed", started_at: "2026-10-02T10:00:00Z" });
+    addChunk(backend, { sessionId: SESSION_ID, attemptId: "attempt-1", track: "psychologist", sequence: 0, content: "AAA" });
+    const client = makeClient(backend);
+    await enqueueTranscriptionJob(client, SESSION_ID);
+
+    await processNextRecordingJob(client, "worker-1", async () => ({ kind: "completed" }));
+
+    expect(backend.sessionUpdates).toEqual([{ id: SESSION_ID, patch: { recording_status: "ready", transcript_error: null } }]);
+  });
+
+  it("manual_review_required → статус задачи и сессии manual_review_required, причина сохранена", async () => {
+    const backend = makeBackend();
+    backend.attempts.push({ id: "attempt-1", session_id: SESSION_ID, status: "completed", started_at: "2026-10-02T10:00:00Z" });
+    addChunk(backend, { sessionId: SESSION_ID, attemptId: "attempt-1", track: "psychologist", sequence: 0, content: "AAA" });
+    const client = makeClient(backend);
+    await enqueueTranscriptionJob(client, SESSION_ID);
+
+    const transcribe = vi.fn(async (): Promise<JobOutcome> => ({ kind: "manual_review_required", reason: "anonymization_llm_error: status=503" }));
+    const result = await processNextRecordingJob(client, "worker-1", transcribe);
+
+    expect(result?.outcome.kind).toBe("manual_review_required");
+    expect(backend.jobs[0].status).toBe("manual_review_required");
+    expect(backend.jobs[0].last_error).toBe("anonymization_llm_error: status=503");
+    expect(backend.sessionUpdates).toEqual([
+      { id: SESSION_ID, patch: { recording_status: "manual_review_required", transcript_error: "anonymization_llm_error: status=503" } },
+    ]);
   });
 
   it("сборка ок, но transcribe() сообщает blocked (например ASR не настроен) → статус blocked", async () => {

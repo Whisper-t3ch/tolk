@@ -115,6 +115,13 @@ export interface YandexGptCompletionOptions {
   jsonObject?: boolean;
   /** Список инструментов, доступных модели для вызова (function calling). */
   tools?: YandexGptTool[];
+  /**
+   * Бросать YandexGptError (status 400, details.moderation=true), если модель вернула
+   * ответ со статусом ALTERNATIVE_STATUS_CONTENT_FILTER, вместо того чтобы отдать
+   * текст-отказ как обычный ответ. Включено только там, где текст-отказ нельзя
+   * принять за результат (анонимизация); остальные вызовы поведение не меняют.
+   */
+  throwOnContentFilter?: boolean;
 }
 
 /** Usage-данные из ответа API — точные токены вместо оценки по размеру текста. */
@@ -141,6 +148,32 @@ export class YandexGptError extends Error {
     super(message);
     this.name = "YandexGptError";
   }
+}
+
+const MODERATION_REFUSAL_RE = /не могу обсуждать|content[\s_-]?filter|moderation|модерац/i;
+
+/**
+ * Запрос отклонён модерацией YandexGPT (фильтр контента). Реальный пример:
+ * HTTP 400 с текстом «Я не могу обсуждать эту тему». Проверяем только
+ * статус и ТЕКСТ ОТВЕТА API (details), текст сессии сюда не попадает.
+ */
+export function isModerationRefusal(e: unknown): boolean {
+  if (!(e instanceof YandexGptError)) return false;
+  const details = e.details as { moderation?: boolean } | string | undefined;
+  if (typeof details === "object" && details?.moderation === true) return true;
+  if (e.status !== 400) return false;
+  let serialized = "";
+  try {
+    serialized = typeof details === "string" ? details : JSON.stringify(details ?? "");
+  } catch {
+    serialized = "";
+  }
+  return MODERATION_REFUSAL_RE.test(`${e.message} ${serialized}`);
+}
+
+/** Текст ответа модели, который сам является отказом модерации (а не результатом генерации). */
+export function isModerationRefusalText(text: string | null | undefined): boolean {
+  return typeof text === "string" && /я не могу обсуждать эту тему|давайте поговорим о чём-нибудь другом/i.test(text);
 }
 
 /**
@@ -224,9 +257,16 @@ export async function yandexGptCompleteWithTools(
     return { text: null, toolCalls, model: modelName, usage };
   }
 
+  if (options.throwOnContentFilter && alternative?.status === "ALTERNATIVE_STATUS_CONTENT_FILTER") {
+    throw new YandexGptError("YandexGPT: ответ заблокирован фильтром контента", 400, { moderation: true });
+  }
+
   const text: string | undefined = alternative?.message?.text;
   if (typeof text !== "string") {
     throw new YandexGptError("YandexGPT вернул неожиданный формат ответа", response.status, data);
+  }
+  if (options.throwOnContentFilter && isModerationRefusalText(text)) {
+    throw new YandexGptError("YandexGPT: отказ модерации в тексте ответа", 400, { moderation: true });
   }
   return { text, toolCalls: null, model: modelName, usage };
 }
@@ -347,6 +387,8 @@ export interface YandexGptAsyncOperationStatus {
   text: string | null;
   /** Заполнено, если операция завершилась ошибкой (done=true, но результата нет). */
   error: string | null;
+  /** true, если генерацию заблокировал фильтр контента (модерация) — отличать от технических сбоев. */
+  moderated?: boolean;
 }
 
 /**
@@ -393,9 +435,15 @@ export async function yandexGptGetAsyncOperation(operationId: string): Promise<Y
   }
 
   const alternative = data?.response?.alternatives?.[0];
+  if (alternative?.status === "ALTERNATIVE_STATUS_CONTENT_FILTER") {
+    return { done: true, text: null, error: "YandexGPT: ответ заблокирован фильтром контента", moderated: true };
+  }
   const text: string | undefined = alternative?.message?.text;
   if (typeof text !== "string") {
     return { done: true, text: null, error: "YandexGPT (async) вернул неожиданный формат ответа" };
+  }
+  if (isModerationRefusalText(text)) {
+    return { done: true, text: null, error: "YandexGPT: отказ модерации в тексте ответа", moderated: true };
   }
   return { done: true, text, error: null };
 }
