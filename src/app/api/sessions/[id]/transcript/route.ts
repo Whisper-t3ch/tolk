@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { saveSessionTranscript } from "@/lib/saveSessionTranscript";
+import { AnonymizationError, MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST } from "@/lib/anonymize";
 
 // POST /api/sessions/[id]/transcript
 // Body: { text: string }
@@ -73,6 +74,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     ({ chunksTotal, chunksEmbedded } = await saveSessionTranscript(supabase, sessionId, clientName, text));
   } catch (e) {
+    if (e instanceof AnonymizationError) {
+      return NextResponse.json(
+        { error: MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST, code: "manual_review_required" },
+        { status: 422 }
+      );
+    }
     return NextResponse.json({ error: e instanceof Error ? e.message : "Не удалось сохранить транскрипт" }, { status: 500 });
   }
 

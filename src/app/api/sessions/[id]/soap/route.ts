@@ -35,7 +35,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { data: soapNote, error: soapError } = await supabase
     .from("soap_notes")
-    .select("id, s_subjective, o_objective, a_assessment, p_plan, client_summary, client_summary_sent_at, protocol_template_id, created_at, updated_at")
+    .select("id, s_subjective, o_objective, a_assessment, p_plan, client_summary, client_summary_sent_at, protocol_template_id, ai_generated, created_at, updated_at")
     .eq("session_id", sessionId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -87,6 +87,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           clientSummary: soapNote.client_summary,
           clientSummarySentAt: soapNote.client_summary_sent_at,
           protocolTemplateId: soapNote.protocol_template_id,
+          aiGenerated: soapNote.ai_generated === true,
           createdAt: soapNote.created_at,
           updatedAt: soapNote.updated_at,
         }

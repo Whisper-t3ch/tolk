@@ -6,6 +6,7 @@ import { Download, Copy, FileOutput, CheckCircle, Sparkles, Send, X, Loader2, Al
 import { Button, Card, CardContent } from "@/components/ui";
 import { useProfile } from "@/lib/ProfileContext";
 import { normalizeTimeZone } from "@/lib/timezone";
+import { AI_DRAFT_NOTICE, GUARD_REPLACED_NOTICE } from "@/lib/soap/messages";
 
 // Статус session.recording_status (см. migration_007_video_asr.sql) —
 // подсказка психологу, почему автоматическая генерация SOAP пока
@@ -48,6 +49,20 @@ function recordingStatusHint(status: string) {
       }}>
         <AlertTriangle size={13} />
         Запись сохранена не полностью — часть разговора может отсутствовать
+      </div>
+    );
+  }
+  // 'manual_review_required' — автоматическая обработка остановлена намеренно
+  // (например, не удалось безопасно обезличить текст): сырой текст дальше не
+  // шёл, расшифровка и черновик не создавались.
+  if (status === "manual_review_required") {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+        fontSize: 12, color: "#B45309", marginBottom: 12,
+      }}>
+        <AlertTriangle size={13} />
+        Автоматическая обработка записи остановлена: не удалось безопасно обезличить текст. Запись сохранена — заполните протокол вручную
       </div>
     );
   }
@@ -116,6 +131,10 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   const [soapNoteId, setSoapNoteId] = useState<string | null>(null);
   const [content, setContent] = useState<SoapContent>(EMPTY_SOAP);
   const [protocolExists, setProtocolExists] = useState(false);
+  // Черновик создан ИИ — показываем явную пометку «AI-черновик, требует проверки».
+  const [aiGenerated, setAiGenerated] = useState(false);
+  // Разделы, где в записи не нашлось оснований и содержимое заменено на «Недостаточно данных».
+  const [guardReplaced, setGuardReplaced] = useState(false);
   const [templates, setTemplates] = useState<ProtocolTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
 
@@ -164,8 +183,10 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         setSoapNoteId(data.soapNote.id);
         setContent({ s: data.soapNote.s, o: data.soapNote.o, a: data.soapNote.a, p: data.soapNote.p });
         setProtocolExists(true);
+        setAiGenerated(data.soapNote.aiGenerated === true);
         setSelectedTemplateId(data.soapNote.protocolTemplateId ?? "");
       } else {
+        setAiGenerated(false);
         setSoapNoteId(null);
         setContent(EMPTY_SOAP);
         setProtocolExists(false);
@@ -224,7 +245,10 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
       });
       const startData = await startRes.json();
       if (!startRes.ok) {
-        setGenerateError(startData.error ?? "Не удалось запустить генерацию протокола");
+        // insufficient_data / manual_review_required — штатные отказные сценарии:
+        // понятное сообщение, подсказка и ручное заполнение (блоки ниже).
+        const base = startData.error ?? "Не удалось запустить генерацию протокола";
+        setGenerateError(startData.hint ? `${base}. ${startData.hint}` : base);
         return;
       }
 
@@ -244,7 +268,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
           return;
         }
 
-        if (statusData.status === "error") {
+        if (statusData.status === "error" || statusData.status === "manual_review_required") {
           setGenerateError(statusData.error ?? "Не удалось сгенерировать протокол");
           return;
         }
@@ -254,7 +278,9 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
           setSoapNoteId(soapNote.id);
           setContent({ s: soapNote.s, o: soapNote.o, a: soapNote.a, p: soapNote.p });
           setProtocolExists(true);
-          setNotification("Протокол сгенерирован — проверьте и при необходимости отредактируйте перед сохранением");
+          setAiGenerated(true);
+          setGuardReplaced(Array.isArray(statusData.guardIssues) && statusData.guardIssues.length > 0);
+          setNotification("AI-черновик готов — проверьте и отредактируйте перед использованием");
           setTimeout(() => setNotification(null), 4000);
           return;
         }
@@ -586,6 +612,22 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
             </CardContent>
           </Card>
         </motion.div>
+      )}
+
+      {aiGenerated && protocolExists && (
+        <div
+          role="note"
+          style={{
+            display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 16, padding: "10px 14px",
+            background: "#FEF3C7", border: "1px solid #F59E0B", borderRadius: 10, fontSize: 12.5, color: "#7C5E10", lineHeight: 1.5,
+          }}
+        >
+          <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <strong>{AI_DRAFT_NOTICE}</strong>
+            {guardReplaced && <div style={{ marginTop: 4 }}>{GUARD_REPLACED_NOTICE}</div>}
+          </div>
+        </div>
       )}
 
       {/* Блоки протокола */}

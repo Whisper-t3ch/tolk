@@ -1,10 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { checkYandexGptEnv, yandexGptStartAsyncCompletion, YandexGptError } from "@/lib/yandexgpt";
+import {
+  checkYandexGptEnv,
+  yandexGptStartAsyncCompletion,
+  YandexGptError,
+  isModerationRefusal,
+} from "@/lib/yandexgpt";
 import {
   buildSoapUserMessage,
   selectSoapSystemPrompt,
 } from "@/lib/prompts/soap";
+import { maskProfanity } from "@/lib/profanity";
+import { MODERATION_MANUAL_MESSAGE } from "@/lib/soap/messages";
+import { loadSoapSourceMaterial } from "@/lib/soap/sourceMaterial";
+import {
+  assessTranscriptQuality,
+  countMeaningfulWords,
+  INSUFFICIENT_DATA_MESSAGE,
+  MIN_NOTES_WORDS,
+} from "@/lib/soap/transcriptQuality";
 
 // POST /api/sessions/[id]/soap/generate
 // Body (опционально): { template_id?: string } — id материала из
@@ -92,119 +106,106 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const clientName = (clientRel as { name?: string } | null)?.name ?? "Клиент";
   const clientId = session.client_id as string;
 
-  // Транскрипт уже анонимизирован при сохранении (см. /api/webhooks/recording) —
-  // читаем как есть, повторная анонимизация не нужна.
-  const { data: transcript } = await supabase
-    .from("session_transcripts")
-    .select("raw_text")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Материалы: транскрипт (уже анонимизирован при сохранении — см.
+  // lib/anonymize.ts, fail-closed), заметки психолога и резюме прошлых
+  // сессий. Мат маскируется ещё раз здесь — защита для старых транскриптов
+  // и для заметок, написанных вручную.
+  const material = await loadSoapSourceMaterial(supabase, {
+    sessionId,
+    clientId,
+    psychologistId: user.id,
+  });
 
-  const hasTranscript = Boolean(transcript?.raw_text);
+  // Порог качества: на пустом/слишком коротком/шумном транскрипте
+  // черновик не генерируется (раньше модель сочиняла протокол «из воздуха»).
+  const transcriptVerdict = material.transcript
+    ? assessTranscriptQuality(material.transcript, material.transcriptDurationSeconds)
+    : null;
+  const transcriptUsable = transcriptVerdict?.ok === true;
+  const notesUsable = countMeaningfulWords(material.notes) >= MIN_NOTES_WORDS;
 
-  // Заметки психолога — второй источник для генерации. Их пишут прямо во
-  // время звонка (страница /session/[id], автосохранение в
-  // soap_notes.s_subjective) или вручную в блоках протокола.
-  //
-  // Раньше запрос отбивался сразу, если нет транскрипта, а notes в
-  // промпт передавались пустой строкой — то есть готовый промпт для
-  // работы по заметкам (PROTOCOL_SYSTEM_PROMPT_MANUAL_DEGRADE) никогда
-  // не использовался, и вся ИИ-генерация протокола была недоступна, пока
-  // не подключены Jitsi и распознавание речи.
-  const { data: existingNote } = await supabase
-    .from("soap_notes")
-    .select("s_subjective, o_objective, a_assessment, p_plan")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const notes = [
-    existingNote?.s_subjective,
-    existingNote?.o_objective,
-    existingNote?.a_assessment,
-    existingNote?.p_plan,
-  ]
-    .map(v => (typeof v === "string" ? v.trim() : ""))
-    .filter(Boolean)
-    .join("\n\n");
-
-  if (!hasTranscript && !notes) {
+  if (!transcriptUsable && !notesUsable) {
     return NextResponse.json(
       {
-        error:
-          "Нечего анализировать: нет ни записи сессии, ни заметок. Напишите хотя бы короткие тезисы в блоках ниже — по ним получится собрать протокол.",
+        error: INSUFFICIENT_DATA_MESSAGE,
+        code: "insufficient_data",
+        reason: transcriptVerdict && !transcriptVerdict.ok ? transcriptVerdict.reason : "no_input",
+        hint: "Запись слишком короткая или неразборчивая, а заметок мало. Добавьте тезисы в блоки ниже или заполните протокол вручную.",
       },
-      { status: 409 }
+      { status: 422 }
     );
   }
 
-  // Порядковый номер сессии клиента (для "Сессия №N" в промпте) и
-  // краткий контекст предыдущих сессий — берём готовые гипотезы
-  // психолога (a_assessment) из предыдущих протоколов этого клиента,
-  // без отдельного дорогого LLM-вызова на резюме.
-  const { data: clientSessions } = await supabase
-    .from("sessions")
-    .select("id, scheduled_at")
-    .eq("client_id", clientId)
-    .eq("psychologist_id", user.id)
-    .order("scheduled_at", { ascending: true });
-
-  const orderedIds = (clientSessions ?? []).map(s => s.id as string);
-  const sessionNumber = Math.max(1, orderedIds.indexOf(sessionId) + 1);
-  const previousSessionIds = orderedIds.slice(0, Math.max(0, orderedIds.indexOf(sessionId))).slice(-3);
-
-  let previousSessionsSummary: string | undefined;
-  if (previousSessionIds.length > 0) {
-    const { data: previousNotes } = await supabase
-      .from("soap_notes")
-      .select("session_id, a_assessment, p_plan")
-      .in("session_id", previousSessionIds);
-    if (previousNotes && previousNotes.length > 0) {
-      previousSessionsSummary = previousNotes
-        .map(n => {
-          const gist = [n.a_assessment, n.p_plan].filter(Boolean).join(" ");
-          return gist ? `— ${gist}` : null;
-        })
-        .filter(Boolean)
-        .join("\n");
-    }
-  }
-
-  const systemPrompt = selectSoapSystemPrompt(hasTranscript);
-  const userMessage = buildSoapUserMessage({
-    transcript: hasTranscript ? (transcript!.raw_text as string) : undefined,
-    notes,
-    previousSessionsSummary,
-    clientName,
-    sessionNumber,
-    templateContent: template?.content,
-    templateTitle: template?.title ?? undefined,
-  });
+  // Транскрипт не прошёл порог, но заметок достаточно — генерируем только по
+  // заметкам (плохой транскрипт модели не передаётся вообще).
+  const useTranscript = transcriptUsable;
+  const systemPrompt = selectSoapSystemPrompt(useTranscript);
+  const templateContent = template?.content ? maskProfanity(template.content) : undefined;
+  const buildMessage = (minimal: boolean) =>
+    buildSoapUserMessage({
+      transcript: useTranscript ? material.transcript : undefined,
+      notes: minimal && useTranscript ? "" : material.notes,
+      previousSessionsSummary: minimal ? undefined : material.previousSessionsSummary,
+      clientName,
+      sessionNumber: material.sessionNumber,
+      templateContent: minimal ? undefined : templateContent,
+      templateTitle: minimal ? undefined : template?.title ?? undefined,
+    });
 
   // Запускаем генерацию в async-режиме — НЕ ждём результат здесь. Модель та
   // же (Pro), меняется только режим доставки (см. комментарий в начале
   // файла про экономику). yandexGptStartAsyncCompletion возвращает id
   // операции сразу, до завершения генерации.
-  let operationId: string;
-  try {
-    operationId = await yandexGptStartAsyncCompletion([
-      { role: "system", text: systemPrompt },
-      { role: "user", text: userMessage },
-    ]);
-  } catch (e) {
-    // Диагностика: тело ошибки YandexGPT (причина 400/403 и т.п.) раньше нигде не логировалось.
-    // Ключи и текст транскрипта не пишем — только статус, ответ API и размеры промпта.
-    console.error("soap/generate: YandexGPT async start failed", {
-      sessionId,
-      status: e instanceof YandexGptError ? e.status : undefined,
-      details: e instanceof YandexGptError ? e.details : String(e),
-      systemPromptChars: systemPrompt.length,
-      userMessageChars: userMessage.length,
-    });
-    const message = e instanceof YandexGptError ? e.message : "Не удалось запустить генерацию протокола";
+  //
+  // Controlled fallback при отказе модерации: одна повторная «безопасная»
+  // попытка с минимальным контекстом (только транскрипт/заметки, без
+  // шаблона и резюме прошлых сессий). Если отклонили и её — статус
+  // manual_review_required и понятное сообщение, а не молчаливый сбой.
+  let operationId: string | null = null;
+  let userMessage = buildMessage(false);
+  let startError: unknown = null;
+  for (const minimal of [false, true]) {
+    userMessage = buildMessage(minimal);
+    try {
+      operationId = await yandexGptStartAsyncCompletion([
+        { role: "system", text: systemPrompt },
+        { role: "user", text: userMessage },
+      ]);
+      startError = null;
+      break;
+    } catch (e) {
+      startError = e;
+      // Диагностика: статус и тело ответа API (причина 400/403 и т.п.), размеры промпта.
+      // Ключи и текст транскрипта не пишем.
+      console.error("soap/generate: YandexGPT async start failed", {
+        sessionId,
+        attempt: minimal ? "minimal" : "full",
+        status: e instanceof YandexGptError ? e.status : undefined,
+        details: e instanceof YandexGptError ? e.details : String(e),
+        systemPromptChars: systemPrompt.length,
+        userMessageChars: userMessage.length,
+      });
+      if (!isModerationRefusal(e)) break;
+    }
+  }
+
+  if (operationId === null) {
+    if (isModerationRefusal(startError)) {
+      // Только техническая причина — без текста сессии.
+      await supabase.from("soap_generation_jobs").insert({
+        session_id: sessionId,
+        psychologist_id: user.id,
+        operation_id: "none:moderation_rejected",
+        status: "manual_review_required",
+        error_message: "yandexgpt_moderation_rejected (full and minimal attempts)",
+        template_id: template?.id ?? null,
+      });
+      return NextResponse.json(
+        { error: MODERATION_MANUAL_MESSAGE, code: "manual_review_required", reason: "moderation_rejected" },
+        { status: 422 }
+      );
+    }
+    const message = startError instanceof YandexGptError ? startError.message : "Не удалось запустить генерацию протокола";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkYandexGptEnv, yandexGptComplete, YandexGptError } from "@/lib/yandexgpt";
 import { buildApproachContextBlock } from "@/lib/approaches";
-import { anonymizeTranscript } from "@/lib/anonymize";
+import { anonymizeTranscript, AnonymizationError } from "@/lib/anonymize";
 import { checkAssistantLimit, consumeAssistantLimit, limitExceededResponse } from "@/lib/assistantLimits";
 
 // POST /api/content/generate
@@ -100,10 +100,23 @@ export async function POST(request: NextRequest) {
         : (sessionRel as { clients?: { name?: string } } | null)?.clients;
       const clientName = clientRel?.name ?? "";
 
-      const [assessment, plan] = await Promise.all([
-        anonymizeTranscript(soapNote.a_assessment ?? "", clientName),
-        anonymizeTranscript(soapNote.p_plan ?? "", clientName),
-      ]);
+      // Fail-closed: если обезличить не удалось, сырой текст в LLM не отправляем.
+      let assessment: string;
+      let plan: string;
+      try {
+        [assessment, plan] = await Promise.all([
+          anonymizeTranscript(soapNote.a_assessment ?? "", clientName),
+          anonymizeTranscript(soapNote.p_plan ?? "", clientName),
+        ]);
+      } catch (e) {
+        if (e instanceof AnonymizationError) {
+          return NextResponse.json(
+            { error: "Не удалось безопасно обезличить материал сессии для поста. Укажите тему вручную.", code: "manual_review_required" },
+            { status: 422 }
+          );
+        }
+        throw e;
+      }
       sourceContext = `Обезличенный материал из практики (без имён и деталей, позволяющих идентифицировать клиента):\nОценка/динамика: ${assessment || "—"}\nПлан работы: ${plan || "—"}`;
     }
   } else if (body.topic?.trim()) {

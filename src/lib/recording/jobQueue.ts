@@ -24,7 +24,7 @@ export interface RecordingJobRow {
   id: string;
   session_id: string;
   job_type: string;
-  status: "pending" | "processing" | "completed" | "failed" | "blocked";
+  status: "pending" | "processing" | "completed" | "failed" | "blocked" | "manual_review_required";
   attempts_count: number;
   locked_at: string | null;
   locked_by: string | null;
@@ -38,6 +38,13 @@ export interface RecordingJobRow {
 export type JobOutcome =
   | { kind: "completed"; result?: Record<string, unknown> }
   | { kind: "blocked"; reason: string; result?: Record<string, unknown> }
+  /**
+   * Автоматическая обработка остановлена намеренно (например, анонимизация не
+   * удалась — сырой текст сессии дальше не идёт). reason — ТОЛЬКО технический
+   * код/описание, без текста сессии. Психолог увидит понятное сообщение и
+   * заполнит протокол вручную.
+   */
+  | { kind: "manual_review_required"; reason: string }
   | { kind: "failed"; reason: string };
 
 /** Результат processNextRecordingJob — надмножество JobOutcome: 'requeued' бывает ТОЛЬКО на уровне сборки (transient-блокировка), transcribe() сама никогда не requeue-ит. */
@@ -101,6 +108,23 @@ async function setJobStatus(supabase: SupabaseClient, jobId: string, patch: Reco
 }
 
 /**
+ * Статус записи на сессии (то, что видит психолог на странице протокола) —
+ * best-effort: сбой обновления не должен ронять уже обработанную задачу.
+ */
+async function setSessionRecordingStatus(
+  supabase: SupabaseClient,
+  sessionId: string,
+  patch: { recording_status: string; transcript_error: string | null }
+): Promise<void> {
+  try {
+    const { error } = await supabase.from("sessions").update(patch).eq("id", sessionId);
+    if (error) console.error(`processNextRecordingJob: не удалось обновить sessions(${sessionId}): ${error.message}`);
+  } catch (e) {
+    console.error(`processNextRecordingJob: не удалось обновить sessions(${sessionId}):`, e instanceof Error ? e.message : e);
+  }
+}
+
+/**
  * Обрабатывает РОВНО ОДНУ claimed задачу целиком:
  *   1. claimNextJob — если очередь пуста, возвращает null (не ошибка).
  *   2. assembleSessionRecording (attemptAssembly.ts) — реальная сборка
@@ -120,12 +144,14 @@ async function setJobStatus(supabase: SupabaseClient, jobId: string, patch: Reco
 export async function processNextRecordingJob(
   supabase: SupabaseClient,
   workerId: string,
-  transcribe: (assembly: SessionAssemblyOk, job: RecordingJobRow) => Promise<JobOutcome>
+  transcribe: (assembly: SessionAssemblyOk, job: RecordingJobRow) => Promise<JobOutcome>,
+  /** Сборка записи — подменяется только в тестах. */
+  assemble: (supabase: SupabaseClient, sessionId: string) => ReturnType<typeof assembleSessionRecording> = assembleSessionRecording
 ): Promise<{ jobId: string; outcome: ProcessOutcome } | null> {
   const job = await claimNextJob(supabase, workerId);
   if (!job) return null;
 
-  const assembly = await assembleSessionRecording(supabase, job.session_id);
+  const assembly = await assemble(supabase, job.session_id);
   if (!assembly.ok) {
     if (assembly.transient) {
       await setJobStatus(supabase, job.id, { status: "pending", locked_at: null, locked_by: null, last_error: assembly.reason });
@@ -138,6 +164,15 @@ export async function processNextRecordingJob(
   const outcome = await transcribe(assembly, job);
   if (outcome.kind === "completed") {
     await setJobStatus(supabase, job.id, { status: "completed", result: outcome.result ?? null, last_error: null });
+    // Раньше sessions.recording_status после успешной транскрипции оставался 'processing'
+    // навсегда (страница протокола показывала «Запись обрабатывается»).
+    await setSessionRecordingStatus(supabase, job.session_id, { recording_status: "ready", transcript_error: null });
+  } else if (outcome.kind === "manual_review_required") {
+    await setJobStatus(supabase, job.id, { status: "manual_review_required", last_error: outcome.reason });
+    await setSessionRecordingStatus(supabase, job.session_id, {
+      recording_status: "manual_review_required",
+      transcript_error: outcome.reason,
+    });
   } else if (outcome.kind === "blocked") {
     await setJobStatus(supabase, job.id, { status: "blocked", result: outcome.result ?? null, last_error: outcome.reason });
   } else {

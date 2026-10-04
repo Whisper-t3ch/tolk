@@ -26,7 +26,7 @@
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { anonymizeTranscripts } from "@/lib/anonymize";
+import { anonymizeTranscripts, AnonymizationError } from "@/lib/anonymize";
 import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 import { ASSEMBLY_TRACKS, type SessionAssemblyOk, type Track } from "./attemptAssembly";
 import type { AsrAdapter, AsrTrackResult } from "./asrAdapter";
@@ -113,7 +113,17 @@ export async function transcribeAssembledSession(
   }
 
   const clientName = await fetchClientName(supabase, sessionId);
-  const anonymizedTexts = await anonymizeTranscripts(merged.map(s => s.text), clientName);
+  // Fail-closed: если анонимизация не удалась, сырой текст не сохраняется и не идёт
+  // дальше (ни в БД, ни в SOAP). Аудио остаётся, задача получает manual_review_required.
+  let anonymizedTexts: string[];
+  try {
+    anonymizedTexts = await anonymizeTranscripts(merged.map(s => s.text), clientName);
+  } catch (e) {
+    if (e instanceof AnonymizationError) {
+      return { kind: "manual_review_required", reason: `anonymization_${e.reason}: ${e.technical}` };
+    }
+    return { kind: "failed", reason: `анонимизация завершилась непредвиденной ошибкой: ${e instanceof Error ? e.name : "unknown"}` };
+  }
   const anonymizedSegments = merged.map((segment, i) => ({ ...segment, text: anonymizedTexts[i] ?? segment.text }));
   const dialogueText = anonymizedSegments.map(s => `${SPEAKER_LABEL[s.speaker]}: ${s.text}`).join("\n\n");
 
