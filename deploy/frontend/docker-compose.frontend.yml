@@ -1,0 +1,44 @@
+# Добавка к ~/asr-service/docker-compose.yml: фронтенд ТОЛК рядом с ASR.
+# Запуск ТОЛЬКО через ./frontend.sh (он задаёт нужные переменные и флаги).
+# ASR-контейнер этим файлом не меняется.
+services:
+  web:
+    build:
+      context: ../tolk-src
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?}
+        NEXT_PUBLIC_JITSI_DOMAIN: ${NEXT_PUBLIC_JITSI_DOMAIN:?}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    image: tolk-web:current
+    restart: unless-stopped
+    env_file: .env.frontend          # серверные секреты; в git и в образ не попадают
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NODE_OPTIONS: "--max-old-space-size=1536"
+    cpus: 2.0                        # верхняя граница, чтобы фронтенд не вытеснял ASR
+    mem_limit: 3g
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    depends_on:
+      - asr
+      - web
+    environment:
+      FRONTEND_DOMAINS: ${FRONTEND_DOMAINS:?}
+    volumes:
+      # тот же target, что и в базовом compose, — подменяет Caddyfile на комбинированный
+      - ./Caddyfile.combined:/etc/caddy/Caddyfile:ro

@@ -1,0 +1,15 @@
+.git
+.next
+node_modules
+.env*
+asr-service
+.vm-deploy
+.claude_scratch
+_claude_incoming
+Claude outputs
+outputs
+deploy
+*.tsbuildinfo
+*.diff
+coverage
+platform_articles.json

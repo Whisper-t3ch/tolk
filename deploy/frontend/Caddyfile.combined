@@ -1,0 +1,43 @@
+# asr.tolkplace.ru — БЕЗ ИЗМЕНЕНИЙ относительно asr-service/Caddyfile.
+{$ASR_DOMAIN} {
+	encode zstd gzip
+
+	@unauthorized {
+		not path /healthz
+		not header Authorization "Bearer {$ASR_SERVICE_TOKEN}"
+	}
+	respond @unauthorized "unauthorized" 401
+
+	request_body {
+		max_size 200MB
+	}
+
+	reverse_proxy asr:8000 {
+		transport http {
+			response_header_timeout 15m
+			read_timeout 15m
+		}
+	}
+}
+
+# Фронтенд ТОЛК. Список доменов — переменная FRONTEND_DOMAINS (через пробел).
+# Сейчас только staging (stage.tolkplace.ru). Основной tolkplace.ru добавляется
+# в список ТОЛЬКО при переключении (см. README, раздел «Переключение»).
+{$FRONTEND_DOMAINS} {
+	encode zstd gzip
+
+	log {
+		output stdout
+		format json
+	}
+
+	# staging не должен индексироваться
+	@stage host stage.*
+	header @stage X-Robots-Tag "noindex, nofollow"
+
+	reverse_proxy web:3000 {
+		health_uri /api/health
+		health_interval 15s
+		health_timeout 5s
+	}
+}

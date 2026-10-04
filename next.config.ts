@@ -14,6 +14,10 @@ const nextConfig: NextConfig = {
   // route /api/sessions/[id]/soap/pdf падал с пустым 500 ещё на этапе
   // загрузки модуля. Грузим их нативно средствами Node вместо бандлинга.
   serverExternalPackages: ["pdf-lib", "@pdf-lib/fontkit"],
+  // Самодостаточная сборка для Docker (Dockerfile в корне репозитория задаёт
+  // NEXT_OUTPUT=standalone). Без этой переменной (в том числе на Vercel)
+  // поведение сборки не меняется.
+  ...(process.env.NEXT_OUTPUT === "standalone" ? { output: "standalone" as const } : {}),
 };
 
 export default nextConfig;
