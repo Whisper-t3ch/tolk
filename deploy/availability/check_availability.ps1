@@ -1,4 +1,4 @@
-# Проверка доступности ТОЛК из текущей сети (Windows PowerShell 5.1+). Запуск (из корня репозитория):
+﻿# Проверка доступности ТОЛК из текущей сети (Windows PowerShell 5.1+). Запуск (из корня репозитория):
 #   powershell -ExecutionPolicy Bypass -File deploy\availability\check_availability.ps1 -Network "дом-Ростелеком"
 # Лучше всего — БЕЗ VPN; запишите, был ли VPN. Результат: экран + availability_<Network>.txt (секретов нет).
 param([Parameter(Mandatory=$true)][string]$Network, [string]$Vpn = "нет")
