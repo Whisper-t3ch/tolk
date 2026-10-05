@@ -17,5 +17,10 @@ probe "ASR healthz" asr.tolkplace.ru /healthz
 probe "Supabase REST" $SB /rest/v1/
 probe "Supabase Auth" $SB /auth/v1/health
 probe "Supabase Storage" $SB /storage/v1/
+echo "---- Vercel: TCP 443 напрямую по IP"
+for ip in 216.198.79.1 76.76.21.21; do
+  timeout 8 bash -c "</dev/tcp/$ip/443" 2>/dev/null && echo "$ip : TCP 443 = True" || echo "$ip : TCP 443 = False"
+done
+echo "cname.vercel-dns.com -> $(getent hosts cname.vercel-dns.com | awk '{print $1}' | paste -sd, -)"
 echo "---- Supabase Storage: POST 2 МБ без ключа (ждём 400/401/403, не обрыв)"
 head -c 2097152 /dev/urandom | curl -s -o /dev/null -m 40 -X POST -H "Content-Type: application/octet-stream" --data-binary @- -w "HTTP %{http_code}, total %{time_total}s\n" "https://$SB/storage/v1/object/session-recordings/_availability_probe" || echo "ОШИБКА (curl код $?)"

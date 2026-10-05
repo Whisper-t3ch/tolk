@@ -38,6 +38,12 @@ foreach ($t in $targets) {
   try { $c = Test-NetConnection $t.h -Port 443 -WarningAction SilentlyContinue; $out += "TCP 443: $($c.TcpTestSucceeded)" } catch { $out += "TCP 443: ОШИБКА" }
   $out += "HTTPS x3 (код/время): $(Probe $t.h $t.p)"
 }
+# Прямые IP Vercel (справка для выбора DNS-записей; значения из панели Vercel: A @ 216.198.79.1, legacy 76.76.21.21 и cname.vercel-dns.com)
+$out += "---- Vercel: TCP 443 напрямую по IP"
+foreach ($ip in @("216.198.79.1","76.76.21.21")) {
+  try { $c = Test-NetConnection $ip -Port 443 -WarningAction SilentlyContinue; $out += "$ip : TCP 443 = $($c.TcpTestSucceeded)" } catch { $out += "$ip : ОШИБКА" }
+}
+try { $d = (Resolve-DnsName "cname.vercel-dns.com" -Type A -ErrorAction Stop | Where-Object {$_.Type -eq 'A'} | Select-Object -ExpandProperty IPAddress) -join ","; $out += "cname.vercel-dns.com -> $d" } catch { $out += "cname.vercel-dns.com: DNS ОШИБКА" }
 # Крупный запрос к Supabase Storage (2 МБ мусора, без ключа — сервер отклонит, ничего не сохраняется):
 # показывает, проходят ли в этой сети крупные POST к Supabase так же, как будущие аудиочанки.
 $out += "---- Supabase Storage: POST 2 МБ без ключа (ожидаем 400/401/403 быстро, не обрыв)"
