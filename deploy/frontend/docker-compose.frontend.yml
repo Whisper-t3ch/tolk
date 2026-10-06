@@ -39,6 +39,9 @@ services:
       - web
     environment:
       FRONTEND_DOMAINS: ${FRONTEND_DOMAINS:?}
+      DB_DOMAINS: ${DB_DOMAINS:-localhost}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # тот же target, что и в базовом compose, — подменяет Caddyfile на комбинированный
       - ./Caddyfile.combined:/etc/caddy/Caddyfile:ro

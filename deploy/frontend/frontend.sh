@@ -12,6 +12,7 @@ for k in FRONTEND_DOMAINS NEXT_PUBLIC_APP_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBL
   v="$(getv $k)"; [ -n "$v" ] || { echo "В .env.frontend не задан $k" >&2; exit 1; }
   export "$k=$v"
 done
+DB_DOMAINS="$(getv DB_DOMAINS)"; export DB_DOMAINS="${DB_DOMAINS:-localhost}"   # домен self-hosted Supabase (необязательно)
 BAD=""
 for k in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY YANDEX_GPT_API_KEY YANDEX_GPT_FOLDER_ID ASR_SERVICE_TOKEN CRON_SECRET; do
   v="$(getv $k)"; if [ -z "$v" ] || echo "$v" | grep -q "SENSITIVE"; then BAD="$BAD $k"; fi

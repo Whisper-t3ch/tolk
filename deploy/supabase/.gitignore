@@ -1,0 +1,7 @@
+# секреты и данные стека — только на сервере
+.env
+.env.old
+volumes/db/data/
+volumes/storage/
+volumes/snippets/
+schema_public.sql

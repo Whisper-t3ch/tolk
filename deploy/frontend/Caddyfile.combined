@@ -41,3 +41,18 @@
 		health_timeout 5s
 	}
 }
+
+# Supabase (self-hosted) снаружи: db.tolkplace.ru -> шлюз на docker-мосте (host.docker.internal:8000).
+# Переменная DB_DOMAINS; по умолчанию localhost (внутренний TLS, наружу ничего не отдаёт).
+# Порт 8000 и Postgres наружу НЕ открывать (см. deploy/supabase/README.md).
+{$DB_DOMAINS:localhost} {
+	encode zstd gzip
+
+	request_body {
+		max_size 60MB
+	}
+
+	reverse_proxy host.docker.internal:8000 {
+		flush_interval -1
+	}
+}

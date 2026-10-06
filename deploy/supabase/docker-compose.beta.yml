@@ -1,0 +1,68 @@
+# Дополнение к официальному docker-compose.yml Supabase (см. UPSTREAM.md).
+# Оставляем только то, что нужно ТОЛК: db, auth, rest, storage, api-gw (Envoy).
+# По коду ТОЛК НЕ использует: realtime, edge-функции, Studio, imgproxy, пулер.
+# Требуется Docker Compose >= 2.24 (теги !reset / !override).
+# Запуск ТОЛЬКО через ./sb.sh.
+#
+# Если api-gw (Envoy) не стартует из-за отсутствия отключённых сервисов — уберите
+# строку `profiles: ["disabled"]` у studio/realtime/functions (они лёгкие) и повторите ./sb.sh up.
+
+x-log: &log
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  studio:
+    profiles: ["disabled"]
+  realtime:
+    profiles: ["disabled"]
+  functions:
+    profiles: ["disabled"]
+  imgproxy:
+    profiles: ["disabled"]
+  meta:
+    profiles: ["disabled"]
+  supavisor:
+    profiles: ["disabled"]
+
+  # Шлюз слушает ТОЛЬКО на адресе docker-моста (по умолчанию 172.17.0.1), наружу порт не публикуется.
+  # Снаружи на него смотрит Caddy (db.tolkplace.ru -> host.docker.internal:8000).
+  api-gw:
+    depends_on: !reset {}
+    ports: !override
+      - "${API_GW_BIND:-172.17.0.1}:${API_GW_HTTP_PORT:-8000}:8000/tcp"
+    cpu_shares: 2048          # при нехватке CPU БД и шлюз важнее ASR
+    mem_limit: 512m
+    logging: *log
+
+  db:
+    cpu_shares: 2048
+    mem_limit: ${DB_MEM_LIMIT:-3g}
+    logging: *log
+
+  auth:
+    cpu_shares: 2048
+    mem_limit: 512m
+    logging: *log
+
+  rest:
+    cpu_shares: 2048
+    mem_limit: 768m
+    logging: *log
+
+  storage:
+    cpu_shares: 2048
+    mem_limit: 768m
+    depends_on: !override
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+      # Лимит файла; чанки записи по ~100 КБ, бакет session-recordings сам ограничен 10 МБ.
+      FILE_SIZE_LIMIT: 52428800
+      # Для боя: хранилище в Yandex Object Storage вместо диска ВМ — раскомментировать и заполнить
+      # (STORAGE_BACKEND: s3, GLOBAL_S3_BUCKET, GLOBAL_S3_ENDPOINT, GLOBAL_S3_PROTOCOL: https,
+      #  GLOBAL_S3_FORCE_PATH_STYLE: "true", AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, REGION).
+    logging: *log
