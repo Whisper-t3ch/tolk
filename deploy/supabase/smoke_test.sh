@@ -28,7 +28,8 @@ echo "Тест против $BASE"
 code=$(curl -s -o /dev/null -w '%{http_code}' -H "apikey: $ANON_KEY" "$BASE/auth/v1/health")
 [ "$code" = 200 ] && ok "Auth health" || bad "Auth health" "HTTP $code"
 
-code=$(curl -s -o /dev/null -w '%{http_code}' -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" "$BASE/rest/v1/")
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" "$BASE/rest/v1/psychologists?select=id&limit=1")
+# корень /rest/v1/ (OpenAPI) для anon закрыт в новых версиях PostgREST/Supabase (403), поэтому проверяем реальный запрос к таблице
 [ "$code" = 200 ] && ok "REST (PostgREST) отвечает" || bad "REST" "HTTP $code"
 
 # Регистрация и вход (как делает приложение: signUp + signInWithPassword)
