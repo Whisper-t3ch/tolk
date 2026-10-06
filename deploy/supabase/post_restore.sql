@@ -20,3 +20,15 @@ on conflict (id) do update
       allowed_mime_types = excluded.allowed_mime_types;
 
 -- Политик на storage.objects в облаке нет (storage_policies = 0): доступ идёт через service_role.
+
+-- 3) Права, которые дамп схемы не воспроизвёл (на сверке «облако vs локально» разошлись 06.10.2026).
+--    В облаке: claim_recording_job только service_role; soft_delete_client без anon;
+--    app_maintenance_flags только service_role. Идемпотентно.
+revoke all on function public.claim_recording_job(text, integer) from public, anon, authenticated;
+grant execute on function public.claim_recording_job(text, integer) to service_role;
+
+revoke all on function public.soft_delete_client(uuid) from public, anon;
+grant execute on function public.soft_delete_client(uuid) to authenticated, service_role;
+
+revoke all on table public.app_maintenance_flags from public, anon, authenticated;
+grant all on table public.app_maintenance_flags to service_role;
