@@ -4,6 +4,7 @@
 # (в облаке только тестовые данные; новый стек стартует чистым). Облачная БД не изменяется (только чтение).
 # Дополнительно можно скопировать данные справочных таблиц: DATA_TABLES="knowledge_base" ./migrate_from_cloud.sh
 # Запускать на сервере из ~/supabase ПОСЛЕ ./sb.sh up (все контейнеры healthy).
+# RESUME=1 ./migrate_from_cloud.sh — продолжить после обрыва на шаге 4 (основная схема уже загружена).
 set -euo pipefail
 cd "$(dirname "$0")"
 umask 077
@@ -33,7 +34,18 @@ cloud 'pg_dump "$U" --schema-only --no-owner -n public' | sed '/^CREATE SCHEMA p
 echo "   строк: $(wc -l < schema_public.sql)"
 
 echo "== 4/6 Восстановление схемы (роль postgres)"
-local_psql_pg < schema_public.sql
+# ALTER DEFAULT PRIVILEGES (в т.ч. FOR ROLE supabase_admin) роль postgres выполнить не может -> отдельно, от supabase_admin.
+grep -v '^ALTER DEFAULT PRIVILEGES' schema_public.sql > schema_public.nodef.sql || true
+grep    '^ALTER DEFAULT PRIVILEGES' schema_public.sql > schema_defpriv.sql || true
+if [ "${RESUME:-0}" = 1 ]; then
+  echo "   RESUME=1: основная схема уже восстановлена, пропускаю"
+else
+  local_psql_pg < schema_public.nodef.sql
+fi
+if [ -s schema_defpriv.sql ]; then
+  echo "   права по умолчанию (supabase_admin): $(wc -l < schema_defpriv.sql) строк"
+  local_psql_admin < schema_defpriv.sql
+fi
 
 echo "== 5/6 Триггер регистрации + бакет (post_restore.sql)"
 local_psql_admin < post_restore.sql

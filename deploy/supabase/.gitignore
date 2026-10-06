@@ -5,3 +5,5 @@ volumes/db/data/
 volumes/storage/
 volumes/snippets/
 schema_public.sql
+schema_public.nodef.sql
+schema_defpriv.sql
