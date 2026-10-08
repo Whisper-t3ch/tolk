@@ -4,6 +4,8 @@
 #   ./sb.sh up | status | logs [сервис] | stop | psql
 #   ./sb.sh sync-frontend <путь к .env.frontend>   записать URL и ключи Supabase в .env.frontend (без вывода секретов)
 #   ./sb.sh smoke [BASE_URL]                       проверочный тест (создаёт и удаляет тестового пользователя)
+#   ./sb.sh signup closed|open                     закрыть/открыть публичную регистрацию (после смены нужен ./sb.sh up)
+#   ./sb.sh adduser <email>                        создать подтверждённого пользователя (для закрытой беты); пароль показывается один раз
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -67,6 +69,29 @@ case "${1:-}" in
     setenv "$TARGET" SUPABASE_SERVICE_ROLE_KEY "$SERVICE_ROLE_KEY"
     echo "OK: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY записаны в $TARGET"
     echo "Дальше пересобрать web: ./frontend.sh build && ./frontend.sh up"
+    ;;
+  signup)
+    MODE="${2:?usage: ./sb.sh signup closed|open}"
+    case "$MODE" in closed) V=true;; open) V=false;; *) echo "closed или open"; exit 1;; esac
+    setenv .env DISABLE_SIGNUP "$V"
+    echo "OK: DISABLE_SIGNUP=$V. Применить: ./sb.sh up"
+    ;;
+  adduser)
+    EMAIL="${2:?usage: ./sb.sh adduser psycholog@example.com}"
+    # shellcheck disable=SC1091
+    set -a; . ./.env; set +a
+    BASE="http://${API_GW_BIND:-172.17.0.1}:${API_GW_HTTP_PORT:-8000}"
+    PASS="$(openssl rand -base64 18 | tr -d '/+=' | head -c 16)A9"
+    body="$(python3 -c 'import json,sys; print(json.dumps({"email":sys.argv[1],"password":sys.argv[2],"email_confirm":True}))' "$EMAIL" "$PASS")"
+    code=$(curl -s -o /tmp/.adduser_resp -w '%{http_code}' -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+           -H "Content-Type: application/json" -d "$body" "$BASE/auth/v1/admin/users")
+    if [ "$code" = 200 ] || [ "$code" = 201 ]; then
+      echo "OK: $EMAIL создан. Временный пароль (покажется один раз, передайте безопасным способом): $PASS"
+      echo "Пользователю: после первого входа сменить пароль в настройках. Строка в psychologists создаётся триггером."
+    else
+      echo "ОШИБКА HTTP $code: $(head -c 300 /tmp/.adduser_resp)"
+    fi
+    rm -f /tmp/.adduser_resp; unset PASS body
     ;;
   smoke)
     exec ./smoke_test.sh "${2:-}"

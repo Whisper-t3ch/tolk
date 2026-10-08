@@ -47,6 +47,14 @@ function url(room, name) {
     "config.disableDeepLinking=true", "config.requireDisplayName=false",
     `config.p2p.enabled=${P2P ? "true" : "false"}`,
     `userInfo.displayName=%22${encodeURIComponent(name)}%22`,
+    // Облегчённый режим (по умолчанию): один headless-Chromium кодирует и декодирует видео на CPU без GPU.
+    // Стандартные настройки Jitsi (simulcast, 720p) = ~2 ядра на участника, генератор перегружается.
+    // --heavy возвращает стандартные настройки.
+    ...(process.argv.includes("--heavy") ? [] : [
+      "config.videoQuality.codecPreferenceOrder=%5B%22VP8%22%5D", "config.disableSimulcast=true",
+      "config.constraints.video.height.ideal=360", "config.constraints.video.height.max=360",
+      "config.constraints.video.frameRate.max=15",
+    ]),
   ].join("&");
   return `https://${DOMAIN}/loadtest-${RUN}-${room}#${cfg}`;
 }
@@ -61,6 +69,12 @@ async function joinOne(browser, room, idx) {
     rec.page = page;
     await page.goto(url(room, `Load-${room}-${idx}`), { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForFunction(() => window.APP && APP.conference && APP.conference._room, null, { timeout: 60000 });
+    // В конфиге Jitsi disableInitialGUM=true: без этого участник входит без дорожек (нет видео/звука, трафик ~0).
+    // Параметр адреса config.disableInitialGUM=false не помогает, поэтому дорожки создаём переключением mute.
+    await page.evaluate(async () => {
+      await APP.conference.muteAudio(true); await APP.conference.muteAudio(false);
+      await APP.conference.muteVideo(true); await APP.conference.muteVideo(false);
+    });
     rec.joined = true; rec.joinMs = Date.now() - t0;
   } catch (e) { rec.err = String(e).slice(0, 160); }
 }
