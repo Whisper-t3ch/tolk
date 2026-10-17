@@ -6,7 +6,7 @@ import { buildPeriodSummary, PeriodSummaryError } from "@/lib/prompts/periodSumm
 
 // POST /api/clients/[id]/summary
 // Body: { session_ids: string[], period_label?: string }
-// Тяжёлый запрос — списывает 3 из лимита ассистента.
+// Списывает 1 запрос из лимита ассистента (как любой другой запрос).
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const envStatus = checkYandexGptEnv();
   if (!envStatus.configured) {

@@ -1460,7 +1460,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                     )}
 
                     <p style={{ fontSize: 11, color: "#8C7355", margin: 0, fontStyle: "italic" }}>
-                      Тяжёлый запрос — стоит 3 из лимита
+                      Списывает 1 запрос из лимита ассистента
                     </p>
 
                     <div style={{ display: "flex", gap: 8 }}>
