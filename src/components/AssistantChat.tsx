@@ -230,9 +230,14 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
     recognition.start();
   };
 
+  // isLoading из состояния обновляется только после перерисовки: два Enter подряд (автоповтор клавиши,
+  // быстрый двойной нажим) успевали оба пройти проверку, и вопрос уходил дважды (видели 16.10 на stage).
+  const sendingRef = useRef(false);
+
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || isLoading) return;
+    if (!text || isLoading || sendingRef.current) return;
+    sendingRef.current = true;
 
     // Неявный сигнал was_reformulated: если предыдущий ответ ассистента
     // пришёл меньше 15 секунд назад и это сообщение похоже по ключевым
@@ -299,6 +304,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
       setError("Не удалось связаться с сервером");
     } finally {
       setIsLoading(false);
+      sendingRef.current = false;
     }
   };
 
@@ -674,6 +680,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
           onKeyDown={e => {
             if (e.key === "Enter") {
               e.preventDefault();
+              if (e.repeat || e.nativeEvent.isComposing) return;
               handleSend();
             }
           }}
