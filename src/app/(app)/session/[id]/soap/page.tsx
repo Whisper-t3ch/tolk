@@ -769,7 +769,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               maxHeight: "85vh", display: "flex", flexDirection: "column", gap: 12,
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Загрузить транскрипт вручную</h3>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1C1C1E" }}>Загрузить транскрипт вручную</h3>
                 <button
                   onClick={() => !uploadingTranscript && setShowUploadTranscript(false)}
                   style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#8C7355" }}
@@ -800,6 +800,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 style={{
                   width: "100%", resize: "vertical", padding: 10, borderRadius: 8,
                   border: "1px solid #E5DFD5", fontSize: 13, fontFamily: "inherit",
+                  color: "#1C1C1E", background: "#fff",
                 }}
               />
               {uploadTranscriptText && (

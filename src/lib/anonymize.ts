@@ -130,6 +130,115 @@ function validateReplacements(result: unknown): AnonymizeReplacement[] {
   return replacements;
 }
 
+function capitalizeFirst(text: string): string {
+  return text ? text[0].toLocaleUpperCase("ru-RU") + text.slice(1) : text;
+}
+
+function isSentenceStart(textBefore: string): boolean {
+  return textBefore.trim() === "" || /(?:[.!?…]|:|\n)\s*$/u.test(textBefore.slice(-6));
+}
+
+/**
+ * Применяет замены по месту: если замена встаёт в начало предложения, она начинается с заглавной
+ * («отец позвонил» → «Отец позвонил»). Имя клиента не трогаем, даже если модель его вернула.
+ * После замен схлопываем задвоения вида «на работе на работе», которые возникают, когда модель
+ * заменяет название вместе с предлогом, а рядом уже был такой же оборот.
+ */
+export function applyReplacements(text: string, replacements: AnonymizeReplacement[], clientName: string): string {
+  let out = text;
+  for (const { original, replacement } of replacements) {
+    if (!original) continue;
+    if (original.trim() === clientName.trim()) continue;
+    const rep = replacement ?? "";
+    let result = "";
+    let from = 0;
+    let idx = out.indexOf(original, from);
+    if (idx === -1) continue;
+    while (idx !== -1) {
+      const before = out.slice(0, idx);
+      result += out.slice(from, idx) + (isSentenceStart(before) && /^[A-ZА-ЯЁ0-9]/.test(original) ? capitalizeFirst(rep) : rep);
+      from = idx + original.length;
+      idx = out.indexOf(original, from);
+    }
+    out = result + out.slice(from);
+  }
+  return collapseDuplicates(out, replacements.map(r => r.replacement ?? ""));
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Схлопывает задвоения, возникшие из-за замен («на работе на работе» → «на работе»). Трогаем только
+ * сами замены: живые повторы в речи клиента («очень-очень», «нет нет») — часть транскрипта.
+ */
+export function collapseDuplicates(text: string, phrases: string[]): string {
+  let out = text;
+  const uniq = [...new Set(phrases.map(p => p.trim()).filter(p => p.length >= 2))];
+  for (const phrase of uniq) {
+    const p = escapeRegExp(phrase).replace(/\s+/g, "\\s+");
+    const re = new RegExp(`(?<![\\p{L}])(${p})(?:[ \\t]+${p})+(?![\\p{L}])`, "giu");
+    out = out.replace(re, "$1");
+  }
+  return out.replace(/[ \t]{2,}/g, " ");
+}
+
+const SPEAKER_LABEL = /^(?:психолог|клиент|клиентка|терапевт|специалист)$/i;
+
+/** Слова с заглавной буквы не в начале предложения (кандидаты в имена/названия) и их контекст. */
+export function findSuspiciousProperNouns(text: string, clientName: string): Array<{ word: string; context: string }> {
+  const clientStems = clientName
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .split(/\s+/)
+    .filter(w => w.length >= 3)
+    .map(w => (w.length > 4 ? w.slice(0, w.length - 2) : w));
+  const found: Array<{ word: string; context: string }> = [];
+  const seen = new Set<string>();
+  const re = /[A-ZА-ЯЁ][a-zа-яё]{2,}/gu;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const word = m[0];
+    const before = text.slice(0, m.index);
+    if (isSentenceStart(before) || /[«"„]\s*$/.test(before.slice(-2)) && isSentenceStart(before.slice(0, -1))) continue;
+    if (SPEAKER_LABEL.test(word)) continue;
+    const low = word.toLowerCase().replace(/ё/g, "е");
+    if (clientStems.some(st => low.startsWith(st))) continue;
+    if (seen.has(word)) continue;
+    seen.add(word);
+    const start = Math.max(0, m.index - 60);
+    const end = Math.min(text.length, m.index + word.length + 60);
+    found.push({ word, context: text.slice(start, end).replace(/\s+/g, " ").trim() });
+  }
+  return found;
+}
+
+const DATE_RE = /(?<![\p{L}\d])\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+\d{4})?(?![\p{L}])|(?<![\d.])\d{1,2}\.\d{1,2}\.\d{2,4}(?![\d.])/giu;
+
+/** Заменяет оставшиеся точные даты на «недавно» (в начале предложения — «Недавно»). */
+export function scrubDates(text: string): string {
+  return text.replace(DATE_RE, (match, offset: number, whole: string) =>
+    isSentenceStart(whole.slice(0, offset)) ? "Недавно" : "недавно"
+  );
+}
+
+/** Точные даты («14 октября», «03.10.2026») — модель иногда оставляет их, хотя промпт требует заменить. */
+export function findDateMentions(text: string): Array<{ word: string; context: string }> {
+  const found: Array<{ word: string; context: string }> = [];
+  const seen = new Set<string>();
+  for (const m of text.matchAll(DATE_RE)) {
+    if (seen.has(m[0])) continue;
+    seen.add(m[0]);
+    const idx = m.index ?? 0;
+    found.push({
+      word: m[0],
+      context: text.slice(Math.max(0, idx - 60), Math.min(text.length, idx + m[0].length + 60)).replace(/\s+/g, " ").trim(),
+    });
+  }
+  return found;
+}
+
 /**
  * Анонимизирует текст транскрипта перед отправкой в LLM. Имя клиента
  * (clientName) сохраняется как есть — остальные персональные данные
@@ -187,14 +296,45 @@ export async function anonymizeTranscript(
   }
 
   const replacements = validateReplacements(result);
+  let anonymized = applyReplacements(masked, replacements, clientName);
 
-  let anonymized = masked;
-  for (const { original, replacement } of replacements) {
-    if (!original) continue;
-    // Защита от случайного затирания имени клиента, если модель всё же
-    // включила его в список замен вопреки инструкции.
-    if (original.trim() === clientName.trim()) continue;
-    anonymized = anonymized.split(original).join(replacement ?? "");
+  // Второй, прицельный проход (найдено 17.10 на GigaChat-3-Pro): модель пропускала часть данных
+  // («сестра Оксана», «в Бердске»). Слова с заглавной буквы не в начале предложения — почти всегда
+  // имена и названия; отдаём модели только их с контекстом и просим заменить то, что является ПДн.
+  const suspects = [...findSuspiciousProperNouns(anonymized, clientName), ...findDateMentions(anonymized)];
+  if (suspects.length > 0) {
+    let second: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        second = await yandexGptCompleteJson<AnonymizeResult>(
+          [
+            {
+              role: "system",
+              text:
+                `${ANONYMIZE_SYSTEM_PROMPT}\n\nИмя клиента, которое НЕ нужно анонимизировать: "${clientName}".\n\n` +
+                `Это повторная проверка. Ниже фрагменты, где остались слова с заглавной буквы. Для каждого слова, которое является ` +
+                `именем, фамилией, отчеством третьего лица, названием города, улицы, станции, организации или учебного заведения, ` +
+                `верни замену по тем же правилам ("original" — точная подстрока из фрагмента). Остальные слова не включай.`,
+            },
+            { role: "user", text: suspects.map(x => `- ${x.context}`).join("\n") },
+          ],
+          { model: "lite", temperature: 0.1, maxTokens: 800, throwOnContentFilter: true }
+        );
+        break;
+      } catch (e) {
+        if (isModerationRefusal(e)) throw new AnonymizationError("moderation_rejected", "отказ модерации на повторной проверке");
+        if (attempt === maxAttempts || (e instanceof YandexGptError && !isTransient(e) && !e.message.startsWith("Не удалось разобрать JSON"))) {
+          throw new AnonymizationError("llm_error", `сбой повторной проверки (попыток=${attempt})`);
+        }
+        if (retryDelayMs > 0) await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt));
+      }
+    }
+    anonymized = applyReplacements(anonymized, validateReplacements(second), clientName);
+    // Страховка: даты, которые модель так и не заменила, убираем без LLM (она делает это нестабильно).
+    anonymized = scrubDates(anonymized);
+    const left = findSuspiciousProperNouns(anonymized, clientName).length + findDateMentions(anonymized).length;
+    // В лог — только числа, без текста сессии.
+    console.log("ANON_SECOND_PASS", JSON.stringify({ suspects: suspects.length, left }));
   }
 
   if (anonymized.trim() === "") {
