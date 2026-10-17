@@ -1,6 +1,6 @@
 // ============================================================
 // Промпт и общая логика построения периодического среза по клиенту
-// (period_summaries). Тяжёлый запрос — списывает 3 из лимита ассистента
+// (period_summaries). Списывает 1 запрос из лимита ассистента
 // (см. src/lib/assistantLimits.ts, ASSISTANT_REQUEST_COST.heavy).
 //
 // buildPeriodSummary() — единая точка входа, используется и из
@@ -40,6 +40,8 @@ export const PERIOD_SUMMARY_SYSTEM_PROMPT = `Ты клинический асс�
 Ответь в формате JSON:
 {"key_themes": "string", "dynamics": "string", "progress": "string", "patterns": "string", "open_questions": "string"}
 Ключи — ровно эти пять, на английском, на верхнем уровне объекта. Значение каждого — непустая строка (не список и не объект). Без markdown и без текста вне JSON.`;
+
+export const PERIOD_SUMMARY_BUDGET_CHARS = 60000;
 
 export interface PeriodSummaryInput {
   sessionsCount: number;
@@ -215,6 +217,19 @@ export async function buildPeriodSummary(
     if (!text) continue;
     const date = new Date(session.scheduled_at).toISOString().slice(0, 10);
     sections.push(`=== Сессия №${sessionNumber} от ${date} ===\n${text}`);
+  }
+
+  // Потолок стоимости среза: не больше PERIOD_SUMMARY_BUDGET_CHARS символов транскриптов
+  // (≈20 тыс. токенов, ~1,5 ₽ на GigaChat-3-Pro). Если сессий много, каждая сокращается
+  // поровну — сохраняются начало (жалоба, как прошла неделя) и конец (договорённости).
+  const perSectionBudget = Math.floor(PERIOD_SUMMARY_BUDGET_CHARS / Math.max(1, sections.length));
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i];
+    if (sec.length > perSectionBudget) {
+      const head = Math.floor(perSectionBudget * 0.6);
+      const tail = perSectionBudget - head;
+      sections[i] = sec.slice(0, head) + "\n[…середина сессии сокращена…]\n" + sec.slice(sec.length - tail);
+    }
   }
 
   if (sections.length === 0) {

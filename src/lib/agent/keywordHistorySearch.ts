@@ -31,13 +31,42 @@ export interface TranscriptForSearch {
   raw_text: string;
 }
 
+// Потолок размера результата (≈6 тыс. токенов): без него у клиента с 50+ сессиями
+// фрагменты из всех сессий раздували запрос до 3–5 ₽. При превышении сначала берём
+// меньше реплик на сессию, потом — равномерную выборку сессий (первая и последняя всегда).
+export const KEYWORD_RESULT_BUDGET_CHARS = 20000;
+
 export function keywordSearchTranscripts(
   query: string,
   transcripts: TranscriptForSearch[],
-  opts: { perSession?: number; maxChars?: number } = {}
+  opts: { perSession?: number; maxChars?: number; budgetChars?: number } = {}
 ): Array<{ session: string; session_id: string; scheduled_at: string; session_number: number; excerpts: string[] }> {
-  const perSession = opts.perSession ?? 4;
-  const maxChars = opts.maxChars ?? 500;
+  const budget = opts.budgetChars ?? KEYWORD_RESULT_BUDGET_CHARS;
+  const size = (r: Array<{ excerpts: string[] }>) => r.reduce((a, x) => a + x.excerpts.reduce((b, e) => b + e.length, 0), 0);
+  let perSession = opts.perSession ?? 4;
+  let res = searchOnce(query, transcripts, perSession, opts.maxChars ?? 500);
+  while (size(res) > budget && perSession > 1) {
+    perSession -= 1;
+    res = searchOnce(query, transcripts, perSession, opts.maxChars ?? 500);
+  }
+  if (size(res) > budget) {
+    const avg = size(res) / res.length;
+    const keep = Math.max(2, Math.floor(budget / avg));
+    if (keep < res.length) {
+      const idx = new Set<number>();
+      for (let i = 0; i < keep; i++) idx.add(Math.round((i * (res.length - 1)) / (keep - 1)));
+      res = res.filter((_, i) => idx.has(i));
+    }
+  }
+  return res;
+}
+
+function searchOnce(
+  query: string,
+  transcripts: TranscriptForSearch[],
+  perSession: number,
+  maxChars: number
+): Array<{ session: string; session_id: string; scheduled_at: string; session_number: number; excerpts: string[] }> {
   const stems = stemsFor(query);
   if (stems.length === 0) return [];
   const sorted = [...transcripts].sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));

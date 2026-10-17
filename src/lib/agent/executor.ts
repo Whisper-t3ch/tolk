@@ -383,7 +383,7 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
 // Использует общую buildPeriodSummary (см. lib/prompts/periodSummary.ts)
 // — раньше здесь была независимая копия логики /api/clients/[id]/summary,
 // которая разошлась по поведению. Лимит здесь НЕ списывается отдельно:
-// /api/assistant уже списывает "agentTask" (3) за всю цепочку вызовов
+// /api/assistant уже списывает "agentTask" (1 запрос) за всю цепочку вызовов
 // инструментов после её завершения, независимо от того, какие именно
 // инструменты вызывались — повторное списание здесь удвоило бы
 // стоимость для психолога. Результат всё же сохраняется в

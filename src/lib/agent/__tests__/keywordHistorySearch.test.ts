@@ -18,3 +18,20 @@ describe("keywordSearchTranscripts", () => {
     expect(keywordSearchTranscripts("медитация", t)).toEqual([]);
   });
 });
+
+describe("keywordSearchTranscripts: потолок размера", () => {
+  it("на 60 сессиях укладывается в бюджет, первая и последняя сессии остаются", () => {
+    const para = "Клиент: Я опять злюсь на мужа и срываюсь, " + "очень долго рассказываю подробности ".repeat(10);
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      session_id: `s${i}`,
+      scheduled_at: `2026-01-${String((i % 28) + 1).padStart(2, "0")}T10:${String(i).padStart(2, "0")}:00Z`,
+      raw_text: [para, para, para, para, para].join("\n\n"),
+    }));
+    const r = keywordSearchTranscripts("злость", many, { budgetChars: 20000 });
+    const total = r.reduce((a, x) => a + x.excerpts.join("").length, 0);
+    expect(total).toBeLessThanOrEqual(20000);
+    expect(r.length).toBeGreaterThan(2);
+    expect(r[r.length - 1].session_number).toBe(60);
+    expect(r[0].session_number).toBe(1);
+  });
+});

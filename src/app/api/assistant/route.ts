@@ -227,7 +227,10 @@ export async function POST(request: NextRequest) {
     const prevMessages = Array.isArray(existingSession?.messages) ? existingSession.messages : [];
     for (const entry of prevMessages.slice(-MAX_HISTORY_MESSAGES) as Array<{ role: string; text: string; llm_text?: string }>) {
       if (entry.role === "user" || entry.role === "assistant") {
-        history.push({ role: entry.role, text: entry.role === "user" && entry.llm_text ? entry.llm_text : entry.text });
+        // Потолок на реплику: старые длинные ответы не раздувают каждый следующий запрос.
+        // Обрезка детерминированная — начало переписки не меняется и продолжает браться из кэша.
+        const t = entry.role === "user" && entry.llm_text ? entry.llm_text : entry.text;
+        history.push({ role: entry.role, text: t.length > 1500 ? t.slice(0, 1500) + "…" : t });
       }
     }
   }
