@@ -56,6 +56,20 @@ else
     stuck="$(sudo docker exec -e PGPASSWORD="$PW" supabase-db psql -h localhost -U supabase_admin -d postgres -At -c "select count(*) from public.recording_jobs where status in ('pending','processing') and created_at < now() - interval '30 minutes'" 2>/dev/null || echo 0)"
     [ "${stuck:-0}" = 0 ] || fails+=("очередь транскрипции: зависло задач $stuck (воркер jobs_cron.sh работает?)")
   fi
+  # ИИ (Cloud.ru): пустой баланс или недействительный ключ дают 401/402/403 в LLM_ERROR; массовые сбои другого рода — от 5 за 10 минут.
+  llm_log="$(sudo docker logs core-web-1 --since 10m 2>&1 | grep -a '^LLM_ERROR' || true)"
+  if [ -n "$llm_log" ]; then
+    auth_n="$(printf '%s\n' "$llm_log" | grep -cE '"status":(401|402|403)' || true)"
+    all_n="$(printf '%s\n' "$llm_log" | wc -l)"
+    [ "${auth_n:-0}" = 0 ] || fails+=("ИИ: отказ провайдера 401/402/403 x$auth_n за 10 мин (кончился баланс Cloud.ru или недействителен ключ?)")
+    [ "${all_n:-0}" -lt 5 ] || [ "${auth_n:-0}" != 0 ] || fails+=("ИИ: $all_n ошибок LLM за 10 мин")
+  fi
+  # Срок действия ключа Cloud.ru (выдан на 90 дней): LLM_KEY_EXPIRES=ГГГГ-ММ-ДД в .env.core, предупреждаем за 14 дней.
+  exp="$(getv LLM_KEY_EXPIRES)"
+  if [ -n "$exp" ]; then
+    left=$(( ( $(date -d "$exp" +%s 2>/dev/null || echo 0) - $(date +%s) ) / 86400 ))
+    [ "$left" -gt 14 ] || fails+=("ключ ИИ истекает через $left дн. ($exp): перевыпустить в Cloud.ru")
+  fi
 fi
 
 if [ "${#fails[@]}" = 0 ]; then now=OK; msg="OK"; else now=FAIL; msg="$(printf '%s; ' "${fails[@]}")"; fi
