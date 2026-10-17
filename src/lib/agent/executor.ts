@@ -549,6 +549,11 @@ async function searchKnowledgeBase(ctx: ExecutorContext, args: { query: string; 
 // голой датой трактует её как полночь, из-за чего .lte(date_to) отбрасывает
 // весь последний день (сессии "на завтра" не находились). Расширяем границы
 // до начала/конца суток; значения с временем оставляем как есть.
+function localDayBound(d: string, time: string, timeZone: string | undefined, endOfMinute = false): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const utc = zonedDateTimeToUtc(d, time, timeZone || DEFAULT_TIMEZONE);
+  return new Date(utc.getTime() + (endOfMinute ? 59_999 : 0)).toISOString();
+}
 function dayStart(d: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00` : d;
 }
@@ -560,12 +565,20 @@ async function getSchedule(ctx: ExecutorContext, args: { date_from: string; date
   const { data, error } = await ctx.supabase
     .from("sessions")
     .select("id, client_id, scheduled_at, duration_minutes, status, clients ( name )")
-    .gte("scheduled_at", dayStart(args.date_from))
-    .lte("scheduled_at", dayEnd(args.date_to))
+    .gte("scheduled_at", localDayBound(args.date_from, "00:00", ctx.timeZone))
+    .lte("scheduled_at", localDayBound(args.date_to, "23:59", ctx.timeZone, true))
     .neq("status", "cancelled")
     .order("scheduled_at", { ascending: true });
   if (error) throw new AgentToolError(error.message, "get_schedule");
-  return { sessions: data ?? [] };
+  // Время отдаём уже в поясе психолога: из UTC-строки модель называла 14:00 вместо 17:00 по Москве.
+  const tz = ctx.timeZone || DEFAULT_TIMEZONE;
+  return {
+    time_zone: tz,
+    sessions: (data ?? []).map(s => {
+      const at = new Date(s.scheduled_at as string);
+      return { ...s, local_date: formatDateInTimeZone(at, tz), local_time: formatTimeInTimeZone(at, tz) };
+    }),
+  };
 }
 
 async function getPreferences(ctx: ExecutorContext) {

@@ -45,6 +45,13 @@ const RISKY_PATTERNS: { kind: GuardIssueKind; re: RegExp }[] = [
   { kind: "unsupported_recommendation", re: /рекоменд|назначить|необходимо пройти|стоит пройти|направить к|психиатр|медикамент|препарат/u },
 ];
 
+// Модель пересказывает своими словами: в записи «сделала дыхание, как вы учили», «вечерний ритуал»,
+// а в протоколе «дыхательное упражнение», «техника дыхания». Буквальная сверка выкидывала такие блоки
+// (16.10, GigaChat-3-Pro: s, o, p стали «Недостаточно данных»). Упоминание практик и заданий
+// допустимо, если о практиках в сессии вообще шла речь; выдумать задание к сессии без них нельзя.
+const HOMEWORK_IN_SOURCE =
+  /домашн\p{L}*\s+задани|(?<![\p{L}])дз(?![\p{L}])|упражнени|дневник|медитац|дыхательн|дыхани|релаксац|самонаблюден|техник|ритуал|практик|попробуйте|попробуем|к следующей (?:встрече|сессии)|до следующей (?:встречи|сессии)/u;
+
 // Служебные слова, которые не считаем «содержательными» при оценке пересечения с источником.
 const STOP_STEMS = new Set([
   "клиен", "психо", "сесси", "можно", "предп", "необх", "более", "детал", "возмо", "стоит", "также", "котор",
@@ -92,10 +99,25 @@ const NUMBER_WORDS: Record<string, RegExp> = {
   "5": /пят/u, "6": /шест/u, "7": /сем|седьм/u, "8": /восем|восьм/u, "9": /девя/u, "10": /десят/u,
 };
 
+// Числа больше 10 модель тоже пишет цифрами («отпустило на 30%» при «процентов на тридцать» в записи).
+const BIG_NUMBER_WORDS: Record<string, RegExp> = {
+  "11": /одиннадцат/u, "12": /двенадцат/u, "13": /тринадцат/u, "14": /четырнадцат/u, "15": /пятнадцат/u,
+  "16": /шестнадцат/u, "17": /семнадцат/u, "18": /восемнадцат/u, "19": /девятнадцат/u,
+  "20": /двадцат/u, "30": /тридцат/u, "40": /сорок/u, "50": /пятьдесят|пятидесят/u, "60": /шестьдесят|шестидесят/u,
+  "70": /семьдесят|семидесят/u, "80": /восемьдесят|восьмидесят/u, "90": /девяност/u, "100": /(?<![\p{L}])сто(?![\p{L}])|сотн/u,
+};
+
 function numberSupported(n: string, source: string, sourceNumbers: Set<string>): boolean {
   if (sourceNumbers.has(n)) return true;
-  const word = NUMBER_WORDS[n];
-  return Boolean(word && word.test(source));
+  const word = NUMBER_WORDS[n] ?? BIG_NUMBER_WORDS[n];
+  if (word) return word.test(source);
+  const v = Number(n);
+  if (Number.isInteger(v) && v > 20 && v < 100) {
+    const tens = BIG_NUMBER_WORDS[String(v - (v % 10))];
+    const units = NUMBER_WORDS[String(v % 10)];
+    return Boolean(tens && units && tens.test(source) && units.test(source));
+  }
+  return false;
 }
 
 export function guardSoapDraft(draft: SoapResult, sourceText: string): { result: SoapResult; issues: GuardIssue[] } {
@@ -123,7 +145,8 @@ export function guardSoapDraft(draft: SoapResult, sourceText: string): { result:
 
     for (const { kind, re } of RISKY_PATTERNS) {
       const match = re.exec(normalized);
-      if (match && !re.test(source)) blockIssues.push(kind);
+      const supportedBySource = kind === "unsupported_homework" ? HOMEWORK_IN_SOURCE.test(source) : re.test(source);
+      if (match && !supportedBySource) blockIssues.push(kind);
     }
     if (numbersOf(normalized).some(n => !numberSupported(n, source, sourceNumbers))) blockIssues.push("unsupported_number");
     if (extractQuotes(text).some(q => !quoteSupported(q, source))) blockIssues.push("unsupported_quote");

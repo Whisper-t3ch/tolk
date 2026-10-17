@@ -113,6 +113,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ status: "error", error: message });
   }
 
+  // Диагностика на стенде (LOG_TOOL_CALLS=1, только синтетические данные): что вернула модель по каждому блоку.
+  if (process.env.LOG_TOOL_CALLS === "1") {
+    const preview = (v: unknown) => (typeof v === "string" ? v.slice(0, 100) : `<${typeof v}>`);
+    console.log("SOAP_RAW", JSON.stringify({ len: opStatus.text.length, s: preview(parsed.s), o: preview(parsed.o), a: preview(parsed.a), p: preview(parsed.p) }));
+  }
+
   // Пост-проверка «только из записи»: разделы с выдуманными диагнозами,
   // заданиями, рекомендациями, числами и цитатами заменяются на
   // «Недостаточно данных…» (lib/soap/groundedness.ts). Сверяемся с теми же
@@ -129,6 +135,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     psychologistId: user.id,
   });
   const { result, issues } = guardSoapDraft(parsed, buildGroundingCorpus(material));
+  // Диагностика: какие блоки и почему заменены на «Недостаточно данных» (без текста сессии).
+  if (issues.length > 0) console.log("SOAP_GUARD", JSON.stringify(issues));
 
   const patch = {
     s_subjective: result.s,
