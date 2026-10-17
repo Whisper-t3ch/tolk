@@ -7,5 +7,6 @@ if ! command -v node >/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20
   sudo apt-get install -y nodejs
 fi
 npm install --no-audit --no-fund
-sudo npx playwright install --with-deps chromium
+sudo npx playwright install-deps chromium
+npx playwright install chromium
 echo "готово: node $(node -v), playwright установлен"
