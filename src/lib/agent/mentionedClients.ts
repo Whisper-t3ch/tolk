@@ -19,15 +19,25 @@ function words(text: string): string[] {
 export function findMentionedClients(message: string, clients: ClientRef[], max = 3): ClientRef[] {
   const msgWords = words(message);
   if (msgWords.length === 0) return [];
-  const found: ClientRef[] = [];
+  const hits: Array<{ client: ClientRef; matched: Set<string>; tokens: number }> = [];
   for (const c of clients) {
     const tokens = c.name.split(/\s+/).filter(t => t.length >= 3);
-    const hit = tokens.some(t => {
+    const matched = new Set<string>();
+    for (const t of tokens) {
       const s = stem(t);
-      return msgWords.some(w => w.startsWith(s) && w.length <= s.length + 3);
-    });
-    if (hit) found.push(c);
+      for (const w of msgWords) if (w.startsWith(s) && w.length <= s.length + 3) matched.add(w);
+    }
+    if (matched.size > 0) hits.push({ client: c, matched, tokens: tokens.length });
   }
+  // Омонимия имён («Анна» и «Анна Петрова»): если слова, по которым нашёлся один клиент, целиком покрываются
+  // другим, выбираем более точного: с большим числом совпавших слов, а при равенстве — того, чьё имя названо
+  // полностью («Анна» против «Анна Петрова» при вопросе про «Анну»). Разных людей в одном вопросе это не затрагивает.
+  const better = (a: (typeof hits)[number], b: (typeof hits)[number]) =>
+    a.matched.size > b.matched.size ||
+    (a.matched.size === b.matched.size && a.matched.size === a.tokens && b.matched.size < b.tokens);
+  const found = hits
+    .filter(h => !hits.some(o => o !== h && [...h.matched].every(w => o.matched.has(w)) && better(o, h)))
+    .map(h => h.client);
   return found.length <= max ? found : [];
 }
 

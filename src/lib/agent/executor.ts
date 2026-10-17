@@ -199,7 +199,9 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
 
     // "Последняя/первая сессия" = сессия, по которой есть транскрипт. Без этого "last" выбирал
     // будущую запланированную сессию (транскрипта нет) и ассистент отвечал "записей нет".
+    let sessionsBeforeTranscriptFilter: Array<{ id: string; scheduled_at: string }> = [];
     if (args.session_position && filtered.length > 0) {
+      sessionsBeforeTranscriptFilter = filtered;
       const { data: withTranscript, error: wtError } = await ctx.supabase
         .from("session_transcripts")
         .select("session_id")
@@ -218,6 +220,14 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
     }
 
     if (filtered.length === 0) {
+      if (sessionsBeforeTranscriptFilter.length > 0) {
+        const past = sessionsBeforeTranscriptFilter.filter(x => x.scheduled_at <= new Date().toISOString());
+        const lastDate = (past.length ? past[past.length - 1] : sessionsBeforeTranscriptFilter[sessionsBeforeTranscriptFilter.length - 1]).scheduled_at.slice(0, 10);
+        return {
+          results: [],
+          note: `Сессии у клиента есть (${sessionsBeforeTranscriptFilter.length}, последняя по дате ${lastDate}), но ни по одной нет транскрипта: запись или расшифровка не загружены. Не говори, что сессий не было; скажи, что содержания сессий нет, и предложи загрузить транскрипт.`,
+        };
+      }
       return { results: [], note: "Нет сессий, удовлетворяющих заданному периоду/позиции." };
     }
 

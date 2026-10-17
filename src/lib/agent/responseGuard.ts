@@ -84,6 +84,20 @@ function containsPseudoToolCall(text: string): boolean {
 // список вручную при каждом изменении tools.ts.
 const GENERIC_TECHNICAL_PATTERN = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,4}\b\s*[({]/;
 
+const UUID_GLOBAL = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+/** Убирает UUID вместе с обрамлением («(id: …)», «ID: …», «[…]») и подчищает пробелы/пунктуацию. */
+export function stripUuids(text: string): string {
+  return text
+    .replace(new RegExp(String.raw`\s*[(\[]\s*(?:id|ID|Id|идентификатор|session_id|client_id)?\s*[:=]?\s*${UUID_GLOBAL.source}\s*[)\]]`, "gi"), "")
+    .replace(new RegExp(String.raw`\s*(?:\bid|\bID|идентификатор(?:ом)?|session_id|client_id)\s*[:=]?\s*${UUID_GLOBAL.source}`, "gi"), "")
+    .replace(UUID_GLOBAL, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +([,.;:!?])/g, "$1")
+    .replace(/\(\s*\)/g, "")
+    .trim();
+}
+
 export interface ResponseGuardResult {
   safe: boolean;
   reason?: "uuid" | "pseudo_tool_call" | "generic_technical_pattern";
@@ -116,6 +130,16 @@ export function checkResponseSafety(text: string): ResponseGuardResult {
 export function guardResponseText(text: string): string {
   const result = checkResponseSafety(text);
   if (result.safe) return text;
+  // Голый идентификатор в тексте (id клиента/сессии из результата инструмента) не повод выбрасывать весь
+  // ответ: на GigaChat это срабатывало на каждом втором вопросе про клиента. Убираем идентификаторы и
+  // показываем остальное, если текст после очистки безопасен и осмысленен.
+  if (result.reason === "uuid") {
+    const cleaned = stripUuids(text);
+    if (cleaned.length >= 20 && checkResponseSafety(cleaned).safe) {
+      console.warn("responseGuard: идентификаторы удалены из ответа", JSON.stringify({ reason: "uuid_stripped" }));
+      return cleaned;
+    }
+  }
   console.error("responseGuard: заблокирован небезопасный ответ", JSON.stringify({ reason: result.reason }));
   return FALLBACK_MESSAGE;
 }
