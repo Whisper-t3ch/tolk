@@ -37,7 +37,8 @@ export const PERIOD_SUMMARY_SYSTEM_PROMPT = `Ты клинический асс�
 На основе транскриптов нескольких сессий с одним клиентом составь обобщённое резюме на русском языке.
 Выдели: ключевые темы работы, динамику состояния клиента, прогресс, повторяющиеся паттерны, незакрытые вопросы.
 Ответь в формате JSON:
-{"key_themes": "string", "dynamics": "string", "progress": "string", "patterns": "string", "open_questions": "string"}`;
+{"key_themes": "string", "dynamics": "string", "progress": "string", "patterns": "string", "open_questions": "string"}
+Ключи — ровно эти пять, на английском, на верхнем уровне объекта. Значение каждого — непустая строка (не список и не объект). Без markdown и без текста вне JSON.`;
 
 export interface PeriodSummaryInput {
   sessionsCount: number;
@@ -80,6 +81,42 @@ export function formatPeriodSummaryAsText(result: PeriodSummaryResult): string {
 // об ошибке. Проверяем все 5 полей на непустую строку — при провале
 // используем тот же retry-путь, что и для responseGuard, а не отдельный
 // механизм.
+const PERIOD_SUMMARY_KEYS = ["key_themes", "dynamics", "progress", "patterns", "open_questions"] as const;
+const PERIOD_SUMMARY_ALIASES: Record<(typeof PERIOD_SUMMARY_KEYS)[number], RegExp> = {
+  key_themes: /^(key_?themes|themes|keythemes|ключев|темы)/i,
+  dynamics: /^(dynamic|динамик)/i,
+  progress: /^(progress|прогресс)/i,
+  patterns: /^(pattern|recurring|повтор|паттерн)/i,
+  open_questions: /^(open_?questions|unresolved|открыт|незакрыт)/i,
+};
+
+function valueToText(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (Array.isArray(v)) return v.map(valueToText).filter(Boolean).map(x => `— ${x}`).join("\n");
+  if (v && typeof v === "object") return Object.values(v as Record<string, unknown>).map(valueToText).filter(Boolean).join("\n");
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return "";
+}
+
+/**
+ * GigaChat отвечает JSON-ом не всегда в заданной форме: оборачивает в {"summary": {...}}, пишет
+ * русские ключи или списки вместо строк. Без нормализации психолог видел «Ключевые темы: undefined».
+ */
+export function normalizePeriodSummary(raw: unknown): PeriodSummaryResult {
+  let obj: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const keys = Object.keys(obj);
+  if (keys.length === 1 && obj[keys[0]] && typeof obj[keys[0]] === "object" && !Array.isArray(obj[keys[0]])) {
+    obj = obj[keys[0]] as Record<string, unknown>;
+  }
+  const out = {} as PeriodSummaryResult;
+  for (const k of PERIOD_SUMMARY_KEYS) {
+    const direct = obj[k];
+    const aliasKey = direct === undefined ? Object.keys(obj).find(ok => PERIOD_SUMMARY_ALIASES[k].test(ok.replace(/\s+/g, "_"))) : undefined;
+    out[k] = valueToText(direct !== undefined ? direct : aliasKey ? obj[aliasKey] : undefined);
+  }
+  return out;
+}
+
 function hasAllPeriodSummaryFields(result: PeriodSummaryResult): boolean {
   return (["key_themes", "dynamics", "progress", "patterns", "open_questions"] as const).every(
     key => typeof result[key] === "string" && result[key].trim().length > 0
@@ -214,15 +251,22 @@ export async function buildPeriodSummary(
   // (повторный вызов стоит примерно как исходный).
   let result: PeriodSummaryResult;
   let summaryText: string;
+  // Один и тот же X-Session-ID для попытки и повтора: у GigaChat повтор берёт транскрипты из кэша,
+  // а токены из кэша не тарифицируются (без этого повтор стоил столько же, сколько первая попытка).
+  const llmOptions = { sessionId: "tolk-ps-" + sessionIds.slice().sort().join(",").slice(0, 64) };
   try {
-    result = await yandexGptCompleteJson<PeriodSummaryResult>(periodSummaryMessages);
+    result = normalizePeriodSummary(await yandexGptCompleteJson<unknown>(periodSummaryMessages, llmOptions));
     summaryText = formatPeriodSummaryAsText(result);
     if (!hasAllPeriodSummaryFields(result) || !checkResponseSafety(summaryText).safe) {
-      result = await yandexGptCompleteJson<PeriodSummaryResult>(periodSummaryMessages);
+      result = normalizePeriodSummary(await yandexGptCompleteJson<unknown>(periodSummaryMessages, llmOptions));
       summaryText = formatPeriodSummaryAsText(result);
     }
   } catch (e) {
     throw new PeriodSummaryError(e instanceof YandexGptError ? e.message : "Не удалось сгенерировать срез");
+  }
+  if (!hasAllPeriodSummaryFields(result)) {
+    console.error("PERIOD_SUMMARY_INCOMPLETE", JSON.stringify(Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.length]))));
+    throw new PeriodSummaryError("Не удалось собрать срез: модель вернула неполный ответ. Попробуйте ещё раз.");
   }
 
   return {

@@ -1,0 +1,65 @@
+# Ядро ТОЛК (core): общий входной Caddy + сайт (Next.js). Supabase и Jitsi запущены отдельными стеками на этом же хосте.
+# Запуск ТОЛЬКО через ./core.sh (задаёт переменные и флаги). Раскладка на ВМ: ~/core/ (этот каталог), ~/tolk-src/ (исходники), ~/supabase/, ~/jitsi/.
+services:
+  web:
+    build:
+      context: ../tolk-src
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?}
+        NEXT_PUBLIC_JITSI_DOMAIN: ${NEXT_PUBLIC_JITSI_DOMAIN:?}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    image: tolk-web:current
+    restart: unless-stopped
+    env_file: .env.core              # серверные секреты; в git и в образ не попадают
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NODE_OPTIONS: "--max-old-space-size=1536"
+    cpus: 2.0
+    mem_limit: 3g
+    expose:
+      - "3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./certs:/certs:ro              # корневой сертификат Минцифры для GigaChat (кладёт llm_stage.sh)
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?}
+      DB_DOMAIN: ${DB_DOMAIN:?}
+      MEET_DOMAIN: ${MEET_DOMAIN:?}
+      STAGE_DOMAIN: ${STAGE_DOMAIN:-stage.tolkplace.ru}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy-data:
+  caddy-config:

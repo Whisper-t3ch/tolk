@@ -45,3 +45,9 @@ next-env.d.ts
 # only, in case that ever changes or TMPDIR resolves oddly on some machine)
 _recording_verify_*/
 tolk_recording_verify_*/
+
+.vercel
+.env*
+
+# сырые ответы LLM-тестов
+scripts/llm-ab/out/

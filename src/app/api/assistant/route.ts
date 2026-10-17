@@ -12,7 +12,7 @@ import {
   consumeAssistantLimit,
   limitExceededResponse,
 } from "@/lib/assistantLimits";
-import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS, getReferenceOnlyTools, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
+import { AGENT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT_COMPACT, AGENT_TOOLS, getReferenceOnlyTools, MAX_AGENT_ITERATIONS, toolNeedsConfirmation } from "@/lib/agent/tools";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { buildApproachContextBlock } from "@/lib/approaches";
 import { normalizeTimeZone, formatTimeInTimeZone } from "@/lib/timezone";
@@ -22,7 +22,11 @@ import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/age
 import { guardResponseText } from "@/lib/agent/responseGuard";
 import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pseudoToolCallParser";
 import { logLlmUsage } from "@/lib/agent/usageLog";
-import { randomUUID } from "crypto";
+import { findMentionedClients, knowledgeBaseRedirect, unknownNamesInMessage } from "@/lib/agent/mentionedClients";
+import { plainifyMarkdown } from "@/lib/agent/plainText";
+import { looksLikeDiagnosis, DIAGNOSIS_REWRITE_NUDGE } from "@/lib/agent/diagnosisGuard";
+import { randomUUID, createHash } from "crypto";
+import { isGigaChatDialect } from "@/lib/llm/openaiCompat";
 import { waitUntil } from "@vercel/functions";
 
 // POST /api/assistant
@@ -77,6 +81,8 @@ export async function POST(request: NextRequest) {
 
   // Контекст: если открыт из карточки клиента — подмешиваем его данные.
   let contextPrefix = "";
+  let mentionedClients: Array<{ id: string; name: string }> = [];
+  let mentionedClientsFromHistory: { list: Array<{ id: string; name: string }> } | null = null;
   if (body.client_id) {
     const { data: client } = await supabase
       .from("clients")
@@ -85,7 +91,36 @@ export async function POST(request: NextRequest) {
       .eq("psychologist_id", user.id)
       .maybeSingle();
     if (client) {
+      mentionedClients = [{ id: client.id, name: client.name }];
       contextPrefix = `Контекст: открыта карточка клиента ${client.name} (id: ${client.id}, запрос: ${client.request ?? "—"}, подход: ${client.approach ?? "—"}).\n\n`;
+    }
+  }
+
+  // Клиент назван в вопросе по имени: подставляем его id в контекст, чтобы модели не нужно было
+  // искать его инструментом (слабые модели выдумывают id или вызывают посторонние инструменты).
+  if (!body.client_id) {
+    const { data: allClients } = await supabase
+      .from("clients")
+      .select("id, name")
+      .eq("psychologist_id", user.id)
+      .is("deleted_at", null)
+      .limit(500);
+    const clientList = (allClients ?? []) as Array<{ id: string; name: string }>;
+    const mentioned = findMentionedClients(userMessage, clientList);
+    mentionedClients = mentioned;
+    if (mentioned.length > 0) {
+      contextPrefix = `Контекст: в вопросе упомянут клиент: ${mentioned.map(c => `${c.name} (id: ${c.id})`).join("; ")}. Используй этот id напрямую, find_client_by_name вызывать не нужно.\n\n`;
+    } else {
+      const unknown = unknownNamesInMessage(userMessage, clientList);
+      if (unknown.length > 0) {
+        // Названо имя, которого нет среди клиентов: клиента из контекста диалога НЕ подставляем
+        // (иначе на «что было с Петровым?» ассистент рассказывал про Катю).
+        contextPrefix = `Контекст: в вопросе упомянуто «${unknown.join(", ")}», но такого клиента у психолога нет. Не подставляй другого клиента: скажи, что клиента с таким именем не нашёл, и уточни, о ком речь.\n\n`;
+      } else {
+        // Уточняющий вопрос без имени («сравни первую и последнюю сессию»): берём клиента из последних
+        // реплик диалога. В историю сохраняется только текст без id, и без этого модель выдумывает id.
+        mentionedClientsFromHistory = { list: clientList };
+      }
     }
   }
 
@@ -129,7 +164,25 @@ export async function POST(request: NextRequest) {
   const weekdayLabel = new Intl.DateTimeFormat("ru", { timeZone, weekday: "long" }).format(now);
   const dateLabel = new Intl.DateTimeFormat("ru", { timeZone, year: "numeric", month: "long", day: "numeric" }).format(now);
   const timeLabel = formatTimeInTimeZone(now, timeZone);
-  const dateTimeBlock = `Текущая дата и время психолога (часовой пояс ${timeZone}): ${weekdayLabel}, ${dateLabel}, ${timeLabel} (ISO: ${now.toISOString()}). Используй это как точку отсчёта для "завтра", "через неделю", "в пятницу" и подобных относительных формулировок времени — никогда не угадывай и не бери дату из своих обучающих данных.`;
+  // Календарь на ближайшие 7 дней в часовом поясе психолога: считать день недели от одной даты модели
+  // (особенно не-Yandex) умеют плохо ("пятница" -> 16, 17 или 18 число), поэтому даём готовую таблицу.
+  const isoDayInTz = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const [calY, calM, calD] = isoDayInTz.split("-").map(Number);
+  const calendarDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(Date.UTC(calY, calM - 1, calD + i));
+    const wd = new Intl.DateTimeFormat("ru", { timeZone: "UTC", weekday: "short" }).format(d);
+    return `${wd} ${d.toISOString().slice(0, 10)}`;
+  });
+  // Готовые границы недель: на «следующей неделе» модель сама считала со вторника по понедельник
+  // (17.10, суббота → 20–26 вместо 19–25) и пропускала сессию в понедельник.
+  const isoDate = (offset: number) => new Date(Date.UTC(calY, calM - 1, calD + offset)).toISOString().slice(0, 10);
+  const dow = new Date(Date.UTC(calY, calM - 1, calD)).getUTCDay(); // 0 = воскресенье
+  const toMonday = dow === 0 ? -6 : 1 - dow;
+  const weeksBlock =
+    `Эта неделя: ${isoDate(toMonday)} — ${isoDate(toMonday + 6)}. ` +
+    `Следующая неделя: ${isoDate(toMonday + 7)} — ${isoDate(toMonday + 13)}. Неделя — с понедельника по воскресенье.`;
+  const calendarBlock = `Ближайшие дни (дата YYYY-MM-DD): ${calendarDays.join(", ")}. ${weeksBlock}`;
+  const dateTimeBlock = `Текущая дата и время психолога (часовой пояс ${timeZone}): ${weekdayLabel}, ${dateLabel}, ${timeLabel} (ISO: ${now.toISOString()}). Используй это как точку отсчёта для "завтра", "через неделю", "в пятницу" и подобных относительных формулировок времени — никогда не угадывай и не бери дату из своих обучающих данных.` + "\n" + calendarBlock;
 
   // Порядок блоков подобран под кэширование промпта: провайдеры
   // кэшируют общий ПРЕФИКС, поэтому всё стабильное идёт вперёд, а
@@ -143,7 +196,18 @@ export async function POST(request: NextRequest) {
   // счетам за 15.09 входящие токены стоили 19,67 руб против 10,64 руб
   // кэшированных. Перенос в конец оставляет кэшируемым весь стабильный
   // префикс.
-  const systemPrompt = [approachBlock, AGENT_SYSTEM_PROMPT, promptAdditions, dateTimeBlock].filter(Boolean).join("\n\n");
+  // GigaChat кэширует контекст по заголовку X-Session-ID, и токены из кэша не тарифицируются.
+  // Кэш работает по совпадающему началу сообщений, поэтому меняющееся каждую минуту время
+  // переносим из системного промпта в сообщение психолога: тогда системный промпт и история
+  // диалога одинаковы от запроса к запросу и берутся из кэша.
+  const gigachat = isGigaChatDialect();
+  const basePrompt =
+    process.env.AGENT_PROMPT_VERSION === "v2" ? AGENT_SYSTEM_PROMPT_COMPACT : AGENT_SYSTEM_PROMPT;
+  const systemPrompt = [approachBlock, basePrompt, promptAdditions, gigachat ? "" : dateTimeBlock]
+    .filter(Boolean)
+    .join("\n\n");
+  const userDatePrefix = gigachat ? dateTimeBlock + "\n\n" : "";
+  const llmCacheSessionId = "tolk-" + createHash("sha256").update(user.id).digest("hex").slice(0, 32);
 
   // Подгружаем историю переписки этой agent_session — без этого каждое
   // сообщение психолога обрабатывается моделью в полном отрыве от
@@ -161,9 +225,21 @@ export async function POST(request: NextRequest) {
       .eq("psychologist_id", user.id)
       .maybeSingle();
     const prevMessages = Array.isArray(existingSession?.messages) ? existingSession.messages : [];
-    for (const entry of prevMessages.slice(-MAX_HISTORY_MESSAGES) as Array<{ role: string; text: string }>) {
+    for (const entry of prevMessages.slice(-MAX_HISTORY_MESSAGES) as Array<{ role: string; text: string; llm_text?: string }>) {
       if (entry.role === "user" || entry.role === "assistant") {
-        history.push({ role: entry.role, text: entry.text });
+        history.push({ role: entry.role, text: entry.role === "user" && entry.llm_text ? entry.llm_text : entry.text });
+      }
+    }
+  }
+
+  if (mentionedClientsFromHistory && history.length > 0) {
+    for (let i = history.length - 1; i >= 0 && i >= history.length - 6; i--) {
+      const text = (history[i] as { text?: string }).text ?? "";
+      const found = findMentionedClients(text, mentionedClientsFromHistory.list, 1);
+      if (found.length === 1) {
+        mentionedClients = found;
+        contextPrefix = `Контекст: в диалоге обсуждается клиент ${found[0].name} (id: ${found[0].id}). Если вопрос о нём — используй этот id напрямую.\n\n`;
+        break;
       }
     }
   }
@@ -320,10 +396,12 @@ export async function POST(request: NextRequest) {
   const messages: YandexGptAnyMessage[] = [
     { role: "system", text: systemPrompt },
     ...history,
-    { role: "user", text: contextPrefix + userMessage },
+    { role: "user", text: userDatePrefix + contextPrefix + userMessage },
   ];
 
   let usedTools = false;
+  let forceHistoryTool = false;
+  let diagnosisRewriteAsked = false;
   let iterations = 0;
   let finalText: string | null = null;
 
@@ -424,7 +502,11 @@ export async function POST(request: NextRequest) {
           tool: confirmationCall.functionCall.name,
           arguments: confirmationCall.functionCall.arguments,
         },
-        description: describeAction(confirmationCall.functionCall.name, confirmationCall.functionCall.arguments),
+        description: describeAction(
+          confirmationCall.functionCall.name,
+          confirmationCall.functionCall.arguments,
+          mentionedClients.find(c => c.id === (confirmationCall.functionCall.arguments as { client_id?: unknown })?.client_id)?.name
+        ),
       });
     }
 
@@ -455,6 +537,16 @@ export async function POST(request: NextRequest) {
       calledToolSignatures.add(signature);
       toolCallsCount += 1;
 
+      if (call.functionCall.name === "search_knowledge_base") {
+        const q = String((call.functionCall.arguments as { query?: unknown } | undefined)?.query ?? "");
+        const redirect = knowledgeBaseRedirect(q, mentionedClients);
+        if (redirect) {
+          toolResults.push({ functionResult: { name: call.functionCall.name, content: JSON.stringify(redirect) } });
+          if (process.env.LOG_TOOL_CALLS === "1") console.log("TOOL_REDIRECT search_knowledge_base -> search_client_history");
+          continue;
+        }
+      }
+
       try {
         const output = await executeAgentTool(
           { supabase, psychologistId: userId, timeZone },
@@ -464,6 +556,10 @@ export async function POST(request: NextRequest) {
         toolResults.push({
           functionResult: { name: call.functionCall.name, content: JSON.stringify(output) },
         });
+        if (process.env.LOG_TOOL_CALLS === "1") {
+          const c = JSON.stringify(output) ?? "";
+          console.log("TOOL_RESULT", call.functionCall.name, c.length, c.slice(0, 160).replace(/\s+/g, " "));
+        }
         // Экономия лишней LLM-итерации (см. задачу "рычаг 1", 20.09):
         // get_period_summary уже возвращает полностью готовый,
         // структурированный текст (summaryText из buildPeriodSummary) —
@@ -545,6 +641,7 @@ export async function POST(request: NextRequest) {
         model: selectedModel,
         tools: availableTools,
         temperature: 0.2,
+        sessionId: llmCacheSessionId,
       });
 
       llmCallsCount += 1;
@@ -656,6 +753,38 @@ export async function POST(request: NextRequest) {
             candidateText
           );
 
+        // Ответ о клиенте без единого обращения к его данным (найдено 16.10 на GigaChat: на «А про мужа?»
+        // модель сразу написала связный, но полностью выдуманный рассказ). Если клиент известен из вопроса
+        // или диалога, а инструменты в этом запросе не вызывались — один раз повторяем запрос, заставляя
+        // модель прочитать историю клиента. Стоит одного лишнего короткого вызова, зато ответ опирается на факты.
+        if (
+          toolCallsCount === 0 &&
+          mentionedClients.length > 0 &&
+          !forceHistoryTool &&
+          availableTools.some(t => t.function.name === "search_client_history")
+        ) {
+          console.log("UNGROUNDED_CLIENT_ANSWER_RETRY", JSON.stringify({ textPreview: candidateText.slice(0, 80) }));
+          forceHistoryTool = true;
+          // Принудительный вызов функции GigaChat отклоняет (422 при кэшированном контексте), поэтому
+          // просим явно отдельной репликой: она последняя в контексте, и модель её выполняет.
+          messages.push({
+            role: "user",
+            text:
+              `Не отвечай по памяти. Сначала получи данные: вызови search_client_history для ` +
+              mentionedClients.map(c => `${c.name} (client_id "${c.id}")`).join("; ") +
+              ` — с query по теме вопроса или session_position, — и ответь только по найденному.`,
+          });
+          continue;
+        }
+
+        if (!diagnosisRewriteAsked && looksLikeDiagnosis(candidateText)) {
+          console.log("DIAGNOSIS_REWRITE", JSON.stringify({ textPreview: candidateText.slice(0, 80) }));
+          diagnosisRewriteAsked = true;
+          messages.push({ role: "assistant", text: candidateText });
+          messages.push({ role: "user", text: DIAGNOSIS_REWRITE_NUDGE });
+          continue;
+        }
+
         if (looksLikeUnfulfilledIntent || looksLikeFakeWebSearchOffer) {
           console.log(
             looksLikeFakeWebSearchOffer ? "FAKE_WEB_SEARCH_OFFER_RETRY" : "UNFULFILLED_INTENT_RETRY",
@@ -725,7 +854,7 @@ export async function POST(request: NextRequest) {
   const iterationsExhausted = finalText === null;
   const rawResponseText: string = iterationsExhausted
     ? "Не удалось завершить обработку запроса за отведённое число шагов. Попробуйте переформулировать вопрос проще."
-    : (finalText as string);
+    : plainifyMarkdown(finalText as string);
 
   // Последний барьер перед тем, как психолог увидит ответ — см.
   // lib/agent/responseGuard.ts про то, почему это НЕ дублирует правила
@@ -745,7 +874,8 @@ export async function POST(request: NextRequest) {
     body.agent_session_id,
     userMessage,
     responseText,
-    assistantMessageId
+    assistantMessageId,
+    userDatePrefix + contextPrefix + userMessage
   );
 
   // Списываем лимит по фактической стоимости.
@@ -827,7 +957,9 @@ export async function POST(request: NextRequest) {
   });
 }
 
-function describeAction(tool: string, args: Record<string, unknown>): string {
+function describeAction(tool: string, args: Record<string, unknown>, clientName?: string): string {
+  // Психолог подтверждает действие по этой карточке — в ней должно быть видно, кому и что уйдёт.
+  const who = clientName ? `клиенту ${clientName}` : "клиенту";
   switch (tool) {
     case "create_client":
       return `Создать клиента «${args.name ?? "?"}».`;
@@ -838,11 +970,11 @@ function describeAction(tool: string, args: Record<string, unknown>): string {
     case "cancel_session":
       return `Отменить сессию.`;
     case "send_message_to_client":
-      return `Отправить клиенту сообщение: «${String(args.text ?? "").slice(0, 120)}».`;
+      return `Отправить ${who} сообщение: «${String(args.text ?? "").slice(0, 120)}».`;
     case "send_homework":
-      return `Отправить клиенту домашнее задание.`;
+      return `Отправить ${who} домашнее задание: «${String(args.homework_text ?? "").slice(0, 160)}».`;
     case "send_session_invite":
-      return `Отправить клиенту ссылку на сессию.`;
+      return `Отправить ${who} ссылку на сессию.`;
     case "send_broadcast_message":
       return `Разослать сообщение всем активным клиентам: «${String(args.text ?? "").slice(0, 120)}».`;
     default:
@@ -856,13 +988,17 @@ async function saveAgentSession(
   agentSessionId: string | undefined,
   userMessage: string,
   assistantMessage: string,
-  assistantMessageId: string
+  assistantMessageId: string,
+  llmUserText?: string
 ): Promise<{ agentSessionId: string | null }> {
   // id у user-реплики тоже нужен (хоть пока и не используется как FK
   // нигде явно) — для единообразия формата записей в jsonb и на случай
   // будущего фидбека по вопросам психолога, а не только по ответам.
   const newEntries = [
-    { id: randomUUID(), role: "user", text: userMessage, at: new Date().toISOString() },
+    // llm_text — реплика ровно в том виде, в каком ушла модели (с датой и контекстом клиента).
+    // Её же отдаём модели в истории следующих запросов: тогда начало переписки совпадает
+    // с прошлым запросом и берётся из кэша провайдера, а модель видит id клиента из контекста.
+    { id: randomUUID(), role: "user", text: userMessage, ...(llmUserText ? { llm_text: llmUserText } : {}), at: new Date().toISOString() },
     { id: assistantMessageId, role: "assistant", text: assistantMessage, at: new Date().toISOString() },
   ];
 

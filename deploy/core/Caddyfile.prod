@@ -1,0 +1,40 @@
+# Боевой вариант входа (подключается через CADDYFILE=./Caddyfile.prod в .env.core, см. switch_domain.sh).
+# APP_DOMAIN=tolkplace.ru; www и stage перенаправляются на основной адрес.
+# Порты Supabase (8000) и Jitsi web (8002) наружу НЕ открыты — только через Caddy.
+
+# Сайт
+{$APP_DOMAIN} {
+	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
+	reverse_proxy web:3000 {
+		health_uri /api/health
+		health_interval 15s
+		health_timeout 5s
+	}
+}
+
+# www и stage -> основной адрес
+www.{$APP_DOMAIN}, {$STAGE_DOMAIN} {
+	redir https://{$APP_DOMAIN}{uri} permanent
+}
+
+# Supabase (self-hosted): шлюз на docker-мосте
+{$DB_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 60MB
+	}
+	reverse_proxy host.docker.internal:8000 {
+		flush_interval -1
+	}
+}
+
+# Jitsi web (HTTP на 8002 внутри хоста; медиа JVB идёт напрямую по UDP 10000, мимо Caddy)
+{$MEET_DOMAIN} {
+	reverse_proxy host.docker.internal:8002 {
+		flush_interval -1
+	}
+}

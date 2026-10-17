@@ -15,6 +15,15 @@
 // БД (migration_004_agent.sql) использует vector(256).
 // ============================================================
 
+import {
+  isOpenAiCompatProvider,
+  openAiCompatEmbed,
+  checkOpenAiCompatEnv,
+  openAiCompatCompleteWithTools,
+  openAiCompatStartAsyncCompletion,
+  openAiCompatGetAsyncOperation,
+} from "./llm/openaiCompat";
+
 const YANDEX_COMPLETION_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
 const YANDEX_EMBEDDING_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/textEmbedding";
 
@@ -57,6 +66,8 @@ export interface YandexGptEnvStatus {
  * вызывающий код (route.ts) сам решает, как ответить клиенту (503).
  */
 export function checkYandexGptEnv(): YandexGptEnvStatus {
+  // LLM_PROVIDER=openai_compat — чат идёт через Cloud.ru (см. llm/openaiCompat.ts).
+  if (isOpenAiCompatProvider()) return checkOpenAiCompatEnv();
   const missing: string[] = [];
   if (!process.env.YANDEX_GPT_API_KEY) missing.push("YANDEX_GPT_API_KEY");
   if (!process.env.YANDEX_GPT_FOLDER_ID) missing.push("YANDEX_GPT_FOLDER_ID");
@@ -122,6 +133,13 @@ export interface YandexGptCompletionOptions {
    * принять за результат (анонимизация); остальные вызовы поведение не меняют.
    */
   throwOnContentFilter?: boolean;
+  /**
+   * Идентификатор для кэша контекста провайдера (GigaChat: заголовок X-Session-ID). Совпадающий
+   * префикс сообщений в рамках одного id не пересчитывается и не тарифицируется.
+   */
+  sessionId?: string;
+  /** Заставить модель вызвать именно этот инструмент (поддерживается в openai_compat/GigaChat). */
+  forceToolName?: string;
 }
 
 /** Usage-данные из ответа API — точные токены вместо оценки по размеру текста. */
@@ -185,6 +203,7 @@ export async function yandexGptCompleteWithTools(
   messages: YandexGptAnyMessage[],
   options: YandexGptCompletionOptions = {}
 ): Promise<YandexGptCompletionResult> {
+  if (isOpenAiCompatProvider()) return openAiCompatCompleteWithTools(messages, options);
   const apiKey = process.env.YANDEX_GPT_API_KEY;
   const folderId = process.env.YANDEX_GPT_FOLDER_ID;
   if (!apiKey || !folderId) {
@@ -326,6 +345,7 @@ export async function yandexGptStartAsyncCompletion(
   messages: YandexGptMessage[],
   options: YandexGptCompletionOptions = {}
 ): Promise<string> {
+  if (isOpenAiCompatProvider()) return openAiCompatStartAsyncCompletion(messages, options);
   const apiKey = process.env.YANDEX_GPT_API_KEY;
   const folderId = process.env.YANDEX_GPT_FOLDER_ID;
   if (!apiKey || !folderId) {
@@ -398,6 +418,7 @@ export interface YandexGptAsyncOperationStatus {
  * функция делает ровно один HTTP-запрос за вызов, без встроенного ожидания.
  */
 export async function yandexGptGetAsyncOperation(operationId: string): Promise<YandexGptAsyncOperationStatus> {
+  if (isOpenAiCompatProvider()) return openAiCompatGetAsyncOperation(operationId);
   const apiKey = process.env.YANDEX_GPT_API_KEY;
   if (!apiKey) {
     throw new YandexGptError("YandexGPT не настроен — отсутствует YANDEX_GPT_API_KEY");
@@ -461,6 +482,9 @@ export async function yandexGptEmbed(
   text: string,
   textType: YandexEmbeddingTextType = "doc"
 ): Promise<number[]> {
+  // Российский стек: эмбеддинги у того же провайдера, что и чат (GigaChat). Тип текста (doc/query)
+  // у GigaChat не различается — одна модель для обоих.
+  if (isOpenAiCompatProvider() && process.env.LLM_EMBEDDINGS_MODEL !== "yandex") return openAiCompatEmbed(text);
   const apiKey = process.env.YANDEX_GPT_API_KEY;
   const folderId = process.env.YANDEX_GPT_FOLDER_ID;
   if (!apiKey || !folderId) {

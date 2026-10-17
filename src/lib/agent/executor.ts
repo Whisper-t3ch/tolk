@@ -16,6 +16,8 @@ import { buildJitsiRoomName, buildJitsiUrl, checkJitsiEnv } from "@/lib/jitsi";
 import { zonedDateTimeToUtc, formatTimeInTimeZone, weekdayInTimeZone, todayInTimeZone, formatDateInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { generateAvailableSlots, type WorkingHours } from "@/lib/booking";
 import type { AgentToolName } from "./tools";
+import { keywordSearchTranscripts } from "./keywordHistorySearch";
+import { buildSessionPrep } from "./sessionPrep";
 
 export class AgentToolError extends Error {
   constructor(message: string, public toolName: string) {
@@ -195,6 +197,18 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
     if (args.date_from) filtered = filtered.filter(s => s.scheduled_at >= args.date_from! + "T00:00:00");
     if (args.date_to) filtered = filtered.filter(s => s.scheduled_at <= args.date_to! + "T23:59:59");
 
+    // "Последняя/первая сессия" = сессия, по которой есть транскрипт. Без этого "last" выбирал
+    // будущую запланированную сессию (транскрипта нет) и ассистент отвечал "записей нет".
+    if (args.session_position && filtered.length > 0) {
+      const { data: withTranscript, error: wtError } = await ctx.supabase
+        .from("session_transcripts")
+        .select("session_id")
+        .in("session_id", filtered.map(s => s.id));
+      if (wtError) throw new AgentToolError(wtError.message, "search_client_history");
+      const have = new Set((withTranscript ?? []).map(r => r.session_id as string));
+      filtered = filtered.filter(s => have.has(s.id));
+    }
+
     if (args.session_position) {
       const n = args.session_position_count && args.session_position_count > 0 ? args.session_position_count : 3;
       if (args.session_position === "first") filtered = filtered.slice(0, 1);
@@ -251,7 +265,49 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
     );
   }
 
-  const queryEmbedding = await yandexGptEmbed(args.query, "query");
+  // Без эмбеддингов (стек без Яндекса) или если смысловой поиск ничего не дал (у транскрипта нет чанков) —
+  // ищем по словам в полных транскриптах клиента.
+  const keywordFallback = async () => {
+    let sq = ctx.supabase
+      .from("sessions")
+      .select("id, scheduled_at")
+      .eq("client_id", args.client_id)
+      .eq("psychologist_id", ctx.psychologistId);
+    if (candidateSessionIds) sq = sq.in("id", candidateSessionIds);
+    const { data: sess, error: sErr } = await sq;
+    if (sErr) throw new AgentToolError(sErr.message, "search_client_history");
+    const ids = (sess ?? []).map(x => x.id as string);
+    if (ids.length === 0) return { results: [], note: "У клиента нет сессий." };
+    const { data: tr, error: tErr } = await ctx.supabase
+      .from("session_transcripts")
+      .select("session_id, raw_text, created_at")
+      .in("session_id", ids)
+      .order("created_at", { ascending: false });
+    if (tErr) throw new AgentToolError(tErr.message, "search_client_history");
+    const at = new Map((sess ?? []).map(x => [x.id as string, x.scheduled_at as string]));
+    const latest = new Map<string, string>();
+    for (const r of tr ?? []) if (!latest.has(r.session_id as string) && r.raw_text) latest.set(r.session_id as string, r.raw_text as string);
+    const found = keywordSearchTranscripts(
+      args.query!,
+      Array.from(latest.entries()).map(([session_id, raw_text]) => ({ session_id, raw_text, scheduled_at: at.get(session_id)! }))
+    );
+    if (found.length === 0) {
+      return { results: [], note: `В транскриптах (${latest.size} шт.) не нашлось упоминаний по запросу «${args.query}». Попробуй другие слова или session_position, чтобы прочитать сессии целиком.` };
+    }
+    return {
+      mode: "keyword",
+      total_sessions_with_transcript: latest.size,
+      note: "Это дословные фрагменты сессий. Отвечай только тем, что в них сказано; чего в них нет — не додумывай. Порядок событий — по номерам сессий.",
+      results: found,
+    };
+  };
+
+  let queryEmbedding: Awaited<ReturnType<typeof yandexGptEmbed>>;
+  try {
+    queryEmbedding = await yandexGptEmbed(args.query, "query");
+  } catch {
+    return keywordFallback();
+  }
 
   // match_session_transcript_chunks (не match_session_transcripts) —
   // см. migration_034_session_transcript_chunks.sql. Embedding на
@@ -281,10 +337,10 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
   });
 
   if (error) {
-    throw new AgentToolError(
-      `Similarity search недоступен: ${error.message}. Убедитесь, что применена функция match_session_transcript_chunks (migration_034_session_transcript_chunks.sql).`,
-      "search_client_history"
-    );
+    // Например, размерность эмбеддинга не совпала с колонкой (до миграции на 1024) — не роняем
+    // ответ психологу, а ищем по словам.
+    console.error("SEMANTIC_SEARCH_FALLBACK", error.message);
+    return keywordFallback();
   }
 
   // chunk_text уже анонимизирован на этапе сохранения (анонимизация
@@ -320,6 +376,7 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, 5);
 
+  if (results.length === 0) return keywordFallback();
   return { results };
 }
 
@@ -338,6 +395,39 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
 // тестов у Анны Петровой» ассистент честно отвечал, что таких данных у
 // него нет. Название методики берём из справочника test_questionnaires,
 // потому что в test_type лежит ключ вроде PRIKHOZHAN.
+async function prepareSession(ctx: ExecutorContext, args: { client_id: string }) {
+  const { data: sessions, error } = await ctx.supabase
+    .from("sessions")
+    .select("id, scheduled_at")
+    .eq("client_id", args.client_id)
+    .eq("psychologist_id", ctx.psychologistId)
+    .lte("scheduled_at", new Date().toISOString())
+    .order("scheduled_at", { ascending: false })
+    .limit(13);
+  if (error) throw new AgentToolError(error.message, "prepare_session");
+  const ids = (sessions ?? []).map(s => s.id as string);
+  if (ids.length === 0) return { results: [], note: "У клиента ещё не было сессий." };
+  const [{ data: tr }, { data: soap }] = await Promise.all([
+    ctx.supabase.from("session_transcripts").select("session_id, raw_text, created_at").in("session_id", ids).order("created_at", { ascending: false }),
+    ctx.supabase.from("soap_notes").select("session_id, a_assessment, p_plan").in("session_id", ids),
+  ]);
+  const transcriptBy = new Map<string, string>();
+  for (const t of tr ?? []) if (!transcriptBy.has(t.session_id as string) && t.raw_text) transcriptBy.set(t.session_id as string, t.raw_text as string);
+  const soapBy = new Map((soap ?? []).map(n => [n.session_id as string, n as { a_assessment?: string | null; p_plan?: string | null }]));
+  const prep = buildSessionPrep(
+    (sessions ?? []).map(s => ({
+      id: s.id as string,
+      scheduled_at: s.scheduled_at as string,
+      transcript: transcriptBy.get(s.id as string) ?? null,
+      soap: soapBy.get(s.id as string) ?? null,
+    }))
+  );
+  if (!prep) return { results: [], note: "По прошедшим сессиям нет ни транскриптов, ни протоколов." };
+  const tests = await getTestResults(ctx, args);
+  const recentTests = "results" in tests && Array.isArray(tests.results) ? tests.results.slice(-3) : [];
+  return { ...prep, recent_tests: recentTests };
+}
+
 async function getTestResults(ctx: ExecutorContext, args: { client_id: string }) {
   const { data, error } = await ctx.supabase
     .from("test_results")
@@ -373,8 +463,8 @@ async function getPeriodSummary(ctx: ExecutorContext, args: { client_id: string;
     .select("id, scheduled_at")
     .eq("client_id", args.client_id)
     .eq("psychologist_id", ctx.psychologistId)
-    .gte("scheduled_at", args.date_from)
-    .lte("scheduled_at", args.date_to)
+    .gte("scheduled_at", dayStart(args.date_from))
+    .lte("scheduled_at", dayEnd(args.date_to))
     .order("scheduled_at", { ascending: true });
   if (sessionsError) throw new AgentToolError(sessionsError.message, "get_period_summary");
   if (!sessions || sessions.length === 0) {
@@ -455,12 +545,23 @@ async function searchKnowledgeBase(ctx: ExecutorContext, args: { query: string; 
 // РАСПИСАНИЕ
 // ------------------------------------------------------------
 
+// Модель передаёт границы периода как YYYY-MM-DD. Сравнение timestamptz с
+// голой датой трактует её как полночь, из-за чего .lte(date_to) отбрасывает
+// весь последний день (сессии "на завтра" не находились). Расширяем границы
+// до начала/конца суток; значения с временем оставляем как есть.
+function dayStart(d: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00` : d;
+}
+function dayEnd(d: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T23:59:59` : d;
+}
+
 async function getSchedule(ctx: ExecutorContext, args: { date_from: string; date_to: string }) {
   const { data, error } = await ctx.supabase
     .from("sessions")
     .select("id, client_id, scheduled_at, duration_minutes, status, clients ( name )")
-    .gte("scheduled_at", args.date_from)
-    .lte("scheduled_at", args.date_to)
+    .gte("scheduled_at", dayStart(args.date_from))
+    .lte("scheduled_at", dayEnd(args.date_to))
     .neq("status", "cancelled")
     .order("scheduled_at", { ascending: true });
   if (error) throw new AgentToolError(error.message, "get_schedule");
@@ -941,6 +1042,24 @@ export async function executeAgentTool(
   name: AgentToolName | string,
   args: Record<string, unknown>
 ): Promise<unknown> {
+  // Диагностика на стенде: LOG_TOOL_CALLS=1 пишет имя инструмента и аргументы (без результатов).
+  if (process.env.LOG_TOOL_CALLS === "1") console.log("TOOL_CALL", name, JSON.stringify(args));
+  // Слабые модели выдумывают client_id. Без этой проверки инструмент отвечает «у клиента нет сессий»,
+  // и модель уверенно передаёт психологу неправду. Проверяем, что клиент существует и принадлежит психологу.
+  if (typeof args?.client_id === "string" && name !== "create_client") {
+    const { data: owned } = await ctx.supabase
+      .from("clients")
+      .select("id")
+      .eq("id", args.client_id)
+      .eq("psychologist_id", ctx.psychologistId)
+      .maybeSingle();
+    if (!owned) {
+      throw new AgentToolError(
+        `Клиента с id "${args.client_id}" нет. Не придумывай id: возьми его из контекста запроса или вызови find_client_by_name с именем клиента.`,
+        name
+      );
+    }
+  }
   switch (name as AgentToolName) {
     case "get_clients":
       return getClients(ctx);
@@ -954,6 +1073,8 @@ export async function executeAgentTool(
       return updateClient(ctx, args as { client_id: string; fields: Record<string, unknown> });
     case "search_client_history":
       return searchClientHistory(ctx, args as unknown as SearchClientHistoryArgs);
+    case "prepare_session":
+      return prepareSession(ctx, args as { client_id: string });
     case "get_test_results":
       return getTestResults(ctx, args as { client_id: string });
     case "get_period_summary":
