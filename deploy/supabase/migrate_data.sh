@@ -8,6 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 umask 077
+EMB_DIM="${EMB_DIM:-1024}"   # размерность эмбеддингов (bge-m3); облачные векторы старой размерности обнуляются, потом ./../core/reindex_embeddings.sh run
 # shellcheck disable=SC1091
 set -a; . ./.env; set +a
 [ -n "${CLOUD_DB_URL:-}" ] || { read -rsp "Строка подключения к ОБЛАЧНОЙ БД (Session pooler, с паролем): " CLOUD_DB_URL; echo; }
@@ -49,6 +50,27 @@ do $do$ declare r record; begin
   end loop;
 end $do$;
 truncate table auth.users cascade;
+-- Эмбеддинги в облаке старой размерности (256), локально колонки уже vector(EMB_DIM): на время загрузки снимаем
+-- ограничение размерности (индексы запоминаем и пересоздаём), после загрузки обнуляем векторы и возвращаем размерность.
+create temp table _vidx(def text);
+do $do$ declare r record; d text; vec oid := (select oid from pg_type where typname = 'vector' limit 1);
+  vt text := (select format('%I.%I', n.nspname, t.typname) from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typname = 'vector' limit 1);
+begin
+  if vec is null then return; end if;
+  for r in
+    select n.nspname sch, c.relname tbl, a.attname col, a.attnum num, c.oid reloid
+    from pg_attribute a join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
+    where a.atttypid = vec and n.nspname = 'public' and c.relkind = 'r' and a.attnum > 0 and not a.attisdropped
+  loop
+    for d in select pg_get_indexdef(i.indexrelid) from pg_index i where i.indrelid = r.reloid and r.num = any(i.indkey::int2[]) loop
+      insert into _vidx values (d);
+    end loop;
+    for d in select i.indexrelid::regclass::text from pg_index i where i.indrelid = r.reloid and r.num = any(i.indkey::int2[]) loop
+      execute 'drop index ' || d;
+    end loop;
+    execute format('alter table %I.%I alter column %I type %s', r.sch, r.tbl, r.col, vt);
+  end loop;
+end $do$;
 SQL
   # auth.*: через jsonb_populate_recordset, чтобы пережить различия колонок между облаком и локальной версией GoTrue (сгенерированные колонки пропускаются)
   for tbl in users identities; do
@@ -60,6 +82,25 @@ SQL
     echo "end \$do\$;"
   done
   cat "$T/public_data.sql"
+  cat <<SQL
+-- pg_dump выставил пустой search_path: возвращаем обычный, иначе не найдутся тип vector и классы операторов индексов
+select set_config('search_path', 'public, extensions, pg_catalog', true);
+do \$do\$ declare r record; d text; vec oid := (select oid from pg_type where typname = 'vector' limit 1);
+  vt text := (select format('%I.%I', n.nspname, t.typname) from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typname = 'vector' limit 1);
+begin
+  if vec is null then return; end if;
+  for r in
+    select n.nspname sch, c.relname tbl, a.attname col
+    from pg_attribute a join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
+    where a.atttypid = vec and n.nspname = 'public' and c.relkind = 'r' and a.attnum > 0 and not a.attisdropped
+  loop
+    execute format('update %I.%I set %I = null', r.sch, r.tbl, r.col);
+    execute format('alter table %I.%I alter column %I type %s($EMB_DIM) using null', r.sch, r.tbl, r.col, vt);
+  end loop;
+  for d in select def from pg_temp._vidx loop execute d; end loop;
+  if to_regclass('public.reference_answer_cache') is not null then delete from public.reference_answer_cache; end if;
+end \$do\$;
+SQL
   echo "commit;"
 } > "$T/load.sql"
 
@@ -69,4 +110,5 @@ lpsql -c "analyze;" >/dev/null
 
 echo "== 6/6 Итог"
 lpsql -At -c "select 'auth.users: '||count(*) from auth.users" -c "select 'auth.identities: '||count(*) from auth.identities" -c "select 'public.psychologists: '||count(*) from public.psychologists" -c "select 'public.clients: '||count(*) from public.clients" -c "select 'public.sessions: '||count(*) from public.sessions"
+echo "Эмбеддинги обнулены: после переноса выполните reindex_embeddings.sh seed-kb и run (deploy/core)."
 echo "Дальше: ./verify_migration.sh (сверка со всем облаком) и ./migrate_storage.py (записи)."
