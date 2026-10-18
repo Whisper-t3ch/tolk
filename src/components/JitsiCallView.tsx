@@ -439,7 +439,7 @@ function JitsiCallView(
 
         {viewState === "preflight_blocked" && preflight && (
           <CenteredMessage
-            icon={<AlertTriangle size={40} style={{ color: "#F59E0B" }} />}
+            icon={<AlertTriangle size={40} style={{ color: "#FBBF24" }} />}
             text={PREFLIGHT_MESSAGES[preflight.verdict] ?? "Проверка перед звонком не пройдена."}
             action={{ label: "Проверить снова", onClick: () => { setViewState("preflight"); runPreflight({}).then(r => { setPreflight(r); if (BLOCKING_VERDICTS.includes(r.verdict)) setViewState("preflight_blocked"); else joinCall(); }); } }}
           />
@@ -449,7 +449,7 @@ function JitsiCallView(
 
         {viewState === "call_failed" && (
           <CenteredMessage
-            icon={<AlertTriangle size={40} style={{ color: "#EF4444" }} />}
+            icon={<AlertTriangle size={40} style={{ color: "#F87171" }} />}
             text={callError ?? "Не удалось подключиться к звонку."}
             action={{ label: "Повторить", onClick: joinCall }}
           />
@@ -510,7 +510,7 @@ function JitsiCallView(
             {recordingLabel.text}
             {/* Технические счётчики (фрагменты, КБ) психологу не нужны; показываем только проблему выгрузки. */}
             {chunkStats.failed > 0 && (
-              <span style={{ color: "#EF4444" }}>&middot; {chunkStats.failed} не выгружено</span>
+              <span style={{ color: "#FCA5A5" }}>&middot; {chunkStats.failed} не выгружено</span>
             )}
           </div>
         )}
@@ -539,12 +539,12 @@ function describeRecordingStatus(
   status: RecordingStatusSnapshot | null,
   remoteConnected: boolean
 ): { text: string; color: string } {
-  if (!status) return { text: "Запись не начата", color: "#8C7355" };
+  if (!status) return { text: "Запись не начата", color: "#E5DFD5" };
   const clientTrack = status.tracks.find(t => t.role === "client");
-  if (clientTrack?.state === "track_lost") return { text: "Запись клиента прервана", color: "#EF4444" };
-  if (!remoteConnected) return { text: "Запись идёт — ожидание клиента", color: "#F59E0B" };
-  if (status.recording) return { text: "Запись идёт", color: "#EF4444" };
-  return { text: "Запись остановлена", color: "#8C7355" };
+  if (clientTrack?.state === "track_lost") return { text: "Запись клиента прервана", color: "#FCA5A5" };
+  if (!remoteConnected) return { text: "Запись идёт — ожидание клиента", color: "#FCD34D" };
+  if (status.recording) return { text: "Запись идёт", color: "#FCA5A5" };
+  return { text: "Запись остановлена", color: "#E5DFD5" };
 }
 
 function CenteredMessage({

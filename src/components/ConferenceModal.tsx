@@ -103,7 +103,7 @@ export default function ConferenceModal({ isOpen, clientName, conferenceLink, on
                   background: "none",
                   border: "none",
                   cursor: "pointer",
-                  color: "#8C7355",
+                  color: "#6F5A3F",
                   padding: 4,
                 }}
               >
@@ -189,7 +189,7 @@ export default function ConferenceModal({ isOpen, clientName, conferenceLink, on
                       gap: 8,
                       justifyContent: "center",
                       fontSize: 12,
-                      color: "#8C7355",
+                      color: "#6F5A3F",
                     }}
                   >
                     <motion.div
@@ -231,7 +231,7 @@ export default function ConferenceModal({ isOpen, clientName, conferenceLink, on
                       boxShadow: "0 12px 40px rgba(27, 175, 122, 0.2)",
                     }}
                   >
-                    <Check size={48} style={{ color: "#1BAF7A" }} />
+                    <Check size={48} style={{ color: "#157347" }} />
                   </motion.div>
 
                   <h3 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E", margin: "0 0 12px 0" }}>

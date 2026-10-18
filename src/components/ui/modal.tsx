@@ -76,7 +76,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
                   background: "none",
                   border: "none",
                   cursor: "pointer",
-                  color: "#8C7355",
+                  color: "#6F5A3F",
                   padding: 0,
                 }}
               >

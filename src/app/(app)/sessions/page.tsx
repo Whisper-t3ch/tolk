@@ -9,7 +9,7 @@ import { useProfile } from "@/lib/ProfileContext";
 import { todayInTimeZone, isSessionPast, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { Button, Card, CardContent } from "@/components/ui";
 
-const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
+const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 
 function formatDateLabel(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00");
@@ -112,7 +112,7 @@ export default function SessionsPage() {
           borderRadius: 12,
           border: "1px solid #E5DFD5",
         }}>
-          <Calendar size={32} style={{ color: "#8C7355", marginBottom: 12 }} />
+          <Calendar size={32} style={{ color: "#6F5A3F", marginBottom: 12 }} />
           <p style={{ fontSize: 14, color: "#6B6058" }}>
             {filter === "upcoming" ? "Нет запланированных сессий" : "Пока нет прошедших сессий"}
           </p>
@@ -123,7 +123,7 @@ export default function SessionsPage() {
         {groups.map(([date, sessionsOnDate]) => (
           <div key={date}>
             <h3 style={{
-              fontSize: 12, fontWeight: 700, color: "#8C7355",
+              fontSize: 12, fontWeight: 700, color: "#6F5A3F",
               textTransform: "capitalize", marginBottom: 10,
             }}>
               {date === today ? "Сегодня" : formatDateLabel(date)}
@@ -171,7 +171,7 @@ export default function SessionsPage() {
                                 {session.bookedVia === "public_link" && (
                                   <span style={{
                                     display: "inline-flex", alignItems: "center", gap: 3,
-                                    fontSize: 10.5, fontWeight: 700, color: "#8B5CF6",
+                                    fontSize: 10.5, fontWeight: 700, color: "#6D28D9",
                                     background: "#F1EBFE", padding: "2px 7px", borderRadius: 20,
                                     flexShrink: 0,
                                   }}>
@@ -181,7 +181,7 @@ export default function SessionsPage() {
                               </div>
                               {client && (
                                 <div style={{
-                                  fontSize: 12, color: "#8C7355",
+                                  fontSize: 12, color: "#6F5A3F",
                                   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                                 }}>{client.request}</div>
                               )}

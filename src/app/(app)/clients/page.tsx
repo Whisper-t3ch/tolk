@@ -9,7 +9,7 @@ import { formatTimeInTimeZone, formatDateInTimeZone, todayInTimeZone, DEFAULT_TI
 import { createClientRecord } from "@/lib/data/clients";
 import { Card, CardContent, Input } from "@/components/ui";
 
-const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
+const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 
 // Все отметки времени в переписке — в часовом поясе психолога, а не
 // устройства: сообщение, отправленное в 15:10 по Москве, показывалось
@@ -455,7 +455,7 @@ function ClientsPageInner() {
               right: 12,
               top: "50%",
               transform: "translateY(-50%)",
-              color: "#8C7355",
+              color: "#6F5A3F",
               pointerEvents: "none",
             }}
           />
@@ -519,11 +519,11 @@ function ClientsPageInner() {
         {/* Список клиентов */}
         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
           {clientsLoading && (
-            <p style={{ fontSize: 12, color: "#8C7355", padding: 12 }}>Загрузка клиентов…</p>
+            <p style={{ fontSize: 12, color: "#6F5A3F", padding: 12 }}>Загрузка клиентов…</p>
           )}
           {!clientsLoading && clientsError && (
             <div style={{ padding: 12, background: "#FEE2E2", borderRadius: 8, margin: 12 }}>
-              <p style={{ fontSize: 12, color: "#EF4444", margin: 0, marginBottom: 6 }}>
+              <p style={{ fontSize: 12, color: "#B91C1C", margin: 0, marginBottom: 6 }}>
                 Не удалось загрузить клиентов: {clientsError}
               </p>
               <button
@@ -535,7 +535,7 @@ function ClientsPageInner() {
             </div>
           )}
           {!clientsLoading && !clientsError && filtered.length === 0 && (
-            <p style={{ fontSize: 12, color: "#8C7355", padding: 12 }}>Клиенты не найдены</p>
+            <p style={{ fontSize: 12, color: "#6F5A3F", padding: 12 }}>Клиенты не найдены</p>
           )}
           <AnimatePresence>
             {filtered.map((client, idx) => (
@@ -582,14 +582,14 @@ function ClientsPageInner() {
                     <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
                       {client.name}
                     </div>
-                    <div style={{ fontSize: 11, color: "#8C7355", marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: "#6F5A3F", marginTop: 2 }}>
                       {client.request.substring(0, 30)}...
                     </div>
                   </div>
                   <div style={{
                     padding: "4px 8px",
                     background: client.status === "active" ? "#E6F7F2" : "#FEF3C7",
-                    color: client.status === "active" ? "#1BAF7A" : "#F59E0B",
+                    color: client.status === "active" ? "#157347" : "#92400E",
                     borderRadius: 4,
                     fontSize: 10,
                     fontWeight: 600,
@@ -657,7 +657,7 @@ function ClientsPageInner() {
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
                   {selectedClient.name}
                 </div>
-                <div style={{ fontSize: 10, color: hasMessengerLink ? "#1BAF7A" : "#8C7355" }}>
+                <div style={{ fontSize: 10, color: hasMessengerLink ? "#157347" : "#6F5A3F" }}>
                   {hasMessengerLink ? "мессенджер подключён" : "мессенджер не подключён"}
                 </div>
               </div>
@@ -710,10 +710,10 @@ function ClientsPageInner() {
               {/* Сообщения */}
               <div style={{ flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
                 {messagesLoading && (
-                  <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Загрузка переписки…</p>
+                  <p style={{ fontSize: 12, color: "#6F5A3F", textAlign: "center", marginTop: 20 }}>Загрузка переписки…</p>
                 )}
                 {!messagesLoading && messages.length === 0 && (
-                  <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Переписки пока нет</p>
+                  <p style={{ fontSize: 12, color: "#6F5A3F", textAlign: "center", marginTop: 20 }}>Переписки пока нет</p>
                 )}
                 {messages.map((msg) => {
                   const isMine = msg.role === "psychologist";
@@ -963,7 +963,7 @@ function ClientsPageInner() {
                 </div>
                 <button
                   onClick={() => setShowAttachPicker(false)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 4 }}
                 >
                   <X size={18} />
                 </button>
@@ -972,7 +972,7 @@ function ClientsPageInner() {
               {!attachLoading && !attachError && attachItems.length > 0 && (
                 <div style={{ padding: "12px 20px 8px", display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ position: "relative" }}>
-                    <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#8C7355" }} />
+                    <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#6F5A3F" }} />
                     <input
                       value={attachSearch}
                       onChange={e => setAttachSearch(e.target.value)}
@@ -1018,7 +1018,7 @@ function ClientsPageInner() {
 
               <div style={{ overflowY: "auto", padding: "8px 12px", flex: 1 }}>
                 {attachLoading && (
-                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#6F5A3F" }}>
                     Загрузка материалов...
                   </div>
                 )}
@@ -1028,12 +1028,12 @@ function ClientsPageInner() {
                   </div>
                 )}
                 {!attachLoading && !attachError && attachItems.length === 0 && (
-                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#6F5A3F" }}>
                     В базе знаний пока нет материалов
                   </div>
                 )}
                 {!attachLoading && !attachError && attachItems.length > 0 && filteredAttachItems.length === 0 && (
-                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#6F5A3F" }}>
                     Ничего не найдено
                   </div>
                 )}
@@ -1118,7 +1118,7 @@ function ClientsPageInner() {
                   </h2>
                   <button
                     onClick={() => !creatingClient && setShowNewClient(false)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 4 }}
                   >
                     <X size={20} />
                   </button>
@@ -1126,7 +1126,7 @@ function ClientsPageInner() {
 
                 <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                       Имя *
                     </label>
                     <Input
@@ -1138,7 +1138,7 @@ function ClientsPageInner() {
 
                   <div style={{ display: "flex", gap: 10 }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                         Возраст
                       </label>
                       <Input
@@ -1149,7 +1149,7 @@ function ClientsPageInner() {
                       />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                         Пол
                       </label>
                       <select
@@ -1169,7 +1169,7 @@ function ClientsPageInner() {
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                       Запрос
                     </label>
                     <Input
@@ -1180,7 +1180,7 @@ function ClientsPageInner() {
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                       Подход
                     </label>
                     <Input
@@ -1205,12 +1205,12 @@ function ClientsPageInner() {
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, background: "#F5F3EF", borderRadius: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase" }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase" }}>
                           Транскрипт прошлой встречи
                         </label>
                         <button
                           onClick={() => { setShowTranscriptField(false); setNewClientTranscript(""); setNewClientTranscriptDate(""); }}
-                          style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 2 }}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 2 }}
                         >
                           <X size={14} />
                         </button>
@@ -1228,7 +1228,7 @@ function ClientsPageInner() {
                         }}
                       />
                       <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                           Дата встречи (необязательно, по умолчанию сегодня)
                         </label>
                         <Input
@@ -1242,7 +1242,7 @@ function ClientsPageInner() {
                   )}
 
                   {createClientError && (
-                    <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
+                    <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
                       {createClientError}
                     </p>
                   )}

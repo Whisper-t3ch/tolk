@@ -1,10 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Search, X, LogOut } from "lucide-react";
 import { ToastContainer } from "@/components/ui";
+import Avatar from "@/components/Avatar";
 import { useProfile } from "@/lib/ProfileContext";
 import { createClient } from "@/lib/supabase/client";
 import { useClients } from "@/lib/ClientsContext";
@@ -15,11 +16,24 @@ interface Toast {
   message: string;
 }
 
-const NOTIFICATIONS = [
-  { id: "n1", text: "Анна Иванова заполнила домашнее задание", time: "12 мин назад", unread: true },
-  { id: "n2", text: "Напоминание: сессия с Дмитрием Орловым через час", time: "1 ч назад", unread: true },
-  { id: "n3", text: "Протокол сессии №7 готов к проверке", time: "вчера", unread: false },
-];
+interface Notif {
+  id: string;
+  text: string;
+  at: string;
+  upcoming?: boolean;
+}
+
+function relTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "только что";
+  if (min < 60) return `${min} мин назад`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} ч назад`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "вчера" : `${d} дн. назад`;
+}
+
 
 export default function Header() {
   const router = useRouter();
@@ -29,8 +43,37 @@ export default function Header() {
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState(NOTIFICATIONS);
+  const [feed, setFeed] = useState<Notif[]>([]);
+  const [lastReadAt, setLastReadAt] = useState<number>(0);
+  const readKey = profile?.handle ? `tolk_notif_read_${profile.handle}` : null;
 
+  useEffect(() => {
+    if (!readKey) return;
+    try {
+      setLastReadAt(Number(localStorage.getItem(readKey) ?? 0));
+    } catch {
+      // storage недоступен — все уведомления считаются непрочитанными
+    }
+  }, [readKey]);
+
+  const loadFeed = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications");
+      if (!res.ok) return;
+      const data = await res.json();
+      setFeed(data.items ?? []);
+    } catch {
+      // сеть недоступна — оставляем прежнюю ленту
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFeed();
+    const t = setInterval(loadFeed, 60_000);
+    return () => clearInterval(t);
+  }, [loadFeed]);
+
+  const notifications = feed.map(n => ({ ...n, unread: new Date(n.at).getTime() > lastReadAt }));
   const unreadCount = notifications.filter(n => n.unread).length;
 
   const removeToast = (id: string) => {
@@ -42,7 +85,13 @@ export default function Header() {
     : [];
 
   const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+    const ts = Date.now();
+    setLastReadAt(ts);
+    try {
+      if (readKey) localStorage.setItem(readKey, String(ts));
+    } catch {
+      // ignore
+    }
   };
 
   const handleLogout = async () => {
@@ -71,7 +120,7 @@ export default function Header() {
             display: "block",
           }}>ТОЛК</span>
           <span style={{
-            fontSize: 11, color: "#8C7355",
+            fontSize: 11, color: "#6F5A3F",
             letterSpacing: "0.01em",
           }}>среда для психологов</span>
         </div>
@@ -86,7 +135,7 @@ export default function Header() {
             borderRadius: 10,
             transition: "border-color 0.2s",
           }}>
-            <Search size={15} style={{ color: "#8C7355", flexShrink: 0 }} />
+            <Search size={15} style={{ color: "#6F5A3F", flexShrink: 0 }} />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -102,7 +151,7 @@ export default function Header() {
             {search && (
               <button
                 onClick={() => setSearch("")}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", display: "flex" }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", display: "flex" }}
               >
                 <X size={14} />
               </button>
@@ -209,6 +258,11 @@ export default function Header() {
                       )}
                     </div>
                     <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                      {notifications.length === 0 && (
+                        <p style={{ padding: "20px 16px", margin: 0, fontSize: 12.5, color: "#4B443C", textAlign: "center" }}>
+                          Пока нет уведомлений
+                        </p>
+                      )}
                       {notifications.map(n => (
                         <div
                           key={n.id}
@@ -224,7 +278,7 @@ export default function Header() {
                           )}
                           <div style={{ flex: 1 }}>
                             <p style={{ fontSize: 12, color: "#1C1C1E", margin: 0, lineHeight: 1.4 }}>{n.text}</p>
-                            <span style={{ fontSize: 11, color: "#8C7355" }}>{n.time}</span>
+                            {!n.upcoming && <span style={{ fontSize: 11, color: "#6B6058" }}>{relTime(n.at)}</span>}
                           </div>
                         </div>
                       ))}
@@ -237,14 +291,7 @@ export default function Header() {
 
           {/* Аватар психолога */}
           <Link href="/profile" title="Профиль" style={{ textDecoration: "none" }}>
-            <div style={{
-              width: 36, height: 36, background: "#2D6A5C", borderRadius: "50%",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0,
-              border: "2px solid #E8F2EF", cursor: "pointer", transition: "all 0.2s",
-            }}>
-              {profile?.avatarInitials ?? "…"}
-            </div>
+            <Avatar src={profile?.avatarData} initials={profile?.avatarInitials ?? "…"} size={36} fontSize={12} border="2px solid #E8F2EF" />
           </Link>
 
           {/* Выход из аккаунта */}

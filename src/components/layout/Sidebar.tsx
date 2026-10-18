@@ -9,6 +9,7 @@ import {
   HelpCircle, Sparkles, CalendarDays
 } from "lucide-react";
 import { useProfile } from "@/lib/ProfileContext";
+import Avatar from "@/components/Avatar";
 import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { LogoMark } from "@/components/Logo";
@@ -266,7 +267,7 @@ export default function Sidebar() {
                   whiteSpace: "nowrap",
                 }}>ТОЛК</span>
                 <p style={{
-                  fontSize: 10, color: "#8C7355",
+                  fontSize: 10, color: "#6F5A3F",
                   marginTop: 2,
                   margin: 0,
                 }}>Ассистент психолога</p>
@@ -333,7 +334,7 @@ export default function Sidebar() {
                 style={{
                   fontSize: 10,
                   fontWeight: 700,
-                  color: "#8C7355",
+                  color: "#6F5A3F",
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
                   padding: "0 14px 8px",
@@ -374,7 +375,7 @@ export default function Sidebar() {
           >
             <div style={{
               display: "flex", justifyContent: "space-between",
-              fontSize: 11, color: "#8C7355",
+              fontSize: 11, color: "#6F5A3F",
               marginBottom: 6,
               fontWeight: 500,
             }}>
@@ -408,14 +409,7 @@ export default function Sidebar() {
               borderTop: "1px solid #E5DFD5",
             }}
           >
-            <div style={{
-              width: 34, height: 34,
-              background: "#2D6A5C",
-              borderRadius: "50%",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 12, fontWeight: 600, color: "#FFFFFF",
-              flexShrink: 0,
-            }}>{avatarInitials}</div>
+            <Avatar src={profile?.avatarData} initials={avatarInitials} size={34} fontSize={12} />
             <div style={{ overflow: "hidden" }}>
               <div style={{
                 fontSize: 13, fontWeight: 500,
@@ -423,7 +417,7 @@ export default function Sidebar() {
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
               }}>{name}</div>
               <div style={{
-                fontSize: 11, color: "#8C7355",
+                fontSize: 11, color: "#6F5A3F",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
               }}>{specialty}</div>
             </div>
@@ -491,7 +485,7 @@ export default function Sidebar() {
                     background: "none",
                     border: "none",
                     cursor: "pointer",
-                    color: "#8C7355",
+                    color: "#6F5A3F",
                     padding: 4,
                   }}
                 >
@@ -513,7 +507,7 @@ export default function Sidebar() {
                     <div style={{ position: "relative", marginBottom: 12 }}>
                       <Search size={14} style={{
                         position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-                        color: "#8C7355", pointerEvents: "none",
+                        color: "#6F5A3F", pointerEvents: "none",
                       }} />
                       <input
                         type="text"
@@ -540,7 +534,7 @@ export default function Sidebar() {
                         : clients;
                       if (filteredClients.length === 0) {
                         return (
-                          <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", padding: "16px 0" }}>
+                          <p style={{ fontSize: 12, color: "#6F5A3F", textAlign: "center", padding: "16px 0" }}>
                             Клиенты не найдены
                           </p>
                         );
@@ -584,14 +578,14 @@ export default function Sidebar() {
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
                               {client.name}
                             </div>
-                            <div style={{ fontSize: 11, color: "#8C7355" }}>
+                            <div style={{ fontSize: 11, color: "#6F5A3F" }}>
                               {client.age ? `${client.age} лет` : client.request || "—"}
                             </div>
                           </div>
                           <div style={{
                             padding: "4px 8px",
                             background: client.status === "active" ? "#E6F7F2" : "#FEF3C7",
-                            color: client.status === "active" ? "#1BAF7A" : "#F59E0B",
+                            color: client.status === "active" ? "#157347" : "#92400E",
                             borderRadius: 4,
                             fontSize: 10,
                             fontWeight: 600,

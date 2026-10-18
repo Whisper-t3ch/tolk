@@ -164,7 +164,7 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
 
         {viewState === "call_failed" && (
           <CenteredMessage
-            icon={<AlertTriangle size={40} style={{ color: "#EF4444" }} />}
+            icon={<AlertTriangle size={40} style={{ color: "#F87171" }} />}
             text={callError ?? "Не удалось подключиться к звонку."}
             action={{ label: "Повторить", onClick: joinCall }}
           />

@@ -154,7 +154,7 @@ function FilterBar({
       {(topicFilter || approachFilter) && (
         <button
           onClick={() => { setTopicFilter(""); setApproachFilter(""); }}
-          style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", fontSize: 12.5, padding: "6px 4px" }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", fontSize: 12.5, padding: "6px 4px" }}
         >
           Сбросить
         </button>
@@ -202,7 +202,7 @@ function ViewModal({ item, onClose }: { item: KnowledgeItem | null; onClose: () 
                     {item.topic && <Badge variant="muted">{item.topic}</Badge>}
                   </div>
                 </div>
-                <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", flexShrink: 0 }}>
+                <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", flexShrink: 0 }}>
                   <X size={20} />
                 </button>
               </div>
@@ -239,7 +239,7 @@ function TechniquesTab({
   const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
 
   if (loading) {
-    return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
+    return <div style={{ padding: 40, textAlign: "center", color: "#6F5A3F", fontSize: 13 }}>Загрузка…</div>;
   }
   if (loadError) {
     return (
@@ -251,7 +251,7 @@ function TechniquesTab({
   if (allTechniques.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "40px 20px" }}>
-        <BookOpen size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+        <BookOpen size={48} style={{ color: "#6F5A3F", margin: "0 auto 16px" }} />
         <p style={{ color: "#6B6058", marginBottom: 0 }}>
           Пока нет техник — они появляются автоматически при онбординге по выбранному подходу, либо добавьте свою во вкладке «Материалы».
         </p>
@@ -349,7 +349,7 @@ function HomeworkTemplatesTab({
   };
 
   if (loading) {
-    return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
+    return <div style={{ padding: 40, textAlign: "center", color: "#6F5A3F", fontSize: 13 }}>Загрузка…</div>;
   }
   if (loadError) {
     return (
@@ -363,7 +363,7 @@ function HomeworkTemplatesTab({
     <div>
       {templates.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <BookOpen size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+          <BookOpen size={48} style={{ color: "#6F5A3F", margin: "0 auto 16px" }} />
           <p style={{ color: "#6B6058", marginBottom: 0 }}>
             Пока нет шаблонов домашних заданий — добавьте свой во вкладке «Материалы» с типом «Домашнее задание».
           </p>
@@ -425,7 +425,7 @@ function HomeworkTemplatesTab({
                   <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Кому отправить</h3>
                   <button
                     onClick={() => !sending && setPickerFor(null)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F" }}
                   >
                     <X size={20} />
                   </button>
@@ -433,9 +433,9 @@ function HomeworkTemplatesTab({
                 <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
                   <p style={{ fontSize: 12.5, color: "#6B6058", margin: 0 }}>«{pickerFor.title || "Домашнее задание"}»</p>
                   {clientsLoading ? (
-                    <div style={{ fontSize: 13, color: "#8C7355" }}>Загружаю список клиентов…</div>
+                    <div style={{ fontSize: 13, color: "#6F5A3F" }}>Загружаю список клиентов…</div>
                   ) : clients.length === 0 ? (
-                    <div style={{ fontSize: 13, color: "#8C7355" }}>У вас пока нет клиентов.</div>
+                    <div style={{ fontSize: 13, color: "#6F5A3F" }}>У вас пока нет клиентов.</div>
                   ) : (
                     <select
                       value={selectedClientId}
@@ -551,7 +551,7 @@ function TestsTab({
   };
 
   if (loading) {
-    return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
+    return <div style={{ padding: 40, textAlign: "center", color: "#6F5A3F", fontSize: 13 }}>Загрузка…</div>;
   }
   if (loadError) {
     return (
@@ -563,7 +563,7 @@ function TestsTab({
   if (tests.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "40px 20px" }}>
-        <ClipboardList size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+        <ClipboardList size={48} style={{ color: "#6F5A3F", margin: "0 auto 16px" }} />
         <p style={{ color: "#6B6058", marginBottom: 0 }}>
           Пока нет тестов — добавьте открытую методику во вкладке «Материалы» с типом «Тест».
         </p>
@@ -631,7 +631,7 @@ function TestsTab({
                   <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Кому отправить</h3>
                   <button
                     onClick={() => !sending && setPickerFor(null)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F" }}
                   >
                     <X size={20} />
                   </button>
@@ -639,18 +639,18 @@ function TestsTab({
                 <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
                   <p style={{ fontSize: 12.5, color: "#6B6058", margin: 0 }}>«{pickerFor.title || "Тест"}»</p>
                   {pickerFor.questionnaire_key ? (
-                    <p style={{ fontSize: 12, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
                       Клиенту придёт ссылка на форму с вопросами — балл посчитается автоматически, результат увидите вы.
                     </p>
                   ) : (
-                    <p style={{ fontSize: 12, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
                       Клиенту придёт текст методики сообщением — ответы он пришлёт в чат как обычно.
                     </p>
                   )}
                   {clientsLoading ? (
-                    <div style={{ fontSize: 13, color: "#8C7355" }}>Загружаю список клиентов…</div>
+                    <div style={{ fontSize: 13, color: "#6F5A3F" }}>Загружаю список клиентов…</div>
                   ) : clients.length === 0 ? (
-                    <div style={{ fontSize: 13, color: "#8C7355" }}>У вас пока нет клиентов.</div>
+                    <div style={{ fontSize: 13, color: "#6F5A3F" }}>У вас пока нет клиентов.</div>
                   ) : (
                     <select
                       value={selectedClientId}
@@ -709,7 +709,7 @@ function ProtocolTemplatesTab({
   const [viewing, setViewing] = useState<KnowledgeItem | null>(null);
 
   if (loading) {
-    return <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>;
+    return <div style={{ padding: 40, textAlign: "center", color: "#6F5A3F", fontSize: 13 }}>Загрузка…</div>;
   }
   if (loadError) {
     return (
@@ -721,7 +721,7 @@ function ProtocolTemplatesTab({
   if (templates.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "40px 20px" }}>
-        <ClipboardList size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+        <ClipboardList size={48} style={{ color: "#6F5A3F", margin: "0 auto 16px" }} />
         <p style={{ color: "#6B6058", marginBottom: 0 }}>
           Пока нет шаблонов протоколов — добавьте свой во вкладке «Материалы» с типом «Шаблон протокола», либо используйте формат по умолчанию на странице сессии.
         </p>
@@ -852,10 +852,10 @@ function MaterialsTab({
       )}
 
       {loading ? (
-        <div style={{ padding: 40, textAlign: "center", color: "#8C7355", fontSize: 13 }}>Загрузка…</div>
+        <div style={{ padding: 40, textAlign: "center", color: "#6F5A3F", fontSize: 13 }}>Загрузка…</div>
       ) : allMaterials.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <BookOpen size={48} style={{ color: "#8C7355", margin: "0 auto 16px" }} />
+          <BookOpen size={48} style={{ color: "#6F5A3F", margin: "0 auto 16px" }} />
           <p style={{ color: "#6B6058", marginBottom: 0 }}>
             Пока нет собственных материалов — добавьте первый, и ассистент сможет опираться на него в ответах.
           </p>
@@ -896,7 +896,7 @@ function MaterialsTab({
                   <button
                     onClick={() => handleDelete(item.id)}
                     title="Удалить материал"
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4, flexShrink: 0 }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 4, flexShrink: 0 }}
                   >
                     <Trash2 size={15} />
                   </button>
@@ -944,7 +944,7 @@ function MaterialsTab({
                   <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Новый материал</h3>
                   <button
                     onClick={() => !submitting && setShowForm(false)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F" }}
                   >
                     <X size={20} />
                   </button>

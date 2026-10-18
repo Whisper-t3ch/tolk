@@ -46,7 +46,7 @@ export async function GET() {
 
   const { data: psychologist } = await supabase
     .from("psychologists")
-    .select("specialty, plan_name, timezone")
+    .select("*")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -75,7 +75,11 @@ export async function GET() {
     memberSince: formatMemberSince(user.created_at),
     handle,
     roomUrl: `tolk.pro/room/${handle}`,
+    avatarData: (psychologist?.avatar_data as string | null) ?? null,
+    bio: (psychologist?.bio as string | null) ?? "",
     plan: {
+      key: limitStatus.planName,
+      extra: limitStatus.extra,
       name: PLAN_LABELS[limitStatus.planName] ?? limitStatus.planName,
       assistantRequests: { used: limitStatus.used, total: limitStatus.limit },
     },
@@ -105,11 +109,29 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  let body: { name?: string; specialty?: string };
+  let body: { name?: string; specialty?: string; bio?: string; avatarData?: string | null };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Некорректное тело запроса" }, { status: 400 });
+  }
+
+  // Кастомизация профиля: «о себе» и фото (уменьшенный data URL).
+  const MAX_AVATAR_CHARS = 200_000;
+  if (body.bio !== undefined || body.avatarData !== undefined) {
+    const patch: Record<string, unknown> = {};
+    if (body.bio !== undefined) patch.bio = String(body.bio).slice(0, 1000);
+    if (body.avatarData !== undefined) {
+      if (body.avatarData === null || body.avatarData === "") {
+        patch.avatar_data = null;
+      } else if (/^data:image\/(jpeg|png|webp);base64,/.test(body.avatarData) && body.avatarData.length <= MAX_AVATAR_CHARS) {
+        patch.avatar_data = body.avatarData;
+      } else {
+        return NextResponse.json({ error: "Фото слишком большое или неверного формата" }, { status: 400 });
+      }
+    }
+    const { error: custErr } = await supabase.from("psychologists").update(patch).eq("id", user.id);
+    if (custErr) return NextResponse.json({ error: custErr.message }, { status: 500 });
   }
 
   const name = body.name?.trim();

@@ -49,7 +49,7 @@ function formatSessionDate(date: string): string {
 const EMPTY_TRIGGERS: string[] = [];
 const EMPTY_PROGRESS = { aiScore: 0, psychologistScore: null, clientScore: null, history: [] as Array<{ date: string; aiScore: number; psychologistScore?: number; clientScore?: number }> };
 
-const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
+const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 
 interface ChatMessage {
   id: string;
@@ -557,7 +557,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   if (clientsLoading) {
     return (
       <div style={{ textAlign: "center", padding: 40 }}>
-        <p style={{ color: "#8C7355" }}>Загрузка…</p>
+        <p style={{ color: "#6F5A3F" }}>Загрузка…</p>
       </div>
     );
   }
@@ -565,7 +565,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   if (!client) {
     return (
       <div style={{ textAlign: "center", padding: 40 }}>
-        <p style={{ color: "#8C7355" }}>Клиент не найден</p>
+        <p style={{ color: "#6F5A3F" }}>Клиент не найден</p>
         <Link href="/clients" style={{ color: "#2D6A5C", fontSize: 13, fontWeight: 600 }}>← Все клиенты</Link>
       </div>
     );
@@ -753,7 +753,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           <div style={{
             padding: "4px 10px",
             background: client.status === "active" ? "#E6F7F2" : client.status === "pause" ? "#FEF3C7" : "#F5F3EF",
-            color: client.status === "active" ? "#1BAF7A" : client.status === "pause" ? "#F59E0B" : "#8C7355",
+            color: client.status === "active" ? "#157347" : client.status === "pause" ? "#92400E" : "#6F5A3F",
             borderRadius: 6, fontSize: 11, fontWeight: 700,
           }}>
             {client.status === "active" ? "Активный" : client.status === "pause" ? "На паузе" : "Завершено"}
@@ -843,12 +843,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               </button>
             </div>
             <div>
-              <h3 style={{ fontSize: 12, fontWeight: 700, color: "#8C7355", textTransform: "uppercase", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 12, fontWeight: 700, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 10 }}>
                 Предстоящие ({upcomingSessions.length})
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {upcomingSessions.length === 0 && (
-                  <p style={{ fontSize: 12, color: "#8C7355" }}>Нет запланированных сессий</p>
+                  <p style={{ fontSize: 12, color: "#6F5A3F" }}>Нет запланированных сессий</p>
                 )}
                 {upcomingSessions.map(s => (
                   <Card key={s.id}>
@@ -866,17 +866,17 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               </div>
             </div>
             <div>
-              <h3 style={{ fontSize: 12, fontWeight: 700, color: "#8C7355", textTransform: "uppercase", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 12, fontWeight: 700, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 10 }}>
                 Прошедшие ({pastSessions.length})
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {pastSessions.length === 0 && (
-                  <p style={{ fontSize: 12, color: "#8C7355" }}>Пока нет прошедших сессий</p>
+                  <p style={{ fontSize: 12, color: "#6F5A3F" }}>Пока нет прошедших сессий</p>
                 )}
                 {pastSessions.map(s => (
                   <Card key={s.id}>
                     <CardContent className="pt-3 pb-3" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Video size={13} style={{ color: "#8C7355" }} />
+                      <Video size={13} style={{ color: "#6F5A3F" }} />
                       <span style={{ fontSize: 12, color: "#6B6058" }}>{formatSessionDate(s.date)} · {s.time}</span>
                     </CardContent>
                   </Card>
@@ -921,10 +921,10 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
 
                 <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
                   {messagesLoading && (
-                    <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Загрузка переписки…</p>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", textAlign: "center", marginTop: 20 }}>Загрузка переписки…</p>
                   )}
                   {!messagesLoading && messages.length === 0 && (
-                    <p style={{ fontSize: 12, color: "#8C7355", textAlign: "center", marginTop: 20 }}>Переписки пока нет</p>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", textAlign: "center", marginTop: 20 }}>Переписки пока нет</p>
                   )}
                   {messages.map((msg) => (
                     <motion.div
@@ -1076,7 +1076,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 </div>
                 <button
                   onClick={() => setShowAttachPicker(false)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 4 }}
                 >
                   <X size={18} />
                 </button>
@@ -1085,7 +1085,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               {!attachLoading && !attachError && attachItems.length > 0 && (
                 <div style={{ padding: "12px 20px 8px", display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ position: "relative" }}>
-                    <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#8C7355" }} />
+                    <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#6F5A3F" }} />
                     <input
                       value={attachSearch}
                       onChange={e => setAttachSearch(e.target.value)}
@@ -1131,7 +1131,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
 
               <div style={{ overflowY: "auto", padding: "8px 12px", flex: 1 }}>
                 {attachLoading && (
-                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#6F5A3F" }}>
                     Загрузка материалов...
                   </div>
                 )}
@@ -1141,12 +1141,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   </div>
                 )}
                 {!attachLoading && !attachError && attachItems.length === 0 && (
-                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#6F5A3F" }}>
                     В базе знаний пока нет материалов
                   </div>
                 )}
                 {!attachLoading && !attachError && attachItems.length > 0 && filteredAttachItems.length === 0 && (
-                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#8C7355" }}>
+                  <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "#6F5A3F" }}>
                     Ничего не найдено
                   </div>
                 )}
@@ -1193,26 +1193,26 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>Профиль</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Пол</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 4 }}>Пол</div>
                   <div style={{ fontSize: 13, color: "#1C1C1E" }}>{client.gender === "female" ? "Женский" : "Мужской"}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Запрос</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 4 }}>Запрос</div>
                   <div style={{ fontSize: 13, color: "#1C1C1E" }}>{client.request}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Подход</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 4 }}>Подход</div>
                   <div style={{ fontSize: 13, color: "#1C1C1E" }}>{APPROACH_LABELS[client.approach as Approach] ?? client.approach}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Всего сессий</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 4 }}>Всего сессий</div>
                   <div style={{ fontSize: 13, color: "#1C1C1E" }}>{clientSessions.length}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", marginBottom: 4 }}>Триггеры</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 4 }}>Триггеры</div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {triggers.length === 0 && (
-                      <span style={{ fontSize: 12, color: "#8C7355" }}>Пока не отмечены</span>
+                      <span style={{ fontSize: 12, color: "#6F5A3F" }}>Пока не отмечены</span>
                     )}
                     {triggers.map((trigger, i) => (
                       <span key={i} style={{ padding: "4px 8px", background: "#E8F2EF", color: "#2D6A5C", borderRadius: 4, fontSize: 11 }}>
@@ -1236,7 +1236,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   психолог нигде не видел, что именно задал. Показываем
                   реальные отправленные ДЗ (messages.kind='homework'). */}
               {homeworkList.length === 0 ? (
-                <p style={{ fontSize: 12.5, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
                   Заданий пока нет. Отправить можно из раздела «База знаний» → «Шаблоны ДЗ»
                   или попросить ассистента.
                 </p>
@@ -1247,7 +1247,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                       <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
                         {hw.text.length > 220 ? `${hw.text.slice(0, 220)}…` : hw.text}
                       </div>
-                      <div style={{ fontSize: 11, color: hw.status === "sent" ? "#1BAF7A" : "#8C7355", marginTop: 6 }}>
+                      <div style={{ fontSize: 11, color: hw.status === "sent" ? "#157347" : "#6F5A3F", marginTop: 6 }}>
                         {new Date(hw.created_at).toLocaleDateString("ru", { day: "numeric", month: "long", timeZone })}
                         {" · "}
                         {hw.status === "sent" ? "доставлено" : "не доставлено — у клиента не подключён мессенджер"}
@@ -1338,19 +1338,19 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               )}
 
               {testsLoading ? (
-                <p style={{ fontSize: 12, color: "#8C7355" }}>Загрузка истории тестов…</p>
+                <p style={{ fontSize: 12, color: "#6F5A3F" }}>Загрузка истории тестов…</p>
               ) : clientTestHistory.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={clientTestHistory}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
-                    <XAxis dataKey="date" stroke="#8C7355" style={{ fontSize: 11 }} />
-                    <YAxis stroke="#8C7355" style={{ fontSize: 11 }} />
+                    <XAxis dataKey="date" stroke="#6F5A3F" style={{ fontSize: 11 }} />
+                    <YAxis stroke="#6F5A3F" style={{ fontSize: 11 }} />
                     <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E5DFD5" }} />
                     <Line type="monotone" dataKey="score" stroke="#2D6A5C" strokeWidth={2} dot={{ fill: "#2D6A5C", r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <p style={{ fontSize: 12, color: "#8C7355" }}>Пока недостаточно данных теста для графика</p>
+                <p style={{ fontSize: 12, color: "#6F5A3F" }}>Пока недостаточно данных теста для графика</p>
               )}
               <div style={{ marginTop: 12 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
@@ -1370,15 +1370,15 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               {/* Пустой график с осью −5…5 и без единой точки выглядел как
                   сломанный виджет, а не как «данных пока нет». */}
               {progress.history.length === 0 ? (
-                <p style={{ fontSize: 13, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 13, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
                   График появится, когда накопятся оценки за несколько сессий — свою и клиента можно проставлять после каждой встречи.
                 </p>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={progress.history}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
-                    <XAxis dataKey="date" stroke="#8C7355" style={{ fontSize: 11 }} />
-                    <YAxis domain={[0, 10]} stroke="#8C7355" style={{ fontSize: 11 }} />
+                    <XAxis dataKey="date" stroke="#6F5A3F" style={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 10]} stroke="#6F5A3F" style={{ fontSize: 11 }} />
                     <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E5DFD5" }} />
                     <Line type="monotone" dataKey="aiScore" name="ИИ" stroke="#2D6A5C" strokeWidth={2} dot={{ fill: "#2D6A5C", r: 3 }} />
                     <Line type="monotone" dataKey="psychologistScore" name="Психолог" stroke="#1BAF7A" strokeWidth={2} dot={{ fill: "#1BAF7A", r: 3 }} />
@@ -1415,7 +1415,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 </h2>
                 <button
                   onClick={() => !generatingSummary && !exportingSelectedTranscripts && closePeriodSummaryModal()}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F" }}
                 >
                   <X size={18} />
                 </button>
@@ -1425,12 +1425,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 {!periodSummaryResult && (
                   <>
                     <div>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
                         Выберите сессии
                       </label>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
                         {clientSessions.length === 0 && (
-                          <p style={{ fontSize: 12, color: "#8C7355" }}>У этого клиента пока нет сессий</p>
+                          <p style={{ fontSize: 12, color: "#6F5A3F" }}>У этого клиента пока нет сессий</p>
                         )}
                         {clientSessions.map(s => (
                           <label
@@ -1454,12 +1454,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                     </div>
 
                     {periodSummaryError && (
-                      <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
+                      <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
                         {periodSummaryError}
                       </p>
                     )}
 
-                    <p style={{ fontSize: 11, color: "#8C7355", margin: 0, fontStyle: "italic" }}>
+                    <p style={{ fontSize: 11, color: "#6F5A3F", margin: 0, fontStyle: "italic" }}>
                       Списывает 1 запрос из лимита ассистента
                     </p>
 
@@ -1530,14 +1530,14 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               }}>
                 <div style={{ padding: "20px 24px", borderBottom: "1px solid #E5DFD5", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Редактировать клиента</h2>
-                  <button onClick={() => !savingClient && setShowEditClient(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 4 }}>
+                  <button onClick={() => !savingClient && setShowEditClient(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 4 }}>
                     <X size={20} />
                   </button>
                 </div>
 
                 <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Имя *</label>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Имя *</label>
                     <input
                       value={editName}
                       onChange={e => setEditName(e.target.value)}
@@ -1547,7 +1547,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
 
                   <div style={{ display: "flex", gap: 10 }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Возраст</label>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Возраст</label>
                       <input
                         type="number"
                         value={editAge}
@@ -1556,7 +1556,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                       />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Пол</label>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Пол</label>
                       <select
                         value={editGender}
                         onChange={e => setEditGender(e.target.value as "male" | "female")}
@@ -1569,7 +1569,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Запрос</label>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Запрос</label>
                     <input
                       value={editRequest}
                       onChange={e => setEditRequest(e.target.value)}
@@ -1579,7 +1579,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Подход</label>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Подход</label>
                     <input
                       value={editApproach}
                       onChange={e => setEditApproach(e.target.value)}
@@ -1589,7 +1589,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Статус</label>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Статус</label>
                     <select
                       value={editStatus}
                       onChange={e => setEditStatus(e.target.value as "active" | "pause" | "completed")}
@@ -1602,7 +1602,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   </div>
 
                   {editClientError && (
-                    <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
+                    <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>
                       {editClientError}
                     </p>
                   )}
@@ -1623,7 +1623,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                     onClick={() => { setDeleteClientError(null); setShowDeleteClientConfirm(true); }}
                     disabled={savingClient}
                     style={{
-                      padding: "10px", background: "none", color: "#EF4444",
+                      padding: "10px", background: "none", color: "#B91C1C",
                       border: "1px solid #FCA5A5", borderRadius: 10, fontSize: 13, fontWeight: 600,
                       cursor: "pointer",
                     }}
@@ -1662,7 +1662,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 Карточка, история сессий и переписка скроются из списка клиентов. Это действие нельзя отменить из интерфейса.
               </p>
               {deleteClientError && (
-                <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginBottom: 16, marginTop: 0 }}>
+                <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginBottom: 16, marginTop: 0 }}>
                   {deleteClientError}
                 </p>
               )}

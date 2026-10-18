@@ -17,7 +17,7 @@ function recordingStatusHint(status: string) {
     return (
       <div style={{
         display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
-        fontSize: 12, color: "#8C7355", marginBottom: 12,
+        fontSize: 12, color: "#6F5A3F", marginBottom: 12,
       }}>
         <Loader2 size={13} className="animate-spin" />
         Запись обрабатывается, расшифровка появится автоматически
@@ -32,7 +32,7 @@ function recordingStatusHint(status: string) {
     return (
       <div style={{
         display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
-        fontSize: 12, color: "#8C7355", marginBottom: 12,
+        fontSize: 12, color: "#6F5A3F", marginBottom: 12,
       }}>
         <Loader2 size={13} className="animate-spin" />
         Запись ещё дозагружается — статус обновится автоматически, обновите страницу позже
@@ -45,7 +45,7 @@ function recordingStatusHint(status: string) {
     return (
       <div style={{
         display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
-        fontSize: 12, color: "#EF4444", marginBottom: 12,
+        fontSize: 12, color: "#B91C1C", marginBottom: 12,
       }}>
         <AlertTriangle size={13} />
         Запись сохранена не полностью — часть разговора может отсутствовать
@@ -70,7 +70,7 @@ function recordingStatusHint(status: string) {
     return (
       <div style={{
         display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
-        fontSize: 12, color: "#EF4444", marginBottom: 12,
+        fontSize: 12, color: "#B91C1C", marginBottom: 12,
       }}>
         <AlertTriangle size={13} />
         Не удалось расшифровать запись — заполните протокол вручную
@@ -90,9 +90,9 @@ function recordingStatusHint(status: string) {
 // без миграции схемы.
 const PROTOCOL_BLOCKS = [
   { key: "s" as const, label: "Жалоба и запрос клиента", color: "#2D6A5C", emoji: "💬", hint: "Своими словами клиента — что беспокоит, чего хочет добиться" },
-  { key: "o" as const, label: "Контекст и наблюдения", color: "#1BAF7A", emoji: "👁", hint: "Что происходило на сессии: факты, поведение, выполнение ДЗ, результаты тестов" },
-  { key: "a" as const, label: "Гипотеза психолога", color: "#F59E0B", emoji: "🧠", hint: "Ваш клинический анализ, динамика по сравнению с прошлыми сессиями" },
-  { key: "p" as const, label: "Договорённости и план", color: "#8B5CF6", emoji: "📋", hint: "Домашнее задание, фокус следующей сессии" },
+  { key: "o" as const, label: "Контекст и наблюдения", color: "#157347", emoji: "👁", hint: "Что происходило на сессии: факты, поведение, выполнение ДЗ, результаты тестов" },
+  { key: "a" as const, label: "Гипотеза психолога", color: "#92400E", emoji: "🧠", hint: "Ваш клинический анализ, динамика по сравнению с прошлыми сессиями" },
+  { key: "p" as const, label: "Договорённости и план", color: "#6D28D9", emoji: "📋", hint: "Домашнее задание, фокус следующей сессии" },
 ];
 
 interface SoapContent {
@@ -513,7 +513,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               </div>
             </div>
             {saveError && (
-              <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginTop: 12 }}>
+              <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginTop: 12 }}>
                 {saveError}
               </p>
             )}
@@ -534,7 +534,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         >
           <Card>
             <CardContent className="pt-6">
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
                 Формат протокола
               </label>
               <select
@@ -573,7 +573,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                     : selectedTemplate.content}
                 </p>
               )}
-              <p style={{ fontSize: 11.5, color: "#8C7355", marginTop: 8, marginBottom: 0 }}>
+              <p style={{ fontSize: 11.5, color: "#6F5A3F", marginTop: 8, marginBottom: 0 }}>
                 Структура заметки (4 блока ниже) не меняется, но выбранный формат используется как ориентир при генерации по записи сессии и как подсказка при ручном заполнении.
               </p>
             </CardContent>
@@ -589,7 +589,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         >
           <Card>
             <CardContent className="pt-6" style={{ textAlign: "center", padding: "32px 24px" }}>
-              <Sparkles size={28} style={{ color: "#8C7355", marginBottom: 12 }} />
+              <Sparkles size={28} style={{ color: "#6F5A3F", marginBottom: 12 }} />
               <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: "0 0 6px 0" }}>
                 Протокол не создан
               </h3>
@@ -598,7 +598,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               </p>
               {sessionInfo && recordingStatusHint(sessionInfo.recordingStatus)}
               {generateError && (
-                <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+                <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
                   {generateError}
                 </p>
               )}
@@ -647,7 +647,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                     <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", margin: 0 }}>
                       {block.label}
                     </h3>
-                    <p style={{ fontSize: 11, color: "#8C7355", margin: 0, marginTop: 2 }}>
+                    <p style={{ fontSize: 11, color: "#6F5A3F", margin: 0, marginTop: 2 }}>
                       {block.hint}
                     </p>
                   </div>
@@ -728,7 +728,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 скрыта — иначе неудачная генерация выглядела бы как полное
                 отсутствие реакции на нажатие. */}
             {protocolExists && generateError && (
-              <p style={{ fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginTop: 12, marginBottom: 0 }}>
+              <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", marginTop: 12, marginBottom: 0 }}>
                 {generateError}
               </p>
             )}
@@ -772,12 +772,12 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1C1C1E" }}>Загрузить транскрипт вручную</h3>
                 <button
                   onClick={() => !uploadingTranscript && setShowUploadTranscript(false)}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#8C7355" }}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#6F5A3F" }}
                 >
                   <X size={18} />
                 </button>
               </div>
-              <p style={{ margin: 0, fontSize: 12.5, color: "#8C7355" }}>
+              <p style={{ margin: 0, fontSize: 12.5, color: "#6F5A3F" }}>
                 Подходит, если сессия прошла не через видеозвонок платформы, или автоматическая
                 расшифровка не удалась. Текст сохранится в историю клиента так же, как обычный
                 транскрипт — им сможет пользоваться ассистент и генерация протокола.
@@ -791,7 +791,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                   style={{ display: "block", marginTop: 6, fontSize: 12.5 }}
                 />
               </label>
-              <p style={{ margin: "0", fontSize: 11.5, color: "#B0A597", textAlign: "center" }}>— или вставьте текст ниже —</p>
+              <p style={{ margin: "0", fontSize: 11.5, color: "#6F5A3F", textAlign: "center" }}>— или вставьте текст ниже —</p>
               <textarea
                 value={uploadTranscriptText}
                 onChange={e => { setUploadTranscriptText(e.target.value); setUploadTranscriptError(null); }}
@@ -804,12 +804,12 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 }}
               />
               {uploadTranscriptText && (
-                <p style={{ margin: 0, fontSize: 11.5, color: "#B0A597" }}>
+                <p style={{ margin: 0, fontSize: 11.5, color: "#6F5A3F" }}>
                   {uploadTranscriptText.length.toLocaleString("ru-RU")} символов
                 </p>
               )}
               {uploadTranscriptError && (
-                <p style={{ margin: 0, fontSize: 12.5, color: "#EF4444", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px" }}>
+                <p style={{ margin: 0, fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px" }}>
                   {uploadTranscriptError}
                 </p>
               )}
@@ -850,7 +850,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 </h2>
                 <button
                   onClick={() => !sendingSummary && setShowSendSummary(false)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355" }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F" }}
                 >
                   <X size={18} />
                 </button>
@@ -858,7 +858,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
 
               <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                     Текст резюме (можно отредактировать)
                   </label>
                   <textarea
@@ -873,7 +873,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "#8C7355", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                     Канал отправки
                   </label>
                   <select
@@ -891,7 +891,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 </div>
 
                 {sendSummaryError && (
-                  <p style={{ fontSize: 12.5, color: "#F59E0B", background: "#FEF3E2", borderRadius: 8, padding: "10px 12px", margin: 0 }}>
+                  <p style={{ fontSize: 12.5, color: "#92400E", background: "#FEF3E2", borderRadius: 8, padding: "10px 12px", margin: 0 }}>
                     {sendSummaryError}
                   </p>
                 )}

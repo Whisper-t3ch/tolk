@@ -17,7 +17,11 @@ export interface Profile {
   memberSince: string;
   handle: string;
   roomUrl: string;
+  avatarData: string | null;
+  bio: string;
   plan: {
+    key: string;
+    extra: number;
     name: string;
     assistantRequests: { used: number; total: number };
   };
@@ -31,7 +35,7 @@ interface ProfileContextType {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  updateProfile: (patch: { name?: string; specialty?: string }) => Promise<void>;
+  updateProfile: (patch: { name?: string; specialty?: string; bio?: string; avatarData?: string | null }) => Promise<void>;
 }
 
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
@@ -59,7 +63,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
-  const updateProfile = useCallback(async (patch: { name?: string; specialty?: string }) => {
+  const updateProfile = useCallback(async (patch: { name?: string; specialty?: string; bio?: string; avatarData?: string | null }) => {
     const res = await fetch("/api/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

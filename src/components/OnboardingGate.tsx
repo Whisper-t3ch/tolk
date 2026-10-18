@@ -162,7 +162,7 @@ export default function OnboardingGate() {
             </div>
 
             {error && (
-              <p style={{ fontSize: 12.5, color: "#EF4444", margin: 0 }}>{error}</p>
+              <p style={{ fontSize: 12.5, color: "#B91C1C", margin: 0 }}>{error}</p>
             )}
 
             <button

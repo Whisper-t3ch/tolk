@@ -40,6 +40,12 @@ export const PLAN_LIMITS = {
 
 export type PlanName = keyof typeof PLAN_LIMITS;
 
+/** Размер одного докупаемого пакета запросов (пока без оплаты — mock). */
+export const EXTRA_PACK_SIZE = 100;
+
+/** Тарифы, на которые психолог может переключиться сам (beta — только стартовый). */
+export const SWITCHABLE_PLANS = ["practice", "professional", "expert"] as const;
+
 function resolvePlanLimit(planName: string | null | undefined): number {
   if (planName && planName in PLAN_LIMITS) {
     return PLAN_LIMITS[planName as PlanName];
@@ -118,20 +124,23 @@ export async function consumeAssistantLimit(
 async function resetIfDue(
   supabase: SupabaseClient,
   psychologistId: string
-): Promise<{ used: number; limit: number }> {
+): Promise<{ used: number; limit: number; extra: number }> {
+  // select("*"): колонка assistant_extra_requests (migration 044) может
+  // отсутствовать, пока миграцию не применили — тогда extra = 0.
   const { data, error } = await supabase
     .from("psychologists")
-    .select("assistant_requests_used, plan_name, assistant_requests_reset_at")
+    .select("*")
     .eq("id", psychologistId)
     .single();
   if (error) throw error;
 
   const used = (data?.assistant_requests_used as number | null) ?? 0;
-  const limit = resolvePlanLimit(data?.plan_name as string | null);
+  const extra = Math.max(0, (data?.assistant_extra_requests as number | null) ?? 0);
+  const limit = resolvePlanLimit(data?.plan_name as string | null) + extra;
   const resetAt = data?.assistant_requests_reset_at as string | null;
 
   if (!resetAt || new Date(resetAt) > new Date()) {
-    return { used, limit };
+    return { used, limit, extra };
   }
 
   const nextReset = new Date();
@@ -144,7 +153,28 @@ async function resetIfDue(
     .eq("id", psychologistId);
   if (resetError) throw resetError;
 
-  return { used: 0, limit };
+  // Докупленные запросы не сгорают при ежемесячном сбросе.
+  return { used: 0, limit, extra };
+}
+
+/** Докупка пакета запросов (mock-оплата: просто увеличивает лимит). */
+export async function addExtraRequests(
+  supabase: SupabaseClient,
+  psychologistId: string,
+  amount: number = EXTRA_PACK_SIZE
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("psychologists")
+    .select("*")
+    .eq("id", psychologistId)
+    .single();
+  if (error) throw error;
+  const current = Math.max(0, (data?.assistant_extra_requests as number | null) ?? 0);
+  const { error: upErr } = await supabase
+    .from("psychologists")
+    .update({ assistant_extra_requests: current + amount })
+    .eq("id", psychologistId);
+  if (upErr) throw upErr;
 }
 
 export function limitExceededResponse(limit: number) {
@@ -156,6 +186,8 @@ export function limitExceededResponse(limit: number) {
 
 export interface AssistantLimitStatus extends LimitCheckResult {
   planName: PlanName;
+  /** Докупленные запросы (уже включены в limit). */
+  extra: number;
 }
 
 /**
@@ -176,12 +208,13 @@ export async function getAssistantLimitStatus(
     .single();
   const planName = (data?.plan_name as PlanName | null) ?? "beta";
 
-  const { used, limit } = await resetIfDue(supabase, psychologistId);
+  const { used, limit, extra } = await resetIfDue(supabase, psychologistId);
   return {
     allowed: used < limit,
     used,
     limit,
     remaining: Math.max(0, limit - used),
     planName,
+    extra,
   };
 }

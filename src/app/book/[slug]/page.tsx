@@ -194,7 +194,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
           <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>
             {psychologist ? `Запись к ${toDativeCase(psychologist.name)}` : "Запись на консультацию"}
           </h1>
-          <p style={{ fontSize: 13, color: "#8C7355", marginTop: 6 }}>
+          <p style={{ fontSize: 13, color: "#6F5A3F", marginTop: 6 }}>
             {psychologist?.specialty ? `${psychologist.specialty} · ` : ""}
             {/* Раньше это писалось безусловно, даже когда у психолога не
                 подключён Telegram-бот — клиент бронировал и ждал
@@ -206,7 +206,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
         </div>
 
         {loading && (
-          <div style={{ textAlign: "center", padding: "48px 0", color: "#8C7355", fontSize: 13 }}>
+          <div style={{ textAlign: "center", padding: "48px 0", color: "#6F5A3F", fontSize: 13 }}>
             Загружаю доступное время...
           </div>
         )}
@@ -214,7 +214,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
         {!loading && error && (
           <div style={{
             textAlign: "center", padding: "32px 20px", background: "#fff",
-            borderRadius: 16, border: "1px solid #E5DFD5", color: "#8C7355", fontSize: 13,
+            borderRadius: 16, border: "1px solid #E5DFD5", color: "#6F5A3F", fontSize: 13,
           }}>
             {error}
           </div>
@@ -234,7 +234,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: "0 auto 16px",
             }}>
-              <Check size={24} style={{ color: "#1BAF7A" }} />
+              <Check size={24} style={{ color: "#157347" }} />
             </div>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: "#1C1C1E", marginBottom: 8 }}>
               Бронь создана
@@ -265,7 +265,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
             {datesWithSlots.length === 0 ? (
               <div style={{
                 textAlign: "center", padding: "32px 20px", background: "#fff",
-                borderRadius: 16, border: "1px solid #E5DFD5", color: "#8C7355", fontSize: 13,
+                borderRadius: 16, border: "1px solid #E5DFD5", color: "#6F5A3F", fontSize: 13,
               }}>
                 Свободного времени сейчас нет — попробуйте зайти позже
               </div>
@@ -320,7 +320,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                           background: selectedDate === date ? "#E8F2EF" : "#fff",
                         }}
                       >
-                        <div style={{ fontSize: 10.5, color: "#8C7355", fontWeight: 600 }}>{weekdayLabel(date)}</div>
+                        <div style={{ fontSize: 10.5, color: "#6F5A3F", fontWeight: 600 }}>{weekdayLabel(date)}</div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: selectedDate === date ? "#2D6A5C" : "#1C1C1E", marginTop: 2 }}>
                           {formatDateLabel(date)}
                         </div>
@@ -338,7 +338,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#1C1C1E", marginBottom: 12 }}>
                       <Clock size={14} style={{ color: "#2D6A5C" }} /> Выберите время
                     </div>
-                    <p style={{ fontSize: 12, color: "#8C7355", margin: "0 0 12px" }}>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", margin: "0 0 12px" }}>
                       Время указано {timeZoneShortLabel(slotsTimeZone)}
                     </p>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
@@ -375,7 +375,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                         padding: 16,
                       }}>
                         {submitError && (
-                          <p style={{ fontSize: 12.5, color: "#EF4444", marginBottom: 10 }}>{submitError}</p>
+                          <p style={{ fontSize: 12.5, color: "#B91C1C", marginBottom: 10 }}>{submitError}</p>
                         )}
                         <div style={{ marginBottom: 10 }}>
                           <label style={{ fontSize: 11.5, fontWeight: 600, color: "#6B6058" }}>Ваше имя</label>

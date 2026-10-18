@@ -124,7 +124,7 @@ export default function AIAssistant() {
                   background: "none",
                   border: "none",
                   cursor: "pointer",
-                  color: "#8C7355",
+                  color: "#6F5A3F",
                   padding: 0,
                   display: "flex",
                   alignItems: "center",
@@ -232,7 +232,7 @@ export default function AIAssistant() {
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E" }}>
                       Помощник
                     </div>
-                    <div style={{ fontSize: 10, color: "#1BAF7A" }}>онлайн</div>
+                    <div style={{ fontSize: 10, color: "#157347" }}>онлайн</div>
                   </div>
                 </div>
                 <button
@@ -241,7 +241,7 @@ export default function AIAssistant() {
                     background: "none",
                     border: "none",
                     cursor: "pointer",
-                    color: "#8C7355",
+                    color: "#6F5A3F",
                     padding: 4,
                   }}
                 >

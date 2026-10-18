@@ -1,26 +1,8 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Send, Mic, Check, X as XIcon, ThumbsUp, ThumbsDown, Copy, RotateCcw } from "lucide-react";
-
-// Web Speech API не имеет официальных типов в TS lib.dom — минимальный
-// набросок нужных полей (тот же паттерн, что в AIAssistant.tsx).
-interface SpeechRecognitionResultLike {
-  transcript: string;
-}
-interface SpeechRecognitionEventLike extends Event {
-  results: { [index: number]: { [index: number]: SpeechRecognitionResultLike; length: number }; length: number };
-}
-interface SpeechRecognitionLike extends EventTarget {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start: () => void;
-  stop: () => void;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((event: Event) => void) | null;
-  onend: (() => void) | null;
-}
+import { useVoiceDictation } from "@/lib/useVoiceDictation";
+import { Send, Mic, Loader2, Check, X as XIcon, ThumbsUp, ThumbsDown, Copy, RotateCcw } from "lucide-react";
 
 interface ChatMessage {
   id: string;
@@ -118,15 +100,12 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [agentSessionId, setAgentSessionId] = useState<string | undefined>(undefined);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const [webSearchState, setWebSearchState] = useState<WebSearchState | null>(null);
   const [savedResultUrls, setSavedResultUrls] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   // Для неявного сигнала was_reformulated: запоминаем последний ответ
   // ассистента (его feedbackId, текст вопроса психолога, который к нему
   // привёл, и время получения). Если следующее сообщение психолога
@@ -178,57 +157,14 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   // Раньше условие вычислялось прямо при рендере: на сервере window нет,
   // поэтому SSR рисовал одну кнопку, а браузер — другую, и React падал с
   // ошибкой гидрации, выбрасывая и перерисовывая всё поддерево чата.
-  const [voiceSupported, setVoiceSupported] = useState(false);
-  useEffect(() => {
-    setVoiceSupported("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
-  }, []);
+  const voice = useVoiceDictation(text => setInput(prev => (prev ? `${prev} ${text}` : text)));
+  const isRecording = voice.state === "recording";
+  const voiceError = voice.error;
+  const voiceSupported = voice.supported;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pendingAction]);
-
-  const toggleVoiceInput = () => {
-    if (isRecording) {
-      recognitionRef.current?.stop();
-      return;
-    }
-
-    const SpeechRecognitionCtor =
-      (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike })
-        .SpeechRecognition ??
-      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition;
-
-    if (!SpeechRecognitionCtor) {
-      setVoiceError("Голосовой ввод не поддерживается этим браузером");
-      setTimeout(() => setVoiceError(null), 3000);
-      return;
-    }
-
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = "ru-RU";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onresult = (event: SpeechRecognitionEventLike) => {
-      const last = event.results[event.results.length - 1];
-      const text = last?.[0]?.transcript ?? "";
-      if (text) {
-        setInput(prev => (prev ? `${prev} ${text}` : text));
-      }
-    };
-    recognition.onerror = () => {
-      setVoiceError("Не удалось распознать речь — попробуйте ещё раз");
-      setTimeout(() => setVoiceError(null), 3000);
-      setIsRecording(false);
-    };
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-
-    recognitionRef.current = recognition;
-    setIsRecording(true);
-    recognition.start();
-  };
 
   // isLoading из состояния обновляется только после перерисовки: два Enter подряд (автоповтор клавиши,
   // быстрый двойной нажим) успевали оба пройти проверку, и вопрос уходил дважды (видели 16.10 на stage).
@@ -442,7 +378,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 10px", background: "none",
               border: "1px solid #E5DFD5", borderRadius: 8,
-              fontSize: 12, fontWeight: 600, color: "#8C7355",
+              fontSize: 12, fontWeight: 600, color: "#6F5A3F",
               cursor: isLoading || resetting ? "not-allowed" : "pointer",
               fontFamily: "var(--font-sans)",
             }}
@@ -514,7 +450,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
                   style={{
                     background: "none", border: "none", cursor: "pointer",
                     padding: 4, borderRadius: 4, display: "flex", alignItems: "center",
-                    color: msg.rating === "negative" ? "#EF4444" : "#6B6058",
+                    color: msg.rating === "negative" ? "#B91C1C" : "#6B6058",
                   }}
                 >
                   <ThumbsDown size={12} fill={msg.rating === "negative" ? "#EF4444" : "none"} />
@@ -615,7 +551,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
         )}
 
         {webSearchState && webSearchState.stage === "error" && (
-          <div style={{ alignSelf: "flex-start", maxWidth: "90%", fontSize: 12, color: "#EF4444", padding: "4px 0" }}>
+          <div style={{ alignSelf: "flex-start", maxWidth: "90%", fontSize: 12, color: "#B91C1C", padding: "4px 0" }}>
             {webSearchState.error}
           </div>
         )}
@@ -635,7 +571,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
                 style={{ background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 10, padding: 12 }}
               >
                 <div style={{ fontSize, fontWeight: 600, color: "#1C1C1E", marginBottom: 4 }}>{item.title}</div>
-                <div style={{ fontSize: 11, color: "#8C7355", marginBottom: 6, wordBreak: "break-all" }}>
+                <div style={{ fontSize: 11, color: "#6F5A3F", marginBottom: 6, wordBreak: "break-all" }}>
                   Источник: {item.url}
                 </div>
                 <div style={{ fontSize, color: "#1C1C1E", marginBottom: 10 }}>{item.snippet}</div>
@@ -669,7 +605,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
       </div>
 
       {(error || voiceError) && (
-        <div style={{ padding: "0 12px", fontSize: 11, color: "#EF4444", flexShrink: 0 }}>{error ?? voiceError}</div>
+        <div style={{ padding: "0 12px", fontSize: 11, color: "#B91C1C", flexShrink: 0 }}>{error ?? voiceError}</div>
       )}
 
       <div style={{ padding: 12, borderTop: "1px solid #E5DFD5", display: "flex", gap: 6, flexShrink: 0 }}>
@@ -698,18 +634,19 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
         />
         {voiceSupported && (
           <button
-            onClick={toggleVoiceInput}
-            title={isRecording ? "Остановить запись" : "Голосовой ввод"}
+            onClick={voice.toggle}
+            disabled={voice.state === "transcribing"}
+            title={isRecording ? "Остановить запись" : voice.state === "transcribing" ? "Распознаю…" : "Голосовой ввод"}
             style={{
               width: 32, height: 32,
-              background: isRecording ? "#EF4444" : "#F5F3EF",
+              background: isRecording ? "#B91C1C" : "#F5F3EF",
               border: "1px solid #E5DFD5", borderRadius: 6,
               display: "flex", alignItems: "center", justifyContent: "center",
               cursor: "pointer", color: isRecording ? "#fff" : "#6B6058",
               flexShrink: 0, transition: "all 0.2s",
             }}
           >
-            <Mic size={14} />
+            {voice.state === "transcribing" ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
           </button>
         )}
         <button

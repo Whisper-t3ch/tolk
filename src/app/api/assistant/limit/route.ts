@@ -24,6 +24,7 @@ export async function GET() {
     used: status.used,
     limit: status.limit,
     remaining: status.remaining,
+    extra: status.extra,
     planName: status.planName,
     planLabel: PLAN_LABELS[status.planName] ?? status.planName,
     allPlans: PLAN_LIMITS,

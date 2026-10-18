@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, MessageCircle, Mail, Send, LifeBuoy } from "lucide-react";
+import { ChevronDown, Send, LifeBuoy } from "lucide-react";
 import { Button, Card, CardContent, Textarea } from "@/components/ui";
 
 // Найдено при прогоне: три из пяти ответов описывали функциональность,
@@ -35,41 +35,36 @@ const FAQ = [
   },
 ];
 
-const SUPPORT_TELEGRAM = "tolk_support";
-const SUPPORT_EMAIL = "support@tolk.pro";
-
 export default function HelpPage() {
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   const [message, setMessage] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Найдено прогоном-2: раньше эта форма ничего не отправляла — кнопка
-  // просто показывала «✓ Сообщение отправлено. Мы свяжемся с вами в
-  // ближайшее время» и очищала поле. Психолог с реальной проблемой ждал
-  // ответа, которого никто не получал. Серверной доставки обращений в
-  // продукте нет, поэтому вместо имитации формы — два настоящих канала:
-  // текст уходит в буфер обмена и открывается чат поддержки, либо
-  // подставляется в письмо. Обещаем только то, что действительно
-  // происходит.
-  const openTelegram = async () => {
+  // Обращение сохраняется на сервере (support_tickets) и сразу уходит
+  // владельцу платформы; ответ приходит на email аккаунта.
+  const send = async () => {
     const text = message.trim();
-    if (text) {
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 4000);
-      } catch {
-        // Буфер может быть недоступен (нет разрешения, небезопасный
-        // контекст) — это не повод не открыть чат: психолог напишет сам.
-      }
+    if (!text) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, pageUrl: window.location.href }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Не удалось отправить обращение");
+      setSent(true);
+      setMessage("");
+      setTimeout(() => setSent(false), 8000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось отправить обращение");
+    } finally {
+      setSending(false);
     }
-    window.open(`https://t.me/${SUPPORT_TELEGRAM}`, "_blank", "noopener,noreferrer");
-  };
-
-  const openEmail = () => {
-    const subject = encodeURIComponent("Вопрос в поддержку ТОЛК");
-    const body = encodeURIComponent(message.trim());
-    window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -102,7 +97,7 @@ export default function HelpPage() {
                 >
                   <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{item.q}</span>
                   <motion.div animate={{ rotate: openIdx === idx ? 180 : 0 }}>
-                    <ChevronDown size={16} style={{ color: "#8C7355" }} />
+                    <ChevronDown size={16} style={{ color: "#6F5A3F" }} />
                   </motion.div>
                 </button>
                 <AnimatePresence>
@@ -125,38 +120,6 @@ export default function HelpPage() {
         </div>
       </div>
 
-      {/* Контакты поддержки */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
-        <Card>
-          <CardContent className="pt-6" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{
-              width: 40, height: 40, background: "#E8F2EF", borderRadius: 10,
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-            }}>
-              <MessageCircle size={18} style={{ color: "#2D6A5C" }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E" }}>Telegram-поддержка</div>
-              <div style={{ fontSize: 12, color: "#2D6A5C" }}>@tolk_support</div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{
-              width: 40, height: 40, background: "#E6F7F2", borderRadius: 10,
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-            }}>
-              <Mail size={18} style={{ color: "#1BAF7A" }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E" }}>Почта</div>
-              <div style={{ fontSize: 12, color: "#1BAF7A" }}>support@tolk.pro</div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Форма обращения */}
       <Card>
         <CardContent className="pt-6">
@@ -166,8 +129,8 @@ export default function HelpPage() {
               Написать в поддержку
             </h3>
           </div>
-          <p style={{ fontSize: 12, color: "#8C7355", marginBottom: 12 }}>
-            Опишите вопрос здесь и выберите, куда его отправить — в Telegram или почтой. Отвечаем в течение рабочего дня.
+          <p style={{ fontSize: 12.5, color: "#4B443C", marginBottom: 12 }}>
+            Опишите вопрос или проблему — обращение сразу попадёт к команде ТОЛК. Ответим на email вашего аккаунта.
           </p>
           <Textarea
             value={message}
@@ -176,25 +139,23 @@ export default function HelpPage() {
             rows={4}
           />
           <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button size="md" variant="secondary" onClick={openEmail} disabled={!message.trim()}>
-              <Mail size={14} style={{ marginRight: 8 }} /> Отправить почтой
-            </Button>
-            <Button size="md" onClick={openTelegram}>
-              Написать в Telegram <Send size={14} style={{ marginLeft: 8 }} />
+            <Button size="md" onClick={send} disabled={!message.trim() || sending}>
+              {sending ? "Отправляю…" : <>Отправить <Send size={14} style={{ marginLeft: 8 }} /></>}
             </Button>
           </div>
           <AnimatePresence>
-            {copied && (
+            {sent && (
               <motion.div
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                style={{ marginTop: 10, fontSize: 12, color: "#1BAF7A", fontWeight: 600 }}
+                style={{ marginTop: 10, fontSize: 12.5, color: "#166534", fontWeight: 600 }}
               >
-                ✓ Текст скопирован — вставьте его в чат с @{SUPPORT_TELEGRAM}
+                ✓ Обращение отправлено. Ответим на email аккаунта.
               </motion.div>
             )}
           </AnimatePresence>
+          {error && <p style={{ marginTop: 10, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
         </CardContent>
       </Card>
     </div>

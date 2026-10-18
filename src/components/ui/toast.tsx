@@ -15,8 +15,8 @@ interface ToastContainerProps {
 
 export function ToastContainer({ messages, onClose }: ToastContainerProps) {
   const iconMap = {
-    success: <CheckCircle size={18} style={{ color: "#1BAF7A" }} />,
-    error: <AlertCircle size={18} style={{ color: "#EF4444" }} />,
+    success: <CheckCircle size={18} style={{ color: "#157347" }} />,
+    error: <AlertCircle size={18} style={{ color: "#B91C1C" }} />,
     info: <Info size={18} style={{ color: "#2D6A5C" }} />,
   };
 

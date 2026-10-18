@@ -15,6 +15,7 @@ import { transcribeAssembledSession } from "../transcribeSession";
 import { processNextRecordingJob, type JobOutcome } from "../jobQueue";
 import { assessTranscriptQuality } from "@/lib/soap/transcriptQuality";
 import { PROFANITY_MARKER } from "@/lib/profanity";
+import { MODERATION_PLACEHOLDER } from "@/lib/anonymize";
 import type { AsrAdapter } from "../asrAdapter";
 import type { SessionAssemblyOk } from "../attemptAssembly";
 
@@ -73,7 +74,7 @@ describe("E2E безопасности: ASR → анонимизация → т�
     expect(assessTranscriptQuality(saved, 20)).toMatchObject({ ok: false, reason: "too_short" });
   });
 
-  it("модерация YandexGPT при анонимизации → manual_review_required, НИЧЕГО не сохранено, сырой текст не утёк", async () => {
+  it("модерация LLM отклонила сегменты → фрагменты скрываются заглушкой, задача завершается, сырой текст не утёк", async () => {
     llm.mockImplementation(async () => {
       throw new YandexGptError("YandexGPT вернул ошибку 400", 400, { error: { message: "Я не могу обсуждать эту тему" } });
     });
@@ -81,13 +82,10 @@ describe("E2E безопасности: ASR → анонимизация → т�
 
     const outcome = await transcribeAssembledSession(client as never, { sessionId: SESSION_ID, assembly, adapter });
 
-    expect(outcome.kind).toBe("manual_review_required");
-    expect(data.inserted.session_transcripts).toBeUndefined();
-    expect(data.inserted.session_transcript_segments).toBeUndefined();
-    if (outcome.kind === "manual_review_required") {
-      expect(outcome.reason).toMatch(/moderation_rejected/);
-      expect(outcome.reason).not.toMatch(/Игорь|хуйн/);
-    }
+    expect(outcome.kind).toBe("completed");
+    const saved = data.inserted.session_transcripts[0].raw_text as string;
+    expect(saved).toContain(MODERATION_PLACEHOLDER);
+    expect(saved).not.toMatch(/Игорь|хуйн|заебал/i);
   });
 
   it("весь путь воркера: сбой анонимизации → статус задачи и сессии manual_review_required", async () => {

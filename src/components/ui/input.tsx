@@ -38,7 +38,7 @@ export function Input({ label, error, className, ...props }: InputProps) {
         {...props}
       />
       {error && (
-        <p style={{ fontSize: 12, color: "#EF4444", marginTop: 6, margin: 0 }}>
+        <p style={{ fontSize: 12, color: "#B91C1C", marginTop: 6, margin: 0 }}>
           {error}
         </p>
       )}
@@ -85,7 +85,7 @@ export function Textarea({
         {...props}
       />
       {error && (
-        <p style={{ fontSize: 12, color: "#EF4444", marginTop: 6, margin: 0 }}>
+        <p style={{ fontSize: 12, color: "#B91C1C", marginTop: 6, margin: 0 }}>
           {error}
         </p>
       )}

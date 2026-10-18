@@ -28,7 +28,7 @@ function getSessionsByDay(sessions: any[], month: number, year: number): Session
   return result;
 }
 
-const clientColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"];
+const clientColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9", "#0369A1"];
 function colorForClient(clientId: string): string {
   let hash = 0;
   for (let i = 0; i < clientId.length; i++) hash = (hash * 31 + clientId.charCodeAt(i)) >>> 0;
@@ -220,7 +220,7 @@ export default function CalendarPage() {
                       textAlign: "center",
                       fontSize: 12,
                       fontWeight: 600,
-                      color: "#8C7355",
+                      color: "#6F5A3F",
                       paddingBottom: 8,
                     }}
                   >
@@ -293,7 +293,7 @@ export default function CalendarPage() {
                           <div style={{
                             fontSize: 14,
                             fontWeight: 800,
-                            color: isToday ? "#1BAF7A" : "#1C1C1E",
+                            color: isToday ? "#157347" : "#1C1C1E",
                             marginBottom: 6,
                           }}>
                             {day}
@@ -316,7 +316,7 @@ export default function CalendarPage() {
                                 <span style={{
                                   fontSize: 9.5,
                                   fontWeight: entry.kind === "session" ? 700 : 500,
-                                  color: entry.kind === "session" ? entry.color : "#8C7355",
+                                  color: entry.kind === "session" ? entry.color : "#6F5A3F",
                                   whiteSpace: "nowrap",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
@@ -432,7 +432,7 @@ export default function CalendarPage() {
                                 minWidth: 76,
                                 fontSize: 11.5,
                                 fontWeight: 700,
-                                color: "#8C7355",
+                                color: "#6F5A3F",
                                 border: "1px solid #E5DFD5",
                                 borderRadius: 5,
                                 padding: "2px 4px",
@@ -459,14 +459,14 @@ export default function CalendarPage() {
                               {entry.kind === "session" && <Video size={12} style={{ color: entry.color, opacity: 0.7 }} />}
                             </div>
                             {entry.subtitle && (
-                              <div style={{ fontSize: 11, color: "#8C7355", marginTop: 2 }}>{entry.subtitle}</div>
+                              <div style={{ fontSize: 11, color: "#6F5A3F", marginTop: 2 }}>{entry.subtitle}</div>
                             )}
                           </div>
                           {isPersonal && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeEvent(entry.id!); }}
                               title="Удалить"
-                              style={{ background: "none", border: "none", cursor: "pointer", color: "#8C7355", padding: 2, flexShrink: 0 }}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 2, flexShrink: 0 }}
                             >
                               <Trash2 size={13} />
                             </button>

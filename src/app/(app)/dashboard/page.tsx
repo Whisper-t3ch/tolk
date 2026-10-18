@@ -11,7 +11,7 @@ import { getScoreColor, getScoreBg } from "@/lib/utils";
 import { Users, Video, UserPlus, AlertCircle, ArrowRight, Clock, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
 
-const avatarColors = ["#2D6A5C", "#1BAF7A", "#F59E0B", "#EF4444", "#8B5CF6"];
+const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const EMPTY_LAST_TEST = { name: "—", score: 0, maxScore: 1, date: "—" };
 
@@ -204,9 +204,9 @@ export default function DashboardPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
         {[
           { label: "Активных клиентов", value: activeClients.length, icon: Users, color: "#2D6A5C", href: "/clients" },
-          { label: "Сессий в месяце", value: sessionsThisMonth, icon: Video, color: "#1BAF7A", href: "/sessions" },
-          { label: "Новых клиентов", value: `+${newClients.length}`, icon: UserPlus, color: "#8B5CF6", href: "/clients?filter=new" },
-          { label: "Требуют внимания", value: attentionClients.length, icon: AlertCircle, color: "#F59E0B", href: "/clients?filter=attention" },
+          { label: "Сессий в месяце", value: sessionsThisMonth, icon: Video, color: "#157347", href: "/sessions" },
+          { label: "Новых клиентов", value: `+${newClients.length}`, icon: UserPlus, color: "#6D28D9", href: "/clients?filter=new" },
+          { label: "Требуют внимания", value: attentionClients.length, icon: AlertCircle, color: "#92400E", href: "/clients?filter=attention" },
         ].map(({ label, value, icon: Icon, color, href }, idx) => (
           <Link key={label} href={href} style={{ textDecoration: "none" }}>
           <motion.div
@@ -292,7 +292,7 @@ export default function DashboardPage() {
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 6 }}>
                   {WEEKDAYS.map(d => (
-                    <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "#8C7355" }}>
+                    <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "#6F5A3F" }}>
                       {d}
                     </div>
                   ))}
@@ -374,7 +374,7 @@ export default function DashboardPage() {
                     style={{ maxHeight: 340, overflowY: "auto", paddingRight: 4 }}
                   >
                     {sessionsOnDate.length === 0 && personalEventsOnDate.length === 0 ? (
-                      <div style={{ textAlign: "center", padding: "24px 0", color: "#8C7355", fontSize: 13 }}>
+                      <div style={{ textAlign: "center", padding: "24px 0", color: "#6F5A3F", fontSize: 13 }}>
                         Событий нет
                       </div>
                     ) : (
@@ -412,7 +412,7 @@ export default function DashboardPage() {
                                       </div>
                                       <div>
                                         <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{session.clientName}</div>
-                                        {client && <div style={{ fontSize: 11, color: "#8C7355" }}>{client.request}</div>}
+                                        {client && <div style={{ fontSize: 11, color: "#6F5A3F" }}>{client.request}</div>}
                                       </div>
                                     </div>
                                   </Link>
@@ -441,7 +441,7 @@ export default function DashboardPage() {
                                   onChange={e => handleUpdateEventTime(evt.id, e.target.value)}
                                   title="Изменить время"
                                   style={{
-                                    minWidth: 76, fontSize: 12, fontWeight: 700, color: "#8C7355",
+                                    minWidth: 76, fontSize: 12, fontWeight: 700, color: "#6F5A3F",
                                     border: "1px solid #E5DFD5", borderRadius: 5, padding: "2px 4px",
                                     background: "#F5F3EF", cursor: "pointer", flexShrink: 0,
                                   }}
@@ -482,7 +482,7 @@ export default function DashboardPage() {
                 </span>
                 <span style={{ fontSize: 13, color: "#6B6058" }}>сессий в среднем</span>
               </div>
-              <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
+              <p style={{ fontSize: 12, color: "#6F5A3F", margin: 0 }}>
                 Показывает удержание — сколько в среднем клиент остаётся в работе
               </p>
             </CardContent>
@@ -502,7 +502,7 @@ export default function DashboardPage() {
                 Домашние задания
               </h3>
               {!homeworkSummary || homeworkSummary.totalSent === 0 ? (
-                <p style={{ fontSize: 12, color: "#8C7355", margin: 0 }}>
+                <p style={{ fontSize: 12, color: "#6F5A3F", margin: 0 }}>
                   Пока не отправлено ни одного задания
                 </p>
               ) : (
@@ -513,7 +513,7 @@ export default function DashboardPage() {
                     </span>
                     <span style={{ fontSize: 12, color: "#6B6058" }}>за последние 30 дней</span>
                   </div>
-                  <p style={{ fontSize: 12, color: "#8C7355", margin: 0, lineHeight: 1.5 }}>
+                  <p style={{ fontSize: 12, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
                     Всего {homeworkSummary.totalSent} для {homeworkSummary.clientsWithHomework}{" "}
                     {homeworkSummary.clientsWithHomework === 1 ? "клиента" : "клиентов"}
                     {homeworkSummary.undelivered > 0 && (
@@ -539,16 +539,16 @@ export default function DashboardPage() {
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", gap: 12 }}>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: clientsLoading ? "#D9D2C6" : "#1BAF7A" }}>{clientsLoading ? "—" : clientsByStatus.active}</div>
-                    <div style={{ fontSize: 11, color: "#8C7355" }}>Активных</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: clientsLoading ? "#D9D2C6" : "#157347" }}>{clientsLoading ? "—" : clientsByStatus.active}</div>
+                    <div style={{ fontSize: 11, color: "#6F5A3F" }}>Активных</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: clientsLoading ? "#D9D2C6" : "#F59E0B" }}>{clientsLoading ? "—" : clientsByStatus.pause}</div>
-                    <div style={{ fontSize: 11, color: "#8C7355" }}>На паузе</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: clientsLoading ? "#D9D2C6" : "#92400E" }}>{clientsLoading ? "—" : clientsByStatus.pause}</div>
+                    <div style={{ fontSize: 11, color: "#6F5A3F" }}>На паузе</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#8C7355" }}>{clientsLoading ? "—" : clientsByStatus.completed}</div>
-                    <div style={{ fontSize: 11, color: "#8C7355" }}>Завершено</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#6F5A3F" }}>{clientsLoading ? "—" : clientsByStatus.completed}</div>
+                    <div style={{ fontSize: 11, color: "#6F5A3F" }}>Завершено</div>
                   </div>
                 </div>
               </div>
@@ -575,7 +575,7 @@ export default function DashboardPage() {
             borderBottom: "1px solid #E5DFD5",
             fontSize: 11,
             fontWeight: 700,
-            color: "#8C7355",
+            color: "#6F5A3F",
             textTransform: "uppercase",
             letterSpacing: "0.05em",
             background: "#F5F3EF",
@@ -626,7 +626,7 @@ export default function DashboardPage() {
                     }}>{client.initials}</div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 500, color: "#1C1C1E", transition: "color 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.color = "#2D6A5C"} onMouseLeave={(e) => e.currentTarget.style.color = "#1C1C1E"}>{client.name}</div>
-                      <div style={{ fontSize: 12, color: "#8C7355" }}>{client.request}</div>
+                      <div style={{ fontSize: 12, color: "#6F5A3F" }}>{client.request}</div>
                     </div>
                   </div>
                 </Link>
@@ -643,7 +643,7 @@ export default function DashboardPage() {
                   }}>
                     {client.lastTest ? `${lastTest.name}: ${lastTest.score}` : "Нет данных"}
                   </span>
-                  <div style={{ fontSize: 11, color: "#8C7355", marginTop: 3 }}>
+                  <div style={{ fontSize: 11, color: "#6F5A3F", marginTop: 3 }}>
                     {lastTest.date}
                   </div>
                 </div>
@@ -657,7 +657,7 @@ export default function DashboardPage() {
                       borderRadius: 4,
                     }} />
                   </div>
-                  <div style={{ fontSize: 11, color: "#8C7355", marginTop: 3 }}>
+                  <div style={{ fontSize: 11, color: "#6F5A3F", marginTop: 3 }}>
                     {scorePct}% шкалы
                   </div>
                 </div>
@@ -668,7 +668,7 @@ export default function DashboardPage() {
                 {/* ДЗ */}
                 <span style={{
                   fontSize: 13, fontWeight: 500,
-                  color: hwPct >= 60 ? "#1BAF7A" : "#8C7355",
+                  color: hwPct >= 60 ? "#157347" : "#6F5A3F",
                 }}>
                   {hwCompleted}/{hwTotal}
                 </span>

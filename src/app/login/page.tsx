@@ -24,6 +24,7 @@ function LoginForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
 
   async function handleSubmit() {
@@ -116,7 +117,7 @@ function LoginForm() {
             color: "#1C1C1E", letterSpacing: "0.01em",
           }}>ТОЛК</h1>
           <p style={{
-            fontSize: 12.5, color: "#8C7355",
+            fontSize: 12.5, color: "#6F5A3F",
             marginTop: 4,
           }}>среда для психологов</p>
         </Link>
@@ -144,7 +145,7 @@ function LoginForm() {
                   border: "none",
                   borderRadius: 8,
                   background: mode === tab.id ? "#FFFFFF" : "transparent",
-                  color: mode === tab.id ? "#2D6A5C" : "#8C7355",
+                  color: mode === tab.id ? "#2D6A5C" : "#6F5A3F",
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -192,21 +193,37 @@ function LoginForm() {
               fontFamily: "var(--font-sans)",
             }}
           />
-          <input
-            type="password"
-            placeholder="Пароль"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{
-              padding: "11px 14px",
-              border: "1px solid #E5DFD5",
-              borderRadius: 10,
-              fontSize: 14,
-              outline: "none",
-              color: "#1C1C1E",
-              fontFamily: "var(--font-sans)",
-            }}
-          />
+          <div style={{ position: "relative" }}>
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Пароль"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={{
+                padding: "11px 80px 11px 14px",
+                border: "1px solid #E5DFD5",
+                borderRadius: 10,
+                fontSize: 14,
+                outline: "none",
+                color: "#1C1C1E",
+                fontFamily: "var(--font-sans)",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(v => !v)}
+              aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+              style={{
+                position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 12, fontWeight: 600, color: "#2D6A5C", padding: "4px 6px",
+              }}
+            >
+              {showPassword ? "Скрыть" : "Показать"}
+            </button>
+          </div>
           {mode === "register" && (
             <label style={{
               display: "flex", alignItems: "flex-start", gap: 8,
@@ -224,7 +241,7 @@ function LoginForm() {
           )}
           {error && (
             <p style={{
-              fontSize: 12.5, color: "#EF4444",
+              fontSize: 12.5, color: "#B91C1C",
               background: "#FEE2E2", borderRadius: 8,
               padding: "8px 12px", margin: 0,
             }}>
@@ -254,7 +271,7 @@ function LoginForm() {
 
         <p style={{
           textAlign: "center", marginTop: 20,
-          fontSize: 12, color: "#8C7355",
+          fontSize: 12, color: "#6F5A3F",
         }}>
           {mode === "register"
             ? "После регистрации на почту может прийти письмо для подтверждения"

@@ -137,7 +137,7 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
         </div>
 
         {state.kind === "loading" && (
-          <div style={{ textAlign: "center", padding: "48px 0", color: "#8C7355", fontSize: 13 }}>
+          <div style={{ textAlign: "center", padding: "48px 0", color: "#6F5A3F", fontSize: 13 }}>
             Проверяю ссылку...
           </div>
         )}
@@ -150,7 +150,7 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
               background: "#fff",
               borderRadius: 16,
               border: "1px solid #E5DFD5",
-              color: "#8C7355",
+              color: "#6F5A3F",
               fontSize: 13,
             }}
           >
@@ -180,13 +180,13 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
                   margin: "0 auto 12px",
                 }}
               >
-                <Video size={22} style={{ color: "#1BAF7A" }} />
+                <Video size={22} style={{ color: "#157347" }} />
               </div>
               <p style={{ fontSize: 15, color: "#1C1C1E", margin: 0, fontWeight: 600 }}>
                 {state.psychologistName}
               </p>
               {scheduledLabel && (
-                <p style={{ fontSize: 13, color: "#8C7355", marginTop: 4 }}>{scheduledLabel}</p>
+                <p style={{ fontSize: 13, color: "#6F5A3F", marginTop: 4 }}>{scheduledLabel}</p>
               )}
             </div>
 
@@ -262,9 +262,9 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
                   flexShrink: 0,
                 }}
               >
-                <Check size={16} style={{ color: "#1BAF7A" }} />
+                <Check size={16} style={{ color: "#157347" }} />
               </div>
-              <p style={{ fontSize: 13, color: "#8C7355", margin: 0 }}>
+              <p style={{ fontSize: 13, color: "#6F5A3F", margin: 0 }}>
                 Согласие подтверждено — эта ссылка больше не может быть использована повторно
               </p>
             </div>
@@ -282,7 +282,7 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
             justifyContent: "center",
             gap: 6,
             fontSize: 11,
-            color: "#B8AF9E",
+            color: "#6F5A3F",
             marginTop: 20,
           }}
         >

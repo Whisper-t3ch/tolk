@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkYandexGptEnv, yandexGptEmbed, YandexGptError } from "@/lib/yandexgpt";
+import { ensureKnowledgeSeed } from "@/lib/knowledge/ensureSeed";
 
 // Грубое разбиение на чанки ~500 токенов. Точный подсчёт токенов
 // потребовал бы отдельного токенизатора — используем эвристику
@@ -118,6 +119,9 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
+
+  // Стартовые материалы для новых аккаунтов (если ещё не созданы).
+  await ensureKnowledgeSeed(supabase, user.id);
 
   const { data, error } = await supabase
     .from("knowledge_base")

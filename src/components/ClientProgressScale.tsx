@@ -63,13 +63,13 @@ export default function ClientProgressScale({ clientName, progress }: ProgressSc
           minWidth: 120,
         }}
       >
-        <div style={{ fontSize: 11, color: "#8C7355", fontWeight: 600, marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: "#6F5A3F", fontWeight: 600, marginBottom: 8 }}>
           {label}
         </div>
         <div style={{ fontSize: 32, fontWeight: 800, color, marginBottom: 4 }}>
           {score > 0 ? "+" : ""}{score}
         </div>
-        <div style={{ fontSize: 10, color: "#8C7355" }}>
+        <div style={{ fontSize: 10, color: "#6F5A3F" }}>
           {score >= 4 ? "Значительный прогресс" : score >= 2 ? "Хороший прогресс" : score >= 0 ? "Стабильно" : "Требует внимания"}
         </div>
       </motion.div>
@@ -135,7 +135,7 @@ export default function ClientProgressScale({ clientName, progress }: ProgressSc
               border: "1px solid #F59E0B40",
             }}
           >
-            <AlertCircle size={18} style={{ color: "#F59E0B", flexShrink: 0 }} />
+            <AlertCircle size={18} style={{ color: "#92400E", flexShrink: 0 }} />
             <div style={{ fontSize: 12, color: "#92400E", lineHeight: "1.4" }}>
               <strong>Расхождение в оценках:</strong> Психолог и клиент по-разному видят прогресс. Это хороший повод для обсуждения на сессии.
             </div>
@@ -185,7 +185,7 @@ export default function ClientProgressScale({ clientName, progress }: ProgressSc
               display: "flex",
               justifyContent: "space-between",
               fontSize: 10,
-              color: "#8C7355",
+              color: "#6F5A3F",
               marginTop: 8,
             }}>
               <span>-5 (сильное ухудшение)</span>
@@ -287,8 +287,8 @@ export default function ClientProgressScale({ clientName, progress }: ProgressSc
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
-            <XAxis dataKey="date" stroke="#8C7355" style={{ fontSize: 12 }} />
-            <YAxis domain={[-5, 5]} stroke="#8C7355" style={{ fontSize: 12 }} />
+            <XAxis dataKey="date" stroke="#6F5A3F" style={{ fontSize: 12 }} />
+            <YAxis domain={[-5, 5]} stroke="#6F5A3F" style={{ fontSize: 12 }} />
             <Tooltip
               contentStyle={{
                 background: "#FFFFFF",
@@ -380,20 +380,20 @@ export default function ClientProgressScale({ clientName, progress }: ProgressSc
             >
               <div style={{ fontWeight: 600, color: "#1C1C1E" }}>{item.date}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: "#8C7355" }}>ИИ:</span>
+                <span style={{ color: "#6F5A3F" }}>ИИ:</span>
                 <span style={{ fontWeight: 600, color: "#2D6A5C" }}>
                   {item.aiScore > 0 ? "+" : ""}{item.aiScore}
                 </span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: "#8C7355" }}>Психолог:</span>
-                <span style={{ fontWeight: 600, color: "#1BAF7A" }}>
+                <span style={{ color: "#6F5A3F" }}>Психолог:</span>
+                <span style={{ fontWeight: 600, color: "#157347" }}>
                   {(item.psychologistScore ?? item.aiScore) > 0 ? "+" : ""}{item.psychologistScore ?? item.aiScore}
                 </span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: "#8C7355" }}>Клиент:</span>
-                <span style={{ fontWeight: 600, color: item.clientScore ? "#F59E0B" : "#8C7355" }}>
+                <span style={{ color: "#6F5A3F" }}>Клиент:</span>
+                <span style={{ fontWeight: 600, color: item.clientScore ? "#92400E" : "#6F5A3F" }}>
                   {item.clientScore ? (item.clientScore > 0 ? "+" : "") + item.clientScore : "—"}
                 </span>
               </div>
@@ -407,7 +407,7 @@ export default function ClientProgressScale({ clientName, progress }: ProgressSc
                   borderRadius: 6,
                   fontSize: 10,
                   fontWeight: 600,
-                  color: "#1BAF7A",
+                  color: "#157347",
                 }}>
                   <span>Последняя</span>
                 </div>

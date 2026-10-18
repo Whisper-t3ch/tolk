@@ -163,7 +163,7 @@ export default function BookingSettingsPage() {
   if (loading) {
     return (
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 24px" }}>
-        <p style={{ fontSize: 13, color: "#8C7355" }}>Загружаю настройки...</p>
+        <p style={{ fontSize: 13, color: "#6F5A3F" }}>Загружаю настройки...</p>
       </div>
     );
   }
@@ -182,7 +182,7 @@ export default function BookingSettingsPage() {
       </div>
 
       {error && (
-        <p style={{ fontSize: 12.5, color: "#EF4444", marginBottom: 12 }}>{error}</p>
+        <p style={{ fontSize: 12.5, color: "#B91C1C", marginBottom: 12 }}>{error}</p>
       )}
 
       {/* Переключатель + ссылка */}
@@ -191,7 +191,7 @@ export default function BookingSettingsPage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: isActive ? 16 : 0 }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E" }}>Публичная запись включена</div>
-              <div style={{ fontSize: 12, color: "#8C7355", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 2 }}>
                 {isActive ? "Ссылка активна, клиенты могут бронировать время" : "Страница бронирования отключена"}
               </div>
             </div>
@@ -247,7 +247,7 @@ export default function BookingSettingsPage() {
       <Card className="mb-4">
         <CardContent className="pt-6">
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 6 }}>Часовой пояс</h3>
-          <p style={{ fontSize: 12.5, color: "#8C7355", marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>
+          <p style={{ fontSize: 12.5, color: "#6F5A3F", marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>
             В нём указаны рабочие часы ниже и в нём клиент видит свободное время.
             Если пояс указан неверно, сессия запишется не на то время.
           </p>
@@ -305,7 +305,7 @@ export default function BookingSettingsPage() {
                         onBlur={commitWorkingHours}
                         style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)" }}
                       />
-                      <span style={{ fontSize: 12, color: "#8C7355" }}>—</span>
+                      <span style={{ fontSize: 12, color: "#6F5A3F" }}>—</span>
                       <input
                         type="time"
                         value={window[1]}
@@ -315,7 +315,7 @@ export default function BookingSettingsPage() {
                       />
                     </div>
                   ) : (
-                    <span style={{ fontSize: 12, color: "#8C7355" }}>—</span>
+                    <span style={{ fontSize: 12, color: "#6F5A3F" }}>—</span>
                   )}
                 </div>
               );

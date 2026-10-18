@@ -40,7 +40,7 @@ export default function AssistantPage() {
                 Без привязки к клиенту
               </motion.button>
               {clientsLoading && (
-                <p style={{ fontSize: 12, color: "#8C7355", padding: "10px 12px" }}>Загрузка клиентов…</p>
+                <p style={{ fontSize: 12, color: "#6F5A3F", padding: "10px 12px" }}>Загрузка клиентов…</p>
               )}
               {clients.map((c, i) => (
                 <motion.button
@@ -64,7 +64,7 @@ export default function AssistantPage() {
                 >
                   <div style={{
                     width: 32, height: 32,
-                    background: ["#2D6A5C", "#1BAF7A", "#F59E0B"][i % 3],
+                    background: ["#2D6A5C", "#157347", "#B45309"][i % 3],
                     borderRadius: "50%",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 11, fontWeight: 600, color: "#fff", flexShrink: 0,

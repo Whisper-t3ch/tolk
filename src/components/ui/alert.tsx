@@ -21,19 +21,19 @@ export function Alert({ variant = "info", title, onClose, children, className, .
       bg: "#E6F7F2",
       border: "#1BAF7A",
       text: "#1BAF7A",
-      icon: <CheckCircle style={{ color: "#1BAF7A" }} />,
+      icon: <CheckCircle style={{ color: "#157347" }} />,
     },
     warning: {
       bg: "#FEF3C7",
       border: "#F59E0B",
       text: "#F59E0B",
-      icon: <AlertTriangle style={{ color: "#F59E0B" }} />,
+      icon: <AlertTriangle style={{ color: "#92400E" }} />,
     },
     error: {
       bg: "#FEE2E2",
       border: "#EF4444",
       text: "#EF4444",
-      icon: <AlertCircle style={{ color: "#EF4444" }} />,
+      icon: <AlertCircle style={{ color: "#B91C1C" }} />,
     },
   };
 

@@ -148,12 +148,12 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
             {loading ? "Тест" : title || "Тест"}
           </h1>
           {!loading && instructions && (
-            <p style={{ fontSize: 13, color: "#8C7355", marginTop: 6, lineHeight: 1.5 }}>{instructions}</p>
+            <p style={{ fontSize: 13, color: "#6F5A3F", marginTop: 6, lineHeight: 1.5 }}>{instructions}</p>
           )}
         </div>
 
         {loading && (
-          <div style={{ textAlign: "center", padding: "48px 0", color: "#8C7355", fontSize: 13 }}>
+          <div style={{ textAlign: "center", padding: "48px 0", color: "#6F5A3F", fontSize: 13 }}>
             Загружаю вопросы...
           </div>
         )}
@@ -161,7 +161,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
         {!loading && error && (
           <div style={{
             textAlign: "center", padding: "32px 20px", background: "#fff",
-            borderRadius: 16, border: "1px solid #E5DFD5", color: "#8C7355", fontSize: 13,
+            borderRadius: 16, border: "1px solid #E5DFD5", color: "#6F5A3F", fontSize: 13,
           }}>
             {error}
           </div>
@@ -177,7 +177,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: "0 auto 16px",
             }}>
-              <Check size={24} style={{ color: "#1BAF7A" }} />
+              <Check size={24} style={{ color: "#157347" }} />
             </div>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: "#1C1C1E", marginBottom: 8 }}>
               Этот тест уже пройден
@@ -202,7 +202,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: "0 auto 16px",
             }}>
-              <Check size={24} style={{ color: "#1BAF7A" }} />
+              <Check size={24} style={{ color: "#157347" }} />
             </div>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: "#1C1C1E", marginBottom: 8 }}>
               Спасибо, ответы отправлены
@@ -223,7 +223,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
                     {group.label && (
                       <p style={{ fontSize: 13.5, fontWeight: 700, color: "#1C1C1E", marginBottom: 6 }}>{group.label}</p>
                     )}
-                    <p style={{ fontSize: 12, color: "#8C7355", marginBottom: 12, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", marginBottom: 12, lineHeight: 1.5 }}>
                       Нажимайте на пункты по порядку — от самого важного для вас к наименее важному.
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -249,7 +249,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
                               display: "flex", alignItems: "center", justifyContent: "center",
                               fontSize: 11, fontWeight: 700,
                               background: selected ? "#2D6A5C" : "#E5DFD5",
-                              color: selected ? "#fff" : "#8C7355",
+                              color: selected ? "#fff" : "#6F5A3F",
                             }}>
                               {selected ? rank + 1 : ""}
                             </span>
@@ -284,7 +284,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
                     style={{
                       padding: "10px 18px", borderRadius: 10, border: "none",
                       background: canSubmit ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)" : "#E5DFD5",
-                      color: canSubmit ? "#fff" : "#8C7355",
+                      color: canSubmit ? "#fff" : "#6F5A3F",
                       fontSize: 13.5, fontWeight: 700, cursor: canSubmit ? "pointer" : "default",
                       fontFamily: "var(--font-sans)", whiteSpace: "nowrap",
                       opacity: submitting ? 0.7 : 1,
@@ -296,7 +296,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
               )}
             </AnimatePresence>
             {submitError && (
-              <p style={{ fontSize: 12.5, color: "#EF4444", marginTop: 10, textAlign: "center" }}>{submitError}</p>
+              <p style={{ fontSize: 12.5, color: "#B91C1C", marginTop: 10, textAlign: "center" }}>{submitError}</p>
             )}
           </>
         )}
@@ -364,7 +364,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
                     style={{
                       padding: "10px 18px", borderRadius: 10, border: "none",
                       background: allAnswered ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)" : "#E5DFD5",
-                      color: allAnswered ? "#fff" : "#8C7355",
+                      color: allAnswered ? "#fff" : "#6F5A3F",
                       fontSize: 13.5, fontWeight: 700, cursor: allAnswered ? "pointer" : "default",
                       fontFamily: "var(--font-sans)", whiteSpace: "nowrap",
                       opacity: submitting ? 0.7 : 1,
@@ -376,7 +376,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
               )}
             </AnimatePresence>
             {submitError && (
-              <p style={{ fontSize: 12.5, color: "#EF4444", marginTop: 10, textAlign: "center" }}>{submitError}</p>
+              <p style={{ fontSize: 12.5, color: "#B91C1C", marginTop: 10, textAlign: "center" }}>{submitError}</p>
             )}
           </>
         )}

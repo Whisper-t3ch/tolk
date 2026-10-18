@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useVoiceDictation } from "@/lib/useVoiceDictation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, BookOpen, X } from "lucide-react";
 import { Button, Card, CardContent, Input } from "@/components/ui";
@@ -27,6 +28,7 @@ export default function ReflectionsPage() {
   const [newTitle, setNewTitle] = useState("");
   const [newText, setNewText] = useState("");
   const [saving, setSaving] = useState(false);
+  const voice = useVoiceDictation(text => setNewText(prev => (prev ? `${prev} ${text}` : text)));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,7 +120,7 @@ export default function ReflectionsPage() {
             <Card className="border-2 border-[#2D6A5C]">
               <CardContent className="pt-6">
                 {error && (
-                  <p style={{ fontSize: 12.5, color: "#EF4444", marginBottom: 10 }}>{error}</p>
+                  <p style={{ fontSize: 12.5, color: "#B91C1C", marginBottom: 10 }}>{error}</p>
                 )}
                 <input
                   value={newTitle}
@@ -134,6 +136,24 @@ export default function ReflectionsPage() {
                     boxSizing: "border-box",
                   }}
                 />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  {voice.supported && (
+                    <button
+                      type="button"
+                      onClick={voice.toggle}
+                      disabled={voice.state === "transcribing"}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8,
+                        border: "1px solid #D9D2C5", cursor: "pointer", fontSize: 12.5, fontWeight: 600,
+                        background: voice.state === "recording" ? "#B91C1C" : "#F5F3EF",
+                        color: voice.state === "recording" ? "#FFFFFF" : "#1C1C1E",
+                      }}
+                    >
+                      {voice.state === "recording" ? "■ Остановить запись" : voice.state === "transcribing" ? "Распознаю…" : "🎤 Надиктовать голосом"}
+                    </button>
+                  )}
+                  {voice.error && <span style={{ fontSize: 12, color: "#B91C1C" }}>{voice.error}</span>}
+                </div>
                 <textarea
                   value={newText}
                   onChange={e => setNewText(e.target.value)}
@@ -166,9 +186,9 @@ export default function ReflectionsPage() {
 
       {/* Список записей */}
       {loading ? (
-        <p style={{ fontSize: 13, color: "#8C7355" }}>Загружаю записи...</p>
+        <p style={{ fontSize: 13, color: "#6F5A3F" }}>Загружаю записи...</p>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "#8C7355" }}>
+        <div style={{ textAlign: "center", padding: "48px 0", color: "#6F5A3F" }}>
           <BookOpen size={28} style={{ marginBottom: 10, opacity: 0.5 }} />
           <p style={{ fontSize: 13 }}>
             {entries.length === 0 ? "Записей пока нет — начните вести дневник" : "Ничего не найдено"}
@@ -200,12 +220,12 @@ export default function ReflectionsPage() {
                           {entry.content.length > 140 ? entry.content.slice(0, 140) + "..." : entry.content}
                         </p>
                         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 11, color: "#8C7355" }}>
+                          <span style={{ fontSize: 11, color: "#6F5A3F" }}>
                             {formatDate(entry.created_at)}
                           </span>
                           {entry.clients?.name && (
                             <span style={{
-                              fontSize: 11, color: "#1BAF7A",
+                              fontSize: 11, color: "#157347",
                               background: "#E6F7F2",
                               padding: "2px 8px",
                               borderRadius: 4,
@@ -249,7 +269,7 @@ export default function ReflectionsPage() {
                                 }}
                                 style={{
                                   marginTop: 10, background: "none", border: "none",
-                                  color: "#EF4444", fontSize: 12, cursor: "pointer",
+                                  color: "#B91C1C", fontSize: 12, cursor: "pointer",
                                   display: "flex", alignItems: "center", gap: 4, padding: 0,
                                 }}
                               >

@@ -7,6 +7,7 @@ import {
   ExternalLink, Sun, CalendarClock,
 } from "lucide-react";
 import { useProfile } from "@/lib/ProfileContext";
+import PlanPickerModal from "@/components/PlanPickerModal";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
 
 // Заявки на опасные действия (удаление аккаунта и т.п.) пока обрабатываются
@@ -25,9 +26,9 @@ const SECTIONS = [
 type SectionId = typeof SECTIONS[number]["id"];
 
 export default function SettingsPage() {
-  const { profile } = useProfile();
+  const { profile, refresh: refreshProfile } = useProfile();
   const [activeSection, setActiveSection] = useState<SectionId>("notifications");
-  const [extraCredits, setExtraCredits] = useState(0);
+  const [showPlanPicker, setShowPlanPicker] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -38,6 +39,7 @@ export default function SettingsPage() {
     used: number;
     limit: number;
     remaining: number;
+    extra?: number;
     planName: string;
     planLabel: string;
   }
@@ -161,7 +163,8 @@ export default function SettingsPage() {
   };
 
   const requestsUsed = limitInfo?.used ?? profile?.plan.assistantRequests.used ?? 0;
-  const totalRequests = (limitInfo?.limit ?? profile?.plan.assistantRequests.total ?? 1) + extraCredits;
+  const extraCredits = limitInfo?.extra ?? profile?.plan.extra ?? 0;
+  const totalRequests = limitInfo?.limit ?? profile?.plan.assistantRequests.total ?? 1;
   const creditPct = totalRequests > 0 ? Math.round((requestsUsed / totalRequests) * 100) : 0;
   const requestsRemaining = Math.max(0, totalRequests - requestsUsed);
   const planLabel = limitInfo?.planLabel ?? profile?.plan.name ?? "—";
@@ -171,13 +174,37 @@ export default function SettingsPage() {
     setTimeout(() => setNotification(null), 2500);
   };
 
-  function buyCredits() {
-    setExtraCredits(prev => prev + 100);
-    notify("Добавлено 100 запросов к лимиту тарифа");
+  async function reloadLimit() {
+    const data = await fetch("/api/assistant/limit").then(r => r.json()).catch(() => null);
+    if (data && !data.error) setLimitInfo(data);
+    await refreshProfile();
+  }
+
+  async function buyCredits() {
+    try {
+      const res = await fetch("/api/assistant/credits", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Не удалось начислить запросы");
+      notify("Добавлено 100 запросов к лимиту");
+      await reloadLimit();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Не удалось начислить запросы");
+    }
   }
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 24px" }}>
+      {showPlanPicker && (
+        <PlanPickerModal
+          currentKey={limitInfo?.planName ?? profile?.plan.key ?? ""}
+          onClose={() => setShowPlanPicker(false)}
+          onChanged={async label => {
+            setShowPlanPicker(false);
+            notify(`Тариф изменён: «${label}»`);
+            await reloadLimit();
+          }}
+        />
+      )}
       <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E", marginBottom: 20 }}>Настройки</h1>
 
       <div style={{ display: "flex", gap: 24 }}>
@@ -211,7 +238,7 @@ export default function SettingsPage() {
                 display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
                 borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
                 background: activeSection === id ? "#E8F2EF" : "transparent",
-                color: activeSection === id ? "#2D6A5C" : id === "danger" ? "#EF4444" : "#6B6058",
+                color: activeSection === id ? "#2D6A5C" : id === "danger" ? "#B91C1C" : "#6B6058",
                 fontSize: 13, fontWeight: activeSection === id ? 700 : 600,
                 fontFamily: "var(--font-sans)",
               }}
@@ -241,7 +268,7 @@ export default function SettingsPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Уведомления</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>
+                    <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 20 }}>
                       Настройка уведомлений (email/push) появится в одном из ближайших обновлений. Пока в приложении доступны:
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -257,7 +284,7 @@ export default function SettingsPage() {
                         }}>
                           <div>
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{item.label}</div>
-                            <div style={{ fontSize: 12, color: "#8C7355" }}>{item.desc}</div>
+                            <div style={{ fontSize: 12, color: "#6F5A3F" }}>{item.desc}</div>
                           </div>
                           <Badge variant="muted">Скоро</Badge>
                         </div>
@@ -271,10 +298,10 @@ export default function SettingsPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Интеграции</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Подключите каналы связи с клиентами — сообщения и домашние задания будут приходить прямо в мессенджер</p>
+                    <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 20 }}>Подключите каналы связи с клиентами — сообщения и домашние задания будут приходить прямо в мессенджер</p>
 
                     {integrationsLoading ? (
-                      <p style={{ fontSize: 13, color: "#8C7355" }}>Загрузка…</p>
+                      <p style={{ fontSize: 13, color: "#6F5A3F" }}>Загрузка…</p>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                         {/* Telegram */}
@@ -286,7 +313,7 @@ export default function SettingsPage() {
                                 {telegramIntegration?.status === "connected" && <Badge variant="success">Подключено</Badge>}
                                 {telegramIntegration?.status === "error" && <Badge variant="danger">Ошибка</Badge>}
                               </div>
-                              <div style={{ fontSize: 12, color: "#8C7355", marginTop: 2 }}>
+                              <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 2 }}>
                                 {telegramIntegration?.status === "connected"
                                   ? `@${telegramIntegration.bot_username}`
                                   : telegramIntegration?.status === "error"
@@ -391,7 +418,7 @@ export default function SettingsPage() {
                                 {vkIntegration?.status === "connected" && <Badge variant="success">Подключено</Badge>}
                                 {vkIntegration?.status === "error" && <Badge variant="danger">Ошибка</Badge>}
                               </div>
-                              <div style={{ fontSize: 12, color: "#8C7355", marginTop: 2 }}>
+                              <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 2 }}>
                                 {vkIntegration?.status === "connected"
                                   ? vkIntegration.bot_username
                                   : vkIntegration?.status === "error"
@@ -410,7 +437,7 @@ export default function SettingsPage() {
 
                           {showVkForm && vkIntegration?.status !== "connected" && (
                             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5DFD5" }}>
-                              <p style={{ fontSize: 12, color: "#8C7355", lineHeight: 1.6, marginBottom: 12 }}>
+                              <p style={{ fontSize: 12, color: "#6F5A3F", lineHeight: 1.6, marginBottom: 12 }}>
                                 Нужно собственное сообщество ВКонтакте (если ещё нет — создайте на vk.com/groups → «Создать сообщество»).
                               </p>
                               <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
@@ -509,21 +536,21 @@ export default function SettingsPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Тариф «{planLabel}»</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>
+                    <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 20 }}>
                       Бета-тестирование — тариф и оплата пока не подключены
                     </p>
 
                     {limitLoading ? (
-                      <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 12 }}>Загрузка…</p>
+                      <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 12 }}>Загрузка…</p>
                     ) : (
                       <>
                         <div style={{ padding: 12, background: "#F5F3EF", borderRadius: 8, marginBottom: 8 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12 }}>
                             <span style={{ color: "#6B6058" }}>
                               Запросы к ассистенту: {requestsUsed} / {totalRequests}
-                              {extraCredits > 0 && <span style={{ color: "#1BAF7A" }}> (+{extraCredits})</span>}
+                              {extraCredits > 0 && <span style={{ color: "#157347" }}> (+{extraCredits})</span>}
                             </span>
-                            <span style={{ color: requestsRemaining === 0 ? "#EF4444" : "#2D6A5C", fontWeight: 600 }}>{creditPct}%</span>
+                            <span style={{ color: requestsRemaining === 0 ? "#B91C1C" : "#2D6A5C", fontWeight: 600 }}>{creditPct}%</span>
                           </div>
                           <div style={{ height: 6, background: "rgba(79,126,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
                             <div style={{
@@ -551,7 +578,7 @@ export default function SettingsPage() {
                       <Button onClick={buyCredits} variant={requestsRemaining === 0 ? "primary" : "secondary"} className="w-full">
                         Докупить +100 за 99 ₽
                       </Button>
-                      <Button onClick={() => notify("Список тарифов скоро будет доступен здесь")} variant="secondary" className="w-full">
+                      <Button onClick={() => setShowPlanPicker(true)} variant="secondary" className="w-full">
                         Сменить тариф
                       </Button>
                     </div>
@@ -563,7 +590,7 @@ export default function SettingsPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Внешний вид</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Тема интерфейса приложения</p>
+                    <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 20 }}>Тема интерфейса приложения</p>
                     <div style={{
                       display: "flex", alignItems: "center", gap: 10,
                       padding: "14px 16px", border: "2px solid #2D6A5C", borderRadius: 10,
@@ -572,7 +599,7 @@ export default function SettingsPage() {
                       <Sun size={20} style={{ color: "#2D6A5C" }} />
                       <span style={{ fontSize: 13, fontWeight: 600, color: "#2D6A5C" }}>Светлая</span>
                     </div>
-                    <p style={{ fontSize: 12, color: "#8C7355", marginTop: 10 }}>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", marginTop: 10 }}>
                       Тёмная тема и тема «как в системе» появятся в одном из ближайших обновлений.
                     </p>
                   </CardContent>
@@ -583,7 +610,7 @@ export default function SettingsPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Конфиденциальность</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Как хранятся и защищаются данные ваших клиентов</p>
+                    <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 20 }}>Как хранятся и защищаются данные ваших клиентов</p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       {[
                         { title: "Серверы в РФ", desc: "Все данные клиентов хранятся на серверах, физически расположенных в России" },
@@ -591,7 +618,7 @@ export default function SettingsPage() {
                         { title: "Шифрование", desc: "Данные передаются и хранятся в зашифрованном виде" },
                       ].map((item, i) => (
                         <div key={i} style={{ display: "flex", gap: 10, padding: "12px 14px", background: "#F5F3EF", borderRadius: 10 }}>
-                          <ShieldCheck size={16} style={{ color: "#1BAF7A", flexShrink: 0, marginTop: 1 }} />
+                          <ShieldCheck size={16} style={{ color: "#157347", flexShrink: 0, marginTop: 1 }} />
                           <div>
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{item.title}</div>
                             <div style={{ fontSize: 12, color: "#6B6058", marginTop: 2 }}>{item.desc}</div>
@@ -612,8 +639,8 @@ export default function SettingsPage() {
               {activeSection === "danger" && (
                 <Card>
                   <CardContent className="pt-6">
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: "#EF4444", marginBottom: 4 }}>Опасные действия</h3>
-                    <p style={{ fontSize: 13, color: "#8C7355", marginBottom: 20 }}>Эти действия необратимы</p>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, color: "#B91C1C", marginBottom: 4 }}>Опасные действия</h3>
+                    <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 20 }}>Эти действия необратимы</p>
                     <Button onClick={() => setShowDeleteConfirm(true)} variant="danger" className="w-full">
                       Удалить аккаунт
                     </Button>
@@ -642,7 +669,7 @@ export default function SettingsPage() {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <AlertTriangle size={20} style={{ color: "#EF4444" }} />
+                <AlertTriangle size={20} style={{ color: "#B91C1C" }} />
                 <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Удалить аккаунт?</h3>
               </div>
               <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.5, marginBottom: 16 }}>

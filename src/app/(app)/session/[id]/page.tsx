@@ -65,6 +65,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
+  const secondsRef = useRef(0);
+  useEffect(() => { secondsRef.current = seconds; }, [seconds]);
   const [callConnected, setCallConnected] = useState(false);
   const [notes, setNotes] = useState("");
   const [ending, setEnding] = useState(false);
@@ -146,6 +148,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       // Не блокируем завершение сессии из-за сбоя в записи — психолог
       // не должен застрять на экране звонка из-за проблем с выгрузкой.
     }
+    // Фактическая длительность вместо планового значения (50 минут).
+    try {
+      await fetch(`/api/sessions/${sessionId}/duration`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ elapsedSeconds: secondsRef.current }),
+      });
+    } catch {
+      // не блокируем завершение из-за этого
+    }
     await saveNotes(notesRef.current);
     setTimeout(() => router.push(`/session/${sessionId}/soap`), 600);
   }
@@ -153,7 +165,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   if (loading) {
     return (
       <div style={{ display: "flex", height: "calc(100vh - 120px)", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "#8C7355", fontSize: 14 }}>Загружаю сессию...</p>
+        <p style={{ color: "#6F5A3F", fontSize: 14 }}>Загружаю сессию...</p>
       </div>
     );
   }
@@ -162,7 +174,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     return (
       <div style={{ display: "flex", height: "calc(100vh - 120px)", alignItems: "center", justifyContent: "center" }}>
         <div style={{ textAlign: "center" }}>
-          <AlertTriangle size={32} style={{ color: "#EF4444", marginBottom: 12 }} />
+          <AlertTriangle size={32} style={{ color: "#B91C1C", marginBottom: 12 }} />
           <p style={{ color: "#6B6058", fontSize: 14 }}>{loadError ?? "Сессия не найдена"}</p>
         </div>
       </div>
@@ -179,7 +191,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     return (
       <div style={{ display: "flex", height: "calc(100vh - 120px)", alignItems: "center", justifyContent: "center" }}>
         <div style={{ textAlign: "center", maxWidth: 420 }}>
-          <AlertTriangle size={32} style={{ color: "#F59E0B", marginBottom: 12 }} />
+          <AlertTriangle size={32} style={{ color: "#92400E", marginBottom: 12 }} />
           <p style={{ color: "#6B6058", fontSize: 14 }}>
             Ведутся технические работы с видеозвонками и записью консультаций.
             Пожалуйста, начните звонок позже — мы сообщим о завершении работ.
@@ -241,7 +253,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             {ending && (
               <p style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                fontSize: 12, color: "#8C7355", marginTop: 10,
+                fontSize: 12, color: "#6F5A3F", marginTop: 10,
               }}>
                 <Loader2 size={13} className="animate-spin" />
                 Завершаем запись и загружаем фрагменты…

@@ -50,7 +50,7 @@ interface LogoProps {
   taglineColor?: string;
 }
 
-export function Logo({ size = 34, showTagline = false, tagline = "Ассистент психолога", textColor = "#1C1C1E", taglineColor = "#8C7355" }: LogoProps) {
+export function Logo({ size = 34, showTagline = false, tagline = "Ассистент психолога", textColor = "#1C1C1E", taglineColor = "#6F5A3F" }: LogoProps) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       <LogoMark size={size} />

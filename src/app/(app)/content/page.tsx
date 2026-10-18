@@ -166,7 +166,7 @@ export default function ContentPage() {
           </div>
 
           {error && (
-            <p style={{ fontSize: 12.5, color: "#EF4444", marginBottom: 12 }}>{error}</p>
+            <p style={{ fontSize: 12.5, color: "#B91C1C", marginBottom: 12 }}>{error}</p>
           )}
 
           {/* Кнопка генерации */}
