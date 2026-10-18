@@ -31,7 +31,8 @@ const PUBLIC_PATHS = ["/", "/login", "/api/health"];
 // 307 на /login и до обработчика запрос не доходил. Авторизация — не
 // сессией, а CRON_SECRET в самом обработчике (checkAuth): пока секрет не
 // задан, любой запрос получает 401.
-const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/join/", "/api/public/", "/api/join/", "/api/webhooks/", "/api/jobs/"];
+// /api/admin/* — служебные выгрузки владельца; авторизация внутри обработчика (Bearer SUPPORT_ADMIN_TOKEN или email из SUPPORT_ADMIN_EMAILS).
+const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/join/", "/api/public/", "/api/join/", "/api/webhooks/", "/api/jobs/", "/api/admin/"];
 
 /**
  * Middleware выполняется на каждый запрос: обновляет сессию Supabase
