@@ -30,3 +30,8 @@ DROP POLICY IF EXISTS support_tickets_owner_insert ON support_tickets;
 CREATE POLICY support_tickets_owner_insert ON support_tickets
   FOR INSERT WITH CHECK (psychologist_id = auth.uid());
 CREATE INDEX IF NOT EXISTS support_tickets_created_idx ON support_tickets (created_at DESC);
+
+-- Права для PostgREST (self-hosted Supabase) и перечитывание схемы
+GRANT SELECT, INSERT ON support_tickets TO authenticated;
+GRANT ALL ON support_tickets TO service_role;
+NOTIFY pgrst, 'reload schema';
