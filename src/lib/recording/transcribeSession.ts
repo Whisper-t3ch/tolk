@@ -53,10 +53,35 @@ export function mergeTrackResults(tracks: Partial<Record<Track, AsrTrackResult>>
       merged.push({ speaker: track, startMs: segment.startMs, endMs: segment.endMs, text: segment.text });
     }
   }
-  return merged
+  const sorted = merged
     .map((segment, originalIndex) => ({ segment, originalIndex }))
     .sort((a, b) => (a.segment.startMs !== b.segment.startMs ? a.segment.startMs - b.segment.startMs : a.originalIndex - b.originalIndex))
     .map(({ segment }) => segment);
+  return tidySegments(sorted);
+}
+
+/** Пауза между репликами одного говорящего, при которой они склеиваются в одну (мс). */
+const SAME_SPEAKER_MERGE_GAP_MS = 2000;
+
+/**
+ * Причёсывает сегменты после сведения дорожек: убирает одно-буквенный шум VAD («а.», «Д.») и
+ * склеивает подряд идущие реплики одного говорящего с короткой паузой. Читаемее для психолога и
+ * для SOAP, и меньше запросов на обезличивание. Реплики разных говорящих не трогаются.
+ */
+export function tidySegments(segments: MergedSegment[]): MergedSegment[] {
+  const out: MergedSegment[] = [];
+  for (const seg of segments) {
+    const letters = seg.text.replace(/[^\p{L}\p{N}]/gu, "");
+    if (letters.length < 2) continue;
+    const prev = out[out.length - 1];
+    if (prev && prev.speaker === seg.speaker && seg.startMs - prev.endMs <= SAME_SPEAKER_MERGE_GAP_MS) {
+      prev.text = `${prev.text} ${seg.text}`.trim();
+      prev.endMs = Math.max(prev.endMs, seg.endMs);
+    } else {
+      out.push({ ...seg });
+    }
+  }
+  return out;
 }
 
 async function fetchClientName(supabase: SupabaseClient, sessionId: string): Promise<string> {

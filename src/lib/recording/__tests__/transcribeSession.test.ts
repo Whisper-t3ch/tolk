@@ -59,6 +59,42 @@ describe("mergeTrackResults", () => {
   });
 });
 
+describe("tidySegments (через mergeTrackResults)", () => {
+  it("убирает односимвольный шум и склеивает близкие реплики одного говорящего", () => {
+    const merged = mergeTrackResults({
+      psychologist: {
+        text: "",
+        durationSeconds: null,
+        segments: [
+          { startMs: 0, endMs: 1000, text: "Если будет мат," },
+          { startMs: 1500, endMs: 2500, text: "не будет транскрипта." },
+          { startMs: 2600, endMs: 2800, text: "Д." },
+          { startMs: 9000, endMs: 10000, text: "Потом вернёмся." },
+        ],
+      },
+      client: {
+        text: "",
+        durationSeconds: null,
+        segments: [{ startMs: 3000, endMs: 4000, text: "Понятно." }],
+      },
+    });
+    expect(merged.map(s => `${s.speaker}:${s.text}`)).toEqual([
+      "psychologist:Если будет мат, не будет транскрипта.",
+      "client:Понятно.",
+      "psychologist:Потом вернёмся.",
+    ]);
+    expect(merged[0].endMs).toBe(2500);
+  });
+
+  it("реплики разных говорящих не склеиваются даже без паузы", () => {
+    const merged = mergeTrackResults({
+      psychologist: { text: "", durationSeconds: null, segments: [{ startMs: 0, endMs: 1000, text: "Привет" }] },
+      client: { text: "", durationSeconds: null, segments: [{ startMs: 1000, endMs: 2000, text: "Здравствуйте" }] },
+    });
+    expect(merged).toHaveLength(2);
+  });
+});
+
 function makeSupabaseMock(opts?: { segmentsInsertError?: string }) {
   const inserted: { transcripts: any[]; segments: any[] } = { transcripts: [], segments: [] };
   const client = {
