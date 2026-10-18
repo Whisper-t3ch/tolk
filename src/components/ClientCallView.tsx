@@ -197,6 +197,7 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
                 borderRadius: 8,
                 border: "2px solid rgba(255,255,255,0.3)",
                 display: camMuted ? "none" : "block",
+                transform: "scaleX(-1)", // своё превью зеркальное, как в зеркале; собеседник показывается без отражения
                 zIndex: 2,
               }}
             />
