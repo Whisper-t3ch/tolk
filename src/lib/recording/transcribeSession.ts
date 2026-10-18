@@ -26,7 +26,7 @@
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { anonymizeTranscripts, AnonymizationError } from "@/lib/anonymize";
+import { anonymizeTranscriptsTolerant, AnonymizationError } from "@/lib/anonymize";
 import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 import { ASSEMBLY_TRACKS, type SessionAssemblyOk, type Track } from "./attemptAssembly";
 import type { AsrAdapter, AsrTrackResult } from "./asrAdapter";
@@ -116,8 +116,11 @@ export async function transcribeAssembledSession(
   // Fail-closed: если анонимизация не удалась, сырой текст не сохраняется и не идёт
   // дальше (ни в БД, ни в SOAP). Аудио остаётся, задача получает manual_review_required.
   let anonymizedTexts: string[];
+  let moderatedFragments = 0;
   try {
-    anonymizedTexts = await anonymizeTranscripts(merged.map(s => s.text), clientName);
+    const anon = await anonymizeTranscriptsTolerant(merged.map(s => s.text), clientName);
+    anonymizedTexts = anon.texts;
+    moderatedFragments = anon.moderatedFragments;
   } catch (e) {
     if (e instanceof AnonymizationError) {
       return { kind: "manual_review_required", reason: `anonymization_${e.reason}: ${e.technical}` };
@@ -172,6 +175,6 @@ export async function transcribeAssembledSession(
 
   return {
     kind: "completed",
-    result: { transcriptId: transcriptRow.id, segments: segmentRows.length, chunksTotal, chunksEmbedded },
+    result: { transcriptId: transcriptRow.id, segments: segmentRows.length, chunksTotal, chunksEmbedded, moderatedFragments },
   };
 }

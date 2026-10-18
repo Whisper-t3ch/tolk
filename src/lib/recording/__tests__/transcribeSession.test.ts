@@ -8,13 +8,13 @@ import type { SessionAssemblyOk } from "../attemptAssembly";
 // попытался бы делать реальные HTTP-запросы.
 vi.mock("@/lib/anonymize", async importOriginal => ({
   ...(await importOriginal<typeof import("@/lib/anonymize")>()),
-  anonymizeTranscripts: vi.fn(async (texts: string[]) => texts.map(t => `ANON(${t})`)),
+  anonymizeTranscriptsTolerant: vi.fn(async (texts: string[]) => ({ texts: texts.map(t => `ANON(${t})`), moderatedFragments: 0 })),
 }));
 vi.mock("@/lib/transcriptChunking", () => ({
   chunkAndEmbedTranscript: vi.fn(async () => ({ chunksTotal: 2, chunksEmbedded: 2 })),
 }));
 
-import { anonymizeTranscripts, AnonymizationError } from "@/lib/anonymize";
+import { anonymizeTranscriptsTolerant, AnonymizationError } from "@/lib/anonymize";
 import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 
 const SESSION_ID = "33333333-3333-3333-3333-333333333333";
@@ -136,7 +136,7 @@ describe("transcribeAssembledSession", () => {
     const outcome = await transcribeAssembledSession(client, { sessionId: SESSION_ID, assembly, adapter });
 
     expect(outcome.kind).toBe("completed");
-    expect(anonymizeTranscripts).toHaveBeenCalledWith(["Как дела?", "Нормально"], "Анна");
+    expect(anonymizeTranscriptsTolerant).toHaveBeenCalledWith(["Как дела?", "Нормально"], "Анна");
     expect(inserted.transcripts[0].raw_text).toBe("Психолог: ANON(Как дела?)\n\nКлиент: ANON(Нормально)");
     expect(inserted.transcripts[0].source).toBe("jitsi_browser");
     expect(inserted.segments).toEqual([
@@ -209,14 +209,14 @@ describe("transcribeAssembledSession", () => {
       psychologist: { text: "", durationSeconds: 10, segments: [{ startMs: 0, endMs: 2000, text: "СЕКРЕТНЫЙ_ТЕКСТ_ПСИХОЛОГА" }] },
       client: { text: "", durationSeconds: 8, segments: [{ startMs: 2000, endMs: 4000, text: "СЕКРЕТНЫЙ_ТЕКСТ_КЛИЕНТА" }] },
     });
-    vi.mocked(anonymizeTranscripts).mockRejectedValueOnce(new AnonymizationError("moderation_rejected", "YandexGPT отклонил запрос модерацией"));
+    vi.mocked(anonymizeTranscriptsTolerant).mockRejectedValueOnce(new AnonymizationError("moderation_rejected", "модерация LLM отклонила запрос"));
     vi.mocked(chunkAndEmbedTranscript).mockClear();
 
     const outcome = await transcribeAssembledSession(client, { sessionId: SESSION_ID, assembly, adapter });
 
     expect(outcome.kind).toBe("manual_review_required");
     if (outcome.kind === "manual_review_required") {
-      expect(outcome.reason).toBe("anonymization_moderation_rejected: YandexGPT отклонил запрос модерацией");
+      expect(outcome.reason).toBe("anonymization_moderation_rejected: модерация LLM отклонила запрос");
       expect(outcome.reason).not.toContain("СЕКРЕТНЫЙ");
     }
     expect(inserted.transcripts).toEqual([]);
@@ -228,7 +228,7 @@ describe("transcribeAssembledSession", () => {
     const { client, inserted } = makeSupabaseMock();
     const assembly = makeAssembly("audio-p");
     const adapter = makeAdapter({ psychologist: { text: "", durationSeconds: 1, segments: [{ startMs: 0, endMs: 1000, text: "Привет" }] } });
-    vi.mocked(anonymizeTranscripts).mockRejectedValueOnce(new TypeError("boom: Привет"));
+    vi.mocked(anonymizeTranscriptsTolerant).mockRejectedValueOnce(new TypeError("boom: Привет"));
 
     const outcome = await transcribeAssembledSession(client, { sessionId: SESSION_ID, assembly, adapter });
 

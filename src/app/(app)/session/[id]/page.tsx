@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { PhoneOff, Clock, AlertTriangle, Loader2 } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
 import JitsiCallView, { type JitsiCallViewHandle } from "@/components/JitsiCallView";
+import InviteClientPanel from "@/components/InviteClientPanel";
 import { buildJitsiRoomName } from "@/lib/jitsi";
 
 // ============================================================
@@ -220,6 +221,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           {/* Контролы mic/cam — внутри JitsiCallView; здесь остаётся
               только явное завершение сессии. */}
           <CardContent className="pb-4 pt-4">
+            <InviteClientPanel sessionId={sessionId} autoSend={callConnected} />
             <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
               <Button
                 onClick={handleEnd}

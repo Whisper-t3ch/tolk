@@ -67,7 +67,7 @@ const ANONYMIZE_SYSTEM_PROMPT = `Ты помогаешь анонимизиро�
  * текст сессии.
  */
 export type AnonymizationFailureReason =
-  | "moderation_rejected" // YandexGPT отклонил запрос модерацией (400)
+  | "moderation_rejected" // модерация LLM отклонила запрос (400 / отказ в тексте)
   | "llm_error" // сеть/5xx/429 после повторных попыток, не настроен ключ
   | "invalid_response" // ответ не JSON или не соответствует схеме замен
   | "empty_result" // после замен непустой вход превратился в пустой текст
@@ -282,7 +282,7 @@ export async function anonymizeTranscript(
       break;
     } catch (e) {
       if (isModerationRefusal(e)) {
-        throw new AnonymizationError("moderation_rejected", "YandexGPT отклонил запрос модерацией");
+        throw new AnonymizationError("moderation_rejected", "модерация LLM отклонила запрос");
       }
       if (e instanceof YandexGptError && e.message.startsWith("Не удалось разобрать JSON")) {
         // Ответ пришёл, но не JSON — повтор может помочь (temperature>0 не гарантирует), но ограничиваем теми же попытками.
@@ -348,6 +348,66 @@ export async function anonymizeTranscript(
   }
 
   return anonymized;
+}
+
+/** Заглушка на месте предложения, которое модерация LLM не пропустила. Сырой текст нигде не сохраняется. */
+export const MODERATION_PLACEHOLDER = "[фрагмент скрыт: не прошёл проверку модерации]";
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?…])\s+/u)
+    .map(x => x.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Анонимизация одного сегмента, устойчивая к отказу модерации: если сегмент целиком отклонён,
+ * обезличиваем его по предложениям, а отклонённое предложение заменяем заглушкой. Остальные
+ * ошибки (сеть, невалидный ответ, подозрительный результат) по-прежнему fail-closed.
+ */
+async function anonymizeSegmentTolerant(
+  text: string,
+  clientName: string,
+  options: AnonymizeOptions
+): Promise<{ text: string; moderated: number }> {
+  try {
+    return { text: await anonymizeTranscript(text, clientName, options), moderated: 0 };
+  } catch (e) {
+    if (!(e instanceof AnonymizationError) || e.reason !== "moderation_rejected") throw e;
+  }
+  const sentences = splitSentences(text);
+  if (sentences.length <= 1) return { text: MODERATION_PLACEHOLDER, moderated: 1 };
+  const parts: string[] = [];
+  let moderated = 0;
+  for (const sentence of sentences) {
+    try {
+      parts.push(await anonymizeTranscript(sentence, clientName, options));
+    } catch (e) {
+      if (e instanceof AnonymizationError && e.reason === "moderation_rejected") {
+        parts.push(MODERATION_PLACEHOLDER);
+        moderated++;
+      } else {
+        throw e;
+      }
+    }
+  }
+  return { text: parts.join(" "), moderated };
+}
+
+/**
+ * Анонимизирует сегменты транскрипта (параллельно). Отказ модерации на отдельном сегменте или
+ * предложении не роняет всё задание: проблемный кусок заменяется заглушкой, число таких кусков
+ * возвращается для пометки «нужна проверка психологом». В лог попадает только число.
+ */
+export async function anonymizeTranscriptsTolerant(
+  texts: string[],
+  clientName: string,
+  options: AnonymizeOptions = {}
+): Promise<{ texts: string[]; moderatedFragments: number }> {
+  const results = await Promise.all(texts.map(text => anonymizeSegmentTolerant(text, clientName, options)));
+  const moderatedFragments = results.reduce((sum, r) => sum + r.moderated, 0);
+  if (moderatedFragments > 0) console.log("ANON_MODERATED", JSON.stringify({ fragments: moderatedFragments, segments: texts.length }));
+  return { texts: results.map(r => r.text), moderatedFragments };
 }
 
 /**

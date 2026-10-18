@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createSessionInvite, DEFAULT_INVITE_TTL_MINUTES } from "@/lib/invites/sessionInvites";
+import { deliverInviteToClientChat, type InviteDelivery } from "@/lib/invites/deliverInvite";
 
 // POST /api/sessions/[id]/invite — Этап 3.7, психолог создаёт
 // одноразовую ссылку для клиента на эту сессию. Владение сессией
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
-    .select("id")
+    .select("id, client_id")
     .eq("id", sessionId)
     .eq("psychologist_id", user.id)
     .maybeSingle();
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Сессия не найдена" }, { status: 404 });
   }
 
-  let body: { ttlMinutes?: number } = {};
+  let body: { ttlMinutes?: number; send?: boolean; resend?: boolean } = {};
   try {
     body = await request.json();
   } catch {
@@ -53,10 +54,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
+  const url = `${appUrl}/join/${result.rawToken}`;
+
+  // Автоотправка ссылки в чат клиента (Telegram/VK), если он привязан. Без привязки ссылка
+  // остаётся в ответе: интерфейс показывает её с кнопкой «Скопировать». Повторная автоотправка
+  // по той же сессии подавляется (resend:true — отправить ещё раз по явной кнопке психолога).
+  let delivery: InviteDelivery = { status: "no_channel" };
+  if (body.send !== false && session.client_id) {
+    const hours = Math.round((Number(ttlMinutes) / 60) * 10) / 10;
+    delivery = await deliverInviteToClientChat(supabase, {
+      psychologistId: user.id,
+      clientId: session.client_id as string,
+      sessionId,
+      text: `Здравствуйте! Ссылка на видеосессию: ${url} (действует ${hours} ч., открывайте с устройства, где есть камера и микрофон).`,
+      dedupeMinutes: body.resend ? 0 : Number(ttlMinutes),
+    });
+    console.log("SESSION_INVITE_DELIVERY", JSON.stringify({ status: delivery.status }));
+  }
+
   return NextResponse.json({
     ok: true,
     token: result.rawToken,
-    url: `${appUrl}/join/${result.rawToken}`,
+    url,
     expiresAt: result.invite.expires_at,
+    delivery,
   });
 }
