@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { attachmentDisposition } from "@/lib/http/contentDisposition";
 
 // GET /api/clients/[id]/export/transcripts?session_ids=uuid1,uuid2
 // Выгружает транскрипты сессий клиента в один .txt файл, отсортированные
@@ -106,7 +107,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": attachmentDisposition(filename),
     },
   });
 }
