@@ -507,11 +507,9 @@ function JitsiCallView(
           >
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: recordingLabel.color }} />
             {recordingLabel.text}
-            {chunkStats.count > 0 && (
-              <span style={{ color: "rgba(255,255,255,0.6)" }}>
-                &middot; {chunkStats.count} фрагм. &middot; {(chunkStats.bytes / 1024).toFixed(0)} КБ
-                {chunkStats.failed > 0 && <> &middot; <span style={{ color: "#EF4444" }}>{chunkStats.failed} не выгружено</span></>}
-              </span>
+            {/* Технические счётчики (фрагменты, КБ) психологу не нужны; показываем только проблему выгрузки. */}
+            {chunkStats.failed > 0 && (
+              <span style={{ color: "#EF4444" }}>&middot; {chunkStats.failed} не выгружено</span>
             )}
           </div>
         )}
