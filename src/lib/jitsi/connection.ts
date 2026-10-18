@@ -102,7 +102,7 @@ export class JitsiCallSession {
     this.JitsiMeetJS = await loadJitsiMeetJS();
 
     const devices: Array<"audio" | "video"> = this.options.withVideo ? ["audio", "video"] : ["audio"];
-    const tracks = await this.JitsiMeetJS.createLocalTracks({ devices }).catch(async e => {
+    const tracks = await this.JitsiMeetJS.createLocalTracks({ devices, ...(this.options.withVideo ? { resolution: "720" } : {}) }).catch(async e => {
       // Если запросили audio+video и провалились вместе — пробуем
       // отдельно аудио. Камера недоступна/занята не должна блокировать
       // консультацию, микрофон обязателен.
@@ -218,6 +218,15 @@ export class JitsiCallSession {
     }
 
     this.conference.join();
+
+    // Без явных ограничений получателя мост шлёт видео собеседника в минимальном разрешении
+    // («пиксели»): лист ограничений по умолчанию рассчитан на полноценный Jitsi UI, который сам
+    // выбирает «говорящего». У нас один собеседник, поэтому просим до 720p.
+    try {
+      this.conference.setReceiverConstraints({ lastN: -1, defaultConstraints: { maxHeight: 720 } });
+    } catch {
+      // старые версии lib-jitsi-meet могут не знать этот вызов — качество останется по умолчанию
+    }
     this.setState("connected");
   }
 
@@ -279,7 +288,7 @@ export class JitsiCallSession {
       return true;
     }
     if (!this.JitsiMeetJS) return false;
-    const tracks = await this.JitsiMeetJS.createLocalTracks({ devices: ["video"] });
+    const tracks = await this.JitsiMeetJS.createLocalTracks({ devices: ["video"], resolution: "720" });
     const video = tracks.find(t => t.isVideoTrack());
     if (!video) {
       await Promise.all(tracks.map(t => t.dispose().catch(() => undefined)));
