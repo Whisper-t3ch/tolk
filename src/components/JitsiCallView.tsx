@@ -116,6 +116,7 @@ function JitsiCallView(
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
   const [micMuted, setMicMuted] = useState(false);
+  const [camError, setCamError] = useState<string | null>(null);
   const [camMuted, setCamMuted] = useState(true); // видео выключено по умолчанию — платформа аудио-центричная
   const [remoteConnected, setRemoteConnected] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatusSnapshot | null>(null);
@@ -396,8 +397,17 @@ function JitsiCallView(
 
   async function toggleCam() {
     const next = !camMuted;
-    await sessionRef.current?.setCameraMuted(next);
-    setCamMuted(next);
+    setCamError(null);
+    try {
+      const ok = await sessionRef.current?.setCameraMuted(next);
+      if (ok === false) {
+        setCamError("Не удалось включить камеру");
+        return;
+      }
+      setCamMuted(next);
+    } catch {
+      setCamError("Нет доступа к камере: разрешите её в настройках браузера и попробуйте снова");
+    }
   }
 
   const recordingLabel = describeRecordingStatus(recordingStatus, remoteConnected);
@@ -511,6 +521,9 @@ function JitsiCallView(
         </div>
       </div>
 
+      {viewState === "in_call" && camError && (
+        <p style={{ textAlign: "center", fontSize: 12, color: "#B91C1C", margin: "8px 0 0" }}>{camError}</p>
+      )}
       {viewState === "in_call" && (
         <div style={{ display: "flex", gap: 12, justifyContent: "center", padding: "12px 0" }}>
           <IconToggle active={!micMuted} onClick={toggleMic} onIcon={<Mic size={18} />} offIcon={<MicOff size={18} />} />

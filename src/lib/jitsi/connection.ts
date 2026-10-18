@@ -262,9 +262,33 @@ export class JitsiCallSession {
     await (muted ? this.localAudioTrack.mute() : this.localAudioTrack.unmute());
   }
 
-  async setCameraMuted(muted: boolean): Promise<void> {
-    if (!this.localVideoTrack) return;
-    await (muted ? this.localVideoTrack.mute() : this.localVideoTrack.unmute());
+  /**
+   * Включает/выключает камеру. Камера по умолчанию не запрашивается при входе (withVideo=false),
+   * поэтому при первом включении видеодорожка создаётся «по требованию» и публикуется в
+   * конференции. Раньше setCameraMuted при отсутствии дорожки молча ничего не делал, и видео
+   * нельзя было включить вообще. Возвращает false, если камеру включить нельзя (нет дорожки/
+   * библиотека не загружена); при отказе в доступе к камере бросает ошибку браузера.
+   */
+  async setCameraMuted(muted: boolean): Promise<boolean> {
+    if (muted) {
+      if (this.localVideoTrack) await this.localVideoTrack.mute();
+      return true;
+    }
+    if (this.localVideoTrack) {
+      await this.localVideoTrack.unmute();
+      return true;
+    }
+    if (!this.JitsiMeetJS) return false;
+    const tracks = await this.JitsiMeetJS.createLocalTracks({ devices: ["video"] });
+    const video = tracks.find(t => t.isVideoTrack());
+    if (!video) {
+      await Promise.all(tracks.map(t => t.dispose().catch(() => undefined)));
+      return false;
+    }
+    this.localVideoTrack = video;
+    this.options.onLocalVideoTrack?.(video.getOriginalStream(), video);
+    if (this.conference) await this.conference.addTrack(video);
+    return true;
   }
 
   isMicMuted(): boolean {

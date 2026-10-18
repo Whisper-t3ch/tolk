@@ -45,6 +45,7 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
   const [viewState, setViewState] = useState<ViewState>("connecting");
   const [callError, setCallError] = useState<string | null>(null);
   const [micMuted, setMicMuted] = useState(false);
+  const [camError, setCamError] = useState<string | null>(null);
   const [camMuted, setCamMuted] = useState(true); // видео выключено по умолчанию — та же конвенция, что и у психолога
   const [remoteConnected, setRemoteConnected] = useState(false);
 
@@ -121,8 +122,17 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
 
   async function toggleCam() {
     const next = !camMuted;
-    await sessionRef.current?.setCameraMuted(next);
-    setCamMuted(next);
+    setCamError(null);
+    try {
+      const ok = await sessionRef.current?.setCameraMuted(next);
+      if (ok === false) {
+        setCamError("Не удалось включить камеру");
+        return;
+      }
+      setCamMuted(next);
+    } catch {
+      setCamError("Нет доступа к камере: разрешите её в настройках браузера и попробуйте снова");
+    }
   }
 
   return (
@@ -193,6 +203,11 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
             <div style={{ position: "absolute", bottom: 16, left: 16, background: "rgba(0,0,0,0.6)", padding: "8px 12px", borderRadius: 8, zIndex: 2 }}>
               <div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>{psychologistName}</div>
             </div>
+            {camError && (
+              <div style={{ position: "absolute", bottom: 72, left: 12, right: 12, zIndex: 3, background: "rgba(185,28,28,0.9)", color: "#fff", fontSize: 12, padding: "6px 10px", borderRadius: 8, textAlign: "center" }}>
+                {camError}
+              </div>
+            )}
             <div style={{ position: "absolute", bottom: 16, left: 0, right: 0, display: "flex", gap: 12, justifyContent: "center" }}>
               <IconToggle active={!micMuted} onClick={toggleMic} onIcon={<Mic size={18} />} offIcon={<MicOff size={18} />} />
               <IconToggle active={!camMuted} onClick={toggleCam} onIcon={<Video size={18} />} offIcon={<VideoOff size={18} />} />
