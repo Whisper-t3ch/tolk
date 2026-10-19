@@ -305,7 +305,7 @@ export default function ProfilePage() {
               </div>
               <div style={{
                 height: 6,
-                background: "rgba(79, 126, 255, 0.1)",
+                background: "rgba(45, 106, 92, 0.1)",
                 borderRadius: 4,
                 overflow: "hidden",
               }}>

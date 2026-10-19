@@ -213,7 +213,7 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: idx * 0.05 }}
-            whileHover={{ y: -4, boxShadow: "0 12px 32px rgba(79, 126, 255, 0.2)" }}
+            whileHover={{ y: -4, boxShadow: "0 12px 32px rgba(45, 106, 92, 0.18)" }}
             className="bg-white border border-[#E5DFD5] rounded-lg p-6 shadow-sm hover:shadow-md transition-all cursor-pointer"
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -603,7 +603,7 @@ export default function DashboardPage() {
                 transition={{ delay: 0.35 + i * 0.05 }}
                 onMouseEnter={() => setHoveredClient(client.id)}
                 onMouseLeave={() => setHoveredClient(null)}
-                whileHover={{ backgroundColor: "rgba(79, 126, 255, 0.08)" }}
+                whileHover={{ backgroundColor: "rgba(45, 106, 92, 0.06)" }}
                 style={{
                   display: "grid",
                   gridTemplateColumns: "2fr 1fr 1fr 0.7fr 0.7fr 0.7fr",
@@ -636,10 +636,10 @@ export default function DashboardPage() {
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 5,
                     padding: "3px 8px",
-                    background: getScoreBg(lastTest.score, lastTest.maxScore),
+                    background: client.lastTest ? getScoreBg(lastTest.score, lastTest.maxScore) : "#F0EDE5",
                     borderRadius: 6,
                     fontSize: 13, fontWeight: 600,
-                    color: getScoreColor(lastTest.score, lastTest.maxScore),
+                    color: client.lastTest ? getScoreColor(lastTest.score, lastTest.maxScore) : "#6F5A3F",
                   }}>
                     {client.lastTest ? `${lastTest.name}: ${lastTest.score}` : "Нет данных"}
                   </span>
@@ -650,7 +650,7 @@ export default function DashboardPage() {
 
                 {/* Прогресс-бар */}
                 <div>
-                  <div style={{ height: 6, background: "rgba(79, 126, 255, 0.1)", borderRadius: 4, overflow: "hidden", width: 100 }}>
+                  <div style={{ height: 6, background: "#EDE8DF", borderRadius: 4, overflow: "hidden", width: 100 }}>
                     <div style={{
                       width: `${scorePct}%`, height: "100%",
                       background: getScoreColor(lastTest.score, lastTest.maxScore),

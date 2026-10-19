@@ -136,7 +136,7 @@ export default function ConferenceModal({ isOpen, clientName, conferenceLink, on
                       alignItems: "center",
                       justifyContent: "center",
                       margin: "0 auto 28px",
-                      boxShadow: "0 12px 40px rgba(79, 126, 255, 0.2)",
+                      boxShadow: "0 12px 40px rgba(45, 106, 92, 0.2)",
                     }}
                   >
                     <Phone size={48} style={{ color: "#2D6A5C" }} />

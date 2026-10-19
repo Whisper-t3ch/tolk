@@ -34,7 +34,7 @@ export function Card({ children, hoverable = false, className, style, ...props }
   return (
     <motion.div
       className={className}
-      whileHover={hoverable ? { y: -4, boxShadow: "0 12px 32px rgba(79, 126, 255, 0.15)" } : {}}
+      whileHover={hoverable ? { y: -4, boxShadow: "0 12px 32px rgba(45, 106, 92, 0.15)" } : {}}
       style={{
         backgroundColor: "#FFFFFF",
         border: "1px solid #E5DFD5",

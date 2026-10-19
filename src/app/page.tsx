@@ -1617,8 +1617,8 @@ function HowItWorksInteractive() {
         padding: 40,
         background: "#FFFFFF",
         borderRadius: 16,
-        border: "1px solid rgba(79, 126, 255, 0.2)",
-        boxShadow: "0 8px 32px rgba(79, 126, 255, 0.1)",
+        border: "1px solid rgba(45, 106, 92, 0.2)",
+        boxShadow: "0 8px 32px rgba(45, 106, 92, 0.1)",
       }}
     >
       {/* Progress Bar */}
@@ -1791,7 +1791,7 @@ function ProgressionCard({ card, onBack }: { card: { title: string; details: str
         color: "#FFFFFF",
         padding: 32,
         borderRadius: 16,
-        boxShadow: "0 20px 60px rgba(79, 126, 255, 0.3)",
+        boxShadow: "0 20px 60px rgba(45, 106, 92, 0.3)",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
@@ -2024,7 +2024,7 @@ function FeaturesCardStack({ featureId, cardIndex, onCardChange, onBack }: any) 
             cursor: cardIndex === 0 ? "not-allowed" : "pointer",
             fontSize: 24,
             fontWeight: 700,
-            boxShadow: cardIndex === 0 ? "none" : "0 8px 24px rgba(79, 126, 255, 0.3)",
+            boxShadow: cardIndex === 0 ? "none" : "0 8px 24px rgba(45, 106, 92, 0.3)",
             transition: "all 0.3s",
           }}
         >
@@ -2050,7 +2050,7 @@ function FeaturesCardStack({ featureId, cardIndex, onCardChange, onBack }: any) 
             cursor: !hasMore ? "not-allowed" : "pointer",
             fontSize: 24,
             fontWeight: 700,
-            boxShadow: !hasMore ? "none" : "0 8px 24px rgba(79, 126, 255, 0.3)",
+            boxShadow: !hasMore ? "none" : "0 8px 24px rgba(45, 106, 92, 0.3)",
             transition: "all 0.3s",
           }}
         >
@@ -2963,7 +2963,7 @@ export default function LandingPage() {
             right: "-20%",
             width: "500px",
             height: "500px",
-            background: "rgba(79, 126, 255, 0.1)",
+            background: "rgba(45, 106, 92, 0.1)",
             borderRadius: "50%",
             filter: "blur(40px)",
           }}

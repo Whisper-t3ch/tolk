@@ -171,9 +171,9 @@ export default function Sidebar() {
           cursor: "pointer",
           transform: isHovered || active ? "translateY(-2px)" : "translateY(0)",
           boxShadow: active
-            ? "0 4px 12px rgba(79, 126, 255, 0.25)"
+            ? "0 4px 12px rgba(45, 106, 92, 0.25)"
             : isHovered
-            ? "0 2px 8px rgba(79, 126, 255, 0.1)"
+            ? "0 2px 8px rgba(45, 106, 92, 0.1)"
             : "none",
           position: "relative",
           minWidth: 44,
@@ -304,7 +304,7 @@ export default function Sidebar() {
               cursor: "pointer",
               transition: "all 0.2s ease",
               transform: hoveredItem === "new-session" ? "translateY(-2px)" : "translateY(0)",
-              boxShadow: hoveredItem === "new-session" ? "0 2px 8px rgba(79, 126, 255, 0.15)" : "none",
+              boxShadow: hoveredItem === "new-session" ? "0 2px 8px rgba(45, 106, 92, 0.15)" : "none",
               fontFamily: "var(--font-sans)",
             }}
           >
@@ -386,7 +386,7 @@ export default function Sidebar() {
               </span>
             </div>
             <div style={{
-              height: 4, background: "rgba(79, 126, 255, 0.1)",
+              height: 4, background: "rgba(45, 106, 92, 0.1)",
               borderRadius: 4, overflow: "hidden",
             }}>
               <div style={{
