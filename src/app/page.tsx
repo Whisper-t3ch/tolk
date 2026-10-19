@@ -2622,8 +2622,18 @@ export default function LandingPage() {
           outline: none !important;
           box-shadow: none !important;
         }
+        @media (max-width: 900px) {
+          header.tolk-header { padding: 12px 16px !important; }
+          header.tolk-header nav { display: none !important; }
+          header.tolk-header > div:last-child a { padding: 8px 12px !important; }
+        }
+        @media (max-width: 760px) {
+          .tolk-hero-grid { grid-template-columns: 1fr !important; gap: 28px !important; }
+          .tolk-hero-grid h1 { font-size: 34px !important; }
+        }
       `}</style>
       <header
+        className="tolk-header"
         style={{
           position: "sticky",
           top: 0,
@@ -2960,6 +2970,7 @@ export default function LandingPage() {
         />
 
         <div
+          className="tolk-hero-grid"
           style={{
             maxWidth: 1200,
             margin: "0 auto",
