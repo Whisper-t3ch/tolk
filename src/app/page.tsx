@@ -4761,30 +4761,28 @@ export default function LandingPage() {
           <LogoMark size={26} color="#2D6A5C" />
           <span style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", letterSpacing: "-0.3px" }}>ТОЛК</span>
         </div>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 32, marginBottom: 32 }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 32, marginBottom: 32 }}>
           {[
             {
               title: "Продукт",
-              links: ["Возможности", "Цены", "Демо", "Статус"],
-            },
-            {
-              title: "Компания",
-              links: ["О нас", "Блог", "Вакансии", "Контакты"],
-            },
-            {
-              title: "Ресурсы",
-              links: ["Документация", "Гайды", "API", "Вебинары"],
+              links: [
+                { label: "Войти", href: "/login" },
+                { label: "Регистрация", href: "/login?mode=register" },
+              ],
             },
             {
               title: "Легально",
-              links: ["Приватность", "Условия использования", "152-ФЗ", "Оферта"],
+              links: [
+                { label: "Политика обработки данных", href: "/privacy" },
+                { label: "Условия использования и оферта", href: "/terms" },
+              ],
             },
           ].map((col, i) => (
             <div key={i}>
               <div style={{ fontWeight: 700, color: "#fff", marginBottom: 12 }}>{col.title}</div>
               {col.links.map((link, j) => (
-                <div key={j} style={{ marginBottom: 8, cursor: "pointer" }}>
-                  {link}
+                <div key={j} style={{ marginBottom: 8 }}>
+                  <a href={link.href} style={{ color: "inherit", textDecoration: "none" }}>{link.label}</a>
                 </div>
               ))}
             </div>

@@ -236,7 +236,8 @@ function LoginForm() {
                 onChange={(e) => setConsentChecked(e.target.checked)}
                 style={{ marginTop: 2, accentColor: "#2D6A5C" }}
               />
-              Согласен(на) с условиями обработки персональных данных и офертой
+              Согласен(на) с <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", textDecoration: "underline" }}>условиями использования и офертой</a> и{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", textDecoration: "underline" }}>политикой обработки персональных данных</a>
             </label>
           )}
           {error && (

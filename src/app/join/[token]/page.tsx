@@ -210,7 +210,10 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
               />
               <span style={{ fontSize: 13, color: "#4A4A4A", lineHeight: 1.5 }}>
                 Я даю согласие на обработку данных консультации, включая аудио, для подготовки
-                психологом заметок. Данные хранятся конфиденциально.
+                психологом заметок. Данные хранятся конфиденциально.{" "}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#1E6B54", textDecoration: "underline" }}>
+                  Политика конфиденциальности
+                </a>
               </span>
             </label>
 

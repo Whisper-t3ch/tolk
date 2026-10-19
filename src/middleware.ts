@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Пути, доступные без авторизации
 // /api/health — лёгкая проверка живости (Docker healthcheck, мониторинг), без БД и секретов.
-const PUBLIC_PATHS = ["/", "/login", "/api/health"];
+const PUBLIC_PATHS = ["/", "/login", "/api/health", "/privacy", "/terms"];
 // Префиксы, доступные без авторизации целиком — их открывают клиенты
 // психолога, у которых нет и не будет аккаунта, либо внешние сервисы,
 // у которых физически не может быть cookie-сессии психолога:
