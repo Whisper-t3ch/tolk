@@ -1,6 +1,19 @@
 import type { NextConfig } from "next";
 
+const securityHeaders = [
+  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // Камера/микрофон нужны странице звонка и встроенному Jitsi; остальное закрыто.
+  { key: "Permissions-Policy", value: "camera=(self \"https://meet.tolkplace.ru\"), microphone=(self \"https://meet.tolkplace.ru\"), display-capture=(self \"https://meet.tolkplace.ru\"), geolocation=(), payment=()" },
+];
+
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  },
   /* config options here */
   // Проверка типов уже пройдена локально (npx tsc --noEmit — чисто).
   // На сборочной машине Vercel (2 ядра / 8GB) отдельный проход tsc поверх

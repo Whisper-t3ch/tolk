@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { rateLimit, clientIp } from "@/lib/security/rateLimit";
 
 // Пути, доступные без авторизации
 // /api/health — лёгкая проверка живости (Docker healthcheck, мониторинг), без БД и секретов.
@@ -40,6 +41,38 @@ const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/join/", "/api/public/", "/ap
  * и защищает приватные роуты — неавторизованных редиректит на /login.
  */
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Лимиты на публичные API (без сессии): защита от перебора и мусорного трафика.
+  // Вебхуки Telegram/VK и воркер не ограничиваем — у них свои секреты и частота.
+  if (path.startsWith("/api/") && !path.startsWith("/api/webhooks/") && !path.startsWith("/api/jobs/") && path !== "/api/health") {
+    const isPublicApi = path.startsWith("/api/public/") || path.startsWith("/api/join/");
+    const ip = clientIp(request.headers);
+    const rl = isPublicApi
+      ? rateLimit(`pub:${ip}`, 90, 60_000)
+      : request.method !== "GET"
+        ? rateLimit(`mut:${ip}`, 240, 60_000)
+        : rateLimit(`api:${ip}`, 600, 60_000);
+    if (!rl.ok) {
+      return new NextResponse(JSON.stringify({ error: "Слишком много запросов. Попробуйте позже." }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": String(rl.retryAfterSec) },
+      });
+    }
+  }
+
+  const isPublicPath =
+    PUBLIC_PATHS.some((p) => path === p) ||
+    PUBLIC_PATH_PREFIXES.some((p) => path.startsWith(p)) ||
+    path.startsWith("/_next") ||
+    path.startsWith("/images");
+
+  // Публичные страницы (кроме /login) не зависят от сессии: не ходим за ней в Supabase
+  // на каждый хит — иначе всплеск трафика на лендинг превращается в нагрузку на БД/auth.
+  if (isPublicPath && path !== "/login") {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -65,14 +98,7 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
-  const isPublic =
-    PUBLIC_PATHS.some((p) => path === p) ||
-    PUBLIC_PATH_PREFIXES.some((p) => path.startsWith(p)) ||
-    path.startsWith("/_next") ||
-    path.startsWith("/images");
-
-  if (!user && !isPublic) {
+  if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
