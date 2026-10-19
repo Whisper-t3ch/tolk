@@ -39,3 +39,21 @@ cd ~/core && ./switch_domain.sh prod      # правит .env.core и Supabase S
 # сразу DNS на reg.ru: A tolkplace.ru и www -> 37.139.35.119
 # откат: ./switch_domain.sh stage (и DNS назад на Vercel)
 ```
+
+## Авто-выкатка мелких UI-фиксов (auto_deploy.sh)
+
+Облачная задача «ТОЛК: обращения → фикс → пуш» пушит исправления в ветку `auto/support-fixes`.
+`auto_deploy.sh` (cron, каждые 5 минут, НА core) забирает ветку по read-only deploy key и выкатывает
+только безопасные правки: `src/**/*.tsx|css`, ≤ 8 файлов и ≤ 300 строк, без `api/`, middleware, auth/login/billing/supabase,
+без fetch/eval/process.env/внешних URL в добавленных строках. Патч накладывается на `~/tolk-src`, затем `./core.sh build && up`,
+проверка `/api/health` и `/login`; при сбое — `./core.sh rollback` и откат исходников. Результат — в Telegram (`.alert.env`).
+
+Установка:
+1. `mkdir -p ~/auto-deploy && ssh-keygen -t ed25519 -N '' -f ~/auto-deploy/deploy_key -C tolk-autodeploy && cat ~/auto-deploy/deploy_key.pub`
+   → GitHub: репозиторий → Settings → Deploy keys → Add (БЕЗ галки write access).
+2. Положить `auto_deploy.sh` в `~/core`, `chmod +x`, `sed -i 's/\r$//'`.
+3. Проверка вручную: `~/core/auto_deploy.sh` (без ветки или без изменений молчит).
+4. Cron: `*/5 * * * * /home/ubuntu/core/auto_deploy.sh >> /home/ubuntu/tolk-autodeploy.log 2>&1`
+
+Управление: `touch ~/auto-deploy/DISABLED` — выключить; `rm ~/auto-deploy/rejected` — снять блокировку после разбора отказа.
+После слияния `auto/support-fixes` в рабочую ветку и обычного деплоя снапшотом ничего делать не нужно: уже применённые изменения скрипт пропускает.
