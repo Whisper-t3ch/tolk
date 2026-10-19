@@ -62,8 +62,8 @@ const IconMicrophone = () => (
 
 const IconBrain = () => (
   <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M28 10C22 10 18 14 18 20C18 24 20 27 22 29M28 10C34 10 38 14 38 20C38 24 36 27 34 29M22 29C20 31 20 34 22 37C24 40 28 42 28 42C28 42 32 40 34 37C36 34 36 31 34 29M22 29H34" stroke="#1BAF7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <circle cx="28" cy="42" r="8" stroke="#1BAF7A" strokeWidth="2.5"/>
+    <path d="M28 10C22 10 18 14 18 20C18 24 20 27 22 29M28 10C34 10 38 14 38 20C38 24 36 27 34 29M22 29C20 31 20 34 22 37C24 40 28 42 28 42C28 42 32 40 34 37C36 34 36 31 34 29M22 29H34" stroke="#157347" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <circle cx="28" cy="42" r="8" stroke="#157347" strokeWidth="2.5"/>
     <motion.circle
       r="2" fill="#F59E0B"
       animate={{ cx: [22, 28, 34, 28, 22], cy: [16, 10, 16, 29, 16] }}
@@ -88,13 +88,13 @@ const IconPencil = () => (
 const IconCheckmark = () => (
   <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
     <motion.circle
-      cx="28" cy="28" r="22" stroke="#1BAF7A" strokeWidth="2.5" fill="none"
+      cx="28" cy="28" r="22" stroke="#157347" strokeWidth="2.5" fill="none"
       animate={{ opacity: [1, 0.4, 1] }}
       transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
     />
     <motion.path
       d="M12 28L22 38L44 16"
-      stroke="#1BAF7A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+      stroke="#157347" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
       initial={{ pathLength: 0 }}
       animate={{ pathLength: [0, 1, 1, 0] }}
       transition={{ duration: 1.6, repeat: Infinity, times: [0, 0.45, 0.8, 1] }}
@@ -118,16 +118,16 @@ const IconAnimatedChat = () => (
 
 const IconAnimatedCalendar = () => (
   <svg width="28" height="28" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect x="9" y="12" width="38" height="34" rx="4" stroke="#1BAF7A" strokeWidth="2.5"/>
-    <path d="M9 21H47" stroke="#1BAF7A" strokeWidth="2.5"/>
-    <path d="M18 7V15M38 7V15" stroke="#1BAF7A" strokeWidth="2.5" strokeLinecap="round"/>
+    <rect x="9" y="12" width="38" height="34" rx="4" stroke="#157347" strokeWidth="2.5"/>
+    <path d="M9 21H47" stroke="#157347" strokeWidth="2.5"/>
+    <path d="M18 7V15M38 7V15" stroke="#157347" strokeWidth="2.5" strokeLinecap="round"/>
     <motion.rect
-      x="16" y="27" width="8" height="8" rx="2" fill="#1BAF7A"
+      x="16" y="27" width="8" height="8" rx="2" fill="#157347"
       animate={{ opacity: [0.25, 1, 0.25] }}
       transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
     />
     <motion.circle
-      cx="38" cy="31" r="3" fill="#1BAF7A"
+      cx="38" cy="31" r="3" fill="#157347"
       animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
       transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
     />
@@ -153,7 +153,7 @@ const IconAnimatedDocument = () => (
 
 const IconAnimatedAnalytics = () => (
   <svg width="28" height="28" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M10 46H46" stroke="#8B5CF6" strokeWidth="2.5" strokeLinecap="round"/>
+    <path d="M10 46H46" stroke="#6D28D9" strokeWidth="2.5" strokeLinecap="round"/>
     {[
       { x: 15, h: 14, delay: 0 },
       { x: 25, h: 22, delay: 0.15 },
@@ -162,7 +162,7 @@ const IconAnimatedAnalytics = () => (
     ].map((bar, i) => (
       <motion.rect
         key={i}
-        x={bar.x} width="6" rx="2" fill="#8B5CF6"
+        x={bar.x} width="6" rx="2" fill="#6D28D9"
         initial={{ height: 4, y: 42 }}
         animate={{ height: [4, bar.h, bar.h * 0.7, bar.h], y: [42, 42 - bar.h, 42 - bar.h * 0.7, 42 - bar.h] }}
         transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut", delay: bar.delay }}
@@ -233,8 +233,8 @@ const IconAnimatedClock = () => (
 const IconAnimatedBrain = () => (
   <svg width="46" height="46" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
     {/* Мозг с бегущими импульсами по нейронным путям */}
-    <path d="M28 10C22 10 18 14 18 20C18 24 20 27 22 29M28 10C34 10 38 14 38 20C38 24 36 27 34 29M22 29C20 31 20 34 22 37C24 40 28 42 28 42C28 42 32 40 34 37C36 34 36 31 34 29M22 29H34" stroke="#1BAF7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <circle cx="28" cy="42" r="8" stroke="#1BAF7A" strokeWidth="2.5"/>
+    <path d="M28 10C22 10 18 14 18 20C18 24 20 27 22 29M28 10C34 10 38 14 38 20C38 24 36 27 34 29M22 29C20 31 20 34 22 37C24 40 28 42 28 42C28 42 32 40 34 37C36 34 36 31 34 29M22 29H34" stroke="#157347" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <circle cx="28" cy="42" r="8" stroke="#157347" strokeWidth="2.5"/>
     <motion.circle
       r="2" fill="#F59E0B"
       animate={{
@@ -270,14 +270,14 @@ const IconAnimatedHandshake = () => (
 const IconAnimatedCoin = () => (
   <svg width="46" height="46" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
     {/* Стопка монет растёт снизу вверх + плюсик подлетает */}
-    <rect x="14" y="38" width="28" height="6" rx="1.5" stroke="#1BAF7A" strokeWidth="2.5" fill="#F5F3EF"/>
+    <rect x="14" y="38" width="28" height="6" rx="1.5" stroke="#157347" strokeWidth="2.5" fill="#F5F3EF"/>
     <motion.rect
-      x="14" y="28" width="28" height="6" rx="1.5" stroke="#1BAF7A" strokeWidth="2.5" fill="#F5F3EF"
+      x="14" y="28" width="28" height="6" rx="1.5" stroke="#157347" strokeWidth="2.5" fill="#F5F3EF"
       animate={{ opacity: [0.3, 1, 1], y: [34, 28, 28] }}
       transition={{ duration: 1.4, repeat: Infinity, ease: "easeOut", times: [0, 0.5, 1] }}
     />
     <motion.rect
-      x="14" y="18" width="28" height="6" rx="1.5" stroke="#1BAF7A" strokeWidth="2.5" fill="#FFFFFF"
+      x="14" y="18" width="28" height="6" rx="1.5" stroke="#157347" strokeWidth="2.5" fill="#FFFFFF"
       animate={{ opacity: [0, 0, 1, 1], y: [34, 24, 18, 18] }}
       transition={{ duration: 1.4, repeat: Infinity, ease: "easeOut", times: [0, 0.4, 0.85, 1] }}
     />
@@ -285,7 +285,7 @@ const IconAnimatedCoin = () => (
       animate={{ opacity: [0, 0, 1, 1], y: [10, 10, 0, 0] }}
       transition={{ duration: 1.4, repeat: Infinity, times: [0, 0.7, 0.95, 1] }}
     >
-      <circle cx="42" cy="14" r="7" fill="#1BAF7A"/>
+      <circle cx="42" cy="14" r="7" fill="#157347"/>
       <path d="M42 11V17M39 14H45" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
     </motion.g>
   </svg>
@@ -316,12 +316,12 @@ const IconAnimatedLock = () => (
 const IconAnimatedNetwork = () => (
   <svg width="46" height="46" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
     {/* Люди на орбите вокруг центра — путь по эллипсу без rotate */}
-    <circle cx="28" cy="28" r="18" stroke="#8B5CF6" strokeWidth="1.5" strokeDasharray="3 4" opacity="0.4"/>
-    <circle cx="28" cy="28" r="7" stroke="#8B5CF6" strokeWidth="2.5" fill="#F5F3EF"/>
-    <path d="M28 24.5C29.1 24.5 30 23.6 30 22.5C30 21.4 29.1 20.5 28 20.5C26.9 20.5 26 21.4 26 22.5C26 23.6 26.9 24.5 28 24.5Z" fill="#8B5CF6"/>
-    <path d="M24 30C24 27.8 25.8 26.5 28 26.5C30.2 26.5 32 27.8 32 30" stroke="#8B5CF6" strokeWidth="1.8" strokeLinecap="round"/>
+    <circle cx="28" cy="28" r="18" stroke="#6D28D9" strokeWidth="1.5" strokeDasharray="3 4" opacity="0.4"/>
+    <circle cx="28" cy="28" r="7" stroke="#6D28D9" strokeWidth="2.5" fill="#F5F3EF"/>
+    <path d="M28 24.5C29.1 24.5 30 23.6 30 22.5C30 21.4 29.1 20.5 28 20.5C26.9 20.5 26 21.4 26 22.5C26 23.6 26.9 24.5 28 24.5Z" fill="#6D28D9"/>
+    <path d="M24 30C24 27.8 25.8 26.5 28 26.5C30.2 26.5 32 27.8 32 30" stroke="#6D28D9" strokeWidth="1.8" strokeLinecap="round"/>
     <motion.circle
-      r="4.5" fill="#8B5CF6"
+      r="4.5" fill="#6D28D9"
       animate={{ cx: [46, 28, 10, 28, 46], cy: [28, 10, 28, 46, 28] }}
       transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
     />
@@ -398,7 +398,7 @@ function AskAnythingDemo() {
       id: "after",
       label: "После сессии",
       emoji: "✅",
-      color: "#1BAF7A",
+      color: "#157347",
       questions: [
         "Оформи конспект сессии",
         "Повторяющиеся темы за последние 3 месяца",
@@ -681,7 +681,7 @@ function AskAnythingDemo() {
                                       style={{ width: "100%", maxWidth: 28, background: msg.color, borderRadius: 4, minHeight: 4 }}
                                     />
                                     <span style={{ fontSize: 10.5, color: "#6B6058", fontWeight: 600 }}>{bar.value}</span>
-                                    <span style={{ fontSize: 9.5, color: "#8C7355" }}>{bar.label}</span>
+                                    <span style={{ fontSize: 9.5, color: "#6F5A3F" }}>{bar.label}</span>
                                   </div>
                                 );
                               })}
@@ -902,7 +902,7 @@ function TestimonialsSlider({ testimonials }: { testimonials: Testimonial[] }) {
               «{current.text}»
             </p>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E" }}>{current.name}</div>
-            <div style={{ fontSize: 13, color: "#8C7355" }}>{current.role}</div>
+            <div style={{ fontSize: 13, color: "#6F5A3F" }}>{current.role}</div>
           </div>
         </motion.div>
       </AnimatePresence>
@@ -1040,7 +1040,7 @@ function HeroProductVisual() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  style={{ fontSize: 9.5, color: "#8C7355", display: "flex", alignItems: "center", gap: 3 }}
+                  style={{ fontSize: 9.5, color: "#6F5A3F", display: "flex", alignItems: "center", gap: 3 }}
                 >
                   <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 0.9, repeat: Infinity }}>●</motion.span>
                   пишем
@@ -1054,7 +1054,7 @@ function HeroProductVisual() {
                   style={{
                     fontSize: 9.5,
                     fontWeight: 700,
-                    color: "#1BAF7A",
+                    color: "#157347",
                     background: "#E9FBF3",
                     padding: "2px 7px",
                     borderRadius: 10,
@@ -1105,7 +1105,7 @@ function HeroProductVisual() {
           >
             Как менялась тревога у Марины за 3 сессии?
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, color: "#8B5CF6", fontSize: 9.5, fontWeight: 700, marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, color: "#6D28D9", fontSize: 9.5, fontWeight: 700, marginBottom: 4 }}>
             <span>✦</span> Ассистент
           </div>
           <AnimatePresence mode="wait">
@@ -1166,7 +1166,7 @@ const HeroGenerativeArt = () => (
     />
     <motion.path
       d="M480 380C460 440 380 460 330 430"
-      stroke="#1BAF7A" strokeOpacity="0.25" strokeWidth="3" fill="none" strokeLinecap="round"
+      stroke="#157347" strokeOpacity="0.25" strokeWidth="3" fill="none" strokeLinecap="round"
       animate={{ opacity: [0.15, 0.4, 0.15] }}
       transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
     />
@@ -1181,7 +1181,7 @@ const HeroGenerativeArt = () => (
         {i < arr.length - 1 && (
           <motion.line
             x1={n.x} y1={n.y} x2={arr[i + 1].x} y2={arr[i + 1].y}
-            stroke="#8B5CF6" strokeOpacity="0.2" strokeWidth="1.5"
+            stroke="#6D28D9" strokeOpacity="0.2" strokeWidth="1.5"
             animate={{ strokeOpacity: [0.08, 0.25, 0.08] }}
             transition={{ duration: 2.5, repeat: Infinity, delay: i * 0.3 }}
           />
@@ -1214,22 +1214,22 @@ const CozyOfficeArt = () => (
     {/* Кресло */}
     <path
       d="M60 300C60 280 75 265 95 265H165C185 265 200 280 200 300V360H60V300Z"
-      stroke="#1BAF7A" strokeOpacity="0.35" strokeWidth="2.5" strokeLinejoin="round"
+      stroke="#157347" strokeOpacity="0.35" strokeWidth="2.5" strokeLinejoin="round"
     />
-    <path d="M60 360V420M200 360V420" stroke="#1BAF7A" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
-    <path d="M45 300C45 290 52 282 62 282" stroke="#1BAF7A" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
-    <path d="M215 300C215 290 208 282 198 282" stroke="#1BAF7A" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
-    <path d="M40 300V340M220 300V340" stroke="#1BAF7A" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
+    <path d="M60 360V420M200 360V420" stroke="#157347" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
+    <path d="M45 300C45 290 52 282 62 282" stroke="#157347" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
+    <path d="M215 300C215 290 208 282 198 282" stroke="#157347" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
+    <path d="M40 300V340M220 300V340" stroke="#157347" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
 
     {/* Растение в горшке */}
     <path d="M270 380L260 340M270 380L280 335M270 380L250 350M270 380L292 348"
-      stroke="#1BAF7A" strokeOpacity="0.4" strokeWidth="2.5" strokeLinecap="round"/>
+      stroke="#157347" strokeOpacity="0.4" strokeWidth="2.5" strokeLinecap="round"/>
     <path d="M250 380H290L285 420H255L250 380Z" stroke="#F59E0B" strokeOpacity="0.35" strokeWidth="2.5" strokeLinejoin="round"/>
 
     {/* Книжная полка */}
-    <line x1="330" y1="280" x2="480" y2="280" stroke="#8B5CF6" strokeOpacity="0.3" strokeWidth="2.5" strokeLinecap="round"/>
+    <line x1="330" y1="280" x2="480" y2="280" stroke="#6D28D9" strokeOpacity="0.3" strokeWidth="2.5" strokeLinecap="round"/>
     {[0, 1, 2, 3, 4].map((i) => (
-      <rect key={i} x={340 + i * 27} y="245" width="20" height="35" rx="2" stroke="#8B5CF6" strokeOpacity="0.3" strokeWidth="2"/>
+      <rect key={i} x={340 + i * 27} y="245" width="20" height="35" rx="2" stroke="#6D28D9" strokeOpacity="0.3" strokeWidth="2"/>
     ))}
 
     {/* Мягкий коврик-эллипс */}
@@ -1263,17 +1263,17 @@ const WorkflowArt = () => {
       {/* Стрелка перехода */}
       <motion.path
         d="M210 160H260"
-        stroke="#8B5CF6" strokeOpacity="0.4" strokeWidth="2.5" strokeLinecap="round" fill="none"
+        stroke="#6D28D9" strokeOpacity="0.4" strokeWidth="2.5" strokeLinecap="round" fill="none"
         animate={{ opacity: [0.2, 0.6, 0.2] }}
         transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
       />
-      <path d="M250 150L262 160L250 170" stroke="#8B5CF6" strokeOpacity="0.4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M250 150L262 160L250 170" stroke="#6D28D9" strokeOpacity="0.4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
 
       {/* Готовый документ справа */}
-      <path d="M280 90H340L360 110V230H280V90Z" stroke="#1BAF7A" strokeOpacity="0.3" strokeWidth="2.5" strokeLinejoin="round"/>
-      <path d="M340 90V110H360" stroke="#1BAF7A" strokeOpacity="0.3" strokeWidth="2.5" strokeLinejoin="round"/>
+      <path d="M280 90H340L360 110V230H280V90Z" stroke="#157347" strokeOpacity="0.3" strokeWidth="2.5" strokeLinejoin="round"/>
+      <path d="M340 90V110H360" stroke="#157347" strokeOpacity="0.3" strokeWidth="2.5" strokeLinejoin="round"/>
       {[135, 155, 175, 195].map((y, i) => (
-        <line key={i} x1="292" y1={y} x2={348 - i * 10} y2={y} stroke="#1BAF7A" strokeOpacity="0.3" strokeWidth="2" strokeLinecap="round"/>
+        <line key={i} x1="292" y1={y} x2={348 - i * 10} y2={y} stroke="#157347" strokeOpacity="0.3" strokeWidth="2" strokeLinecap="round"/>
       ))}
       <motion.path
         d="M292 210L306 222L340 190"
@@ -1371,7 +1371,7 @@ function TrustBadges() {
           <span style={{ fontSize: 20 }}>{b.icon}</span>
           <div>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1C1C1E" }}>{b.title}</div>
-            <div style={{ fontSize: 11, color: "#8C7355" }}>{b.desc}</div>
+            <div style={{ fontSize: 11, color: "#6F5A3F" }}>{b.desc}</div>
           </div>
         </motion.div>
       ))}
@@ -1404,7 +1404,7 @@ const ScalesArt = () => (
     >
       <line x1="230" y1="70" x2="205" y2="130" stroke="#F59E0B" strokeOpacity="0.3" strokeWidth="2"/>
       <line x1="230" y1="70" x2="255" y2="130" stroke="#F59E0B" strokeOpacity="0.3" strokeWidth="2"/>
-      <path d="M200 130C200 148 215 160 230 160C245 160 260 148 260 130" stroke="#1BAF7A" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
+      <path d="M200 130C200 148 215 160 230 160C245 160 260 148 260 130" stroke="#157347" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round"/>
     </motion.g>
 
     <path d="M140 42L150 30L160 42" stroke="#F59E0B" strokeOpacity="0.35" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1468,11 +1468,11 @@ function BrowserChrome({ children, label }: { children: React.ReactNode; label: 
             borderRadius: 6,
             padding: "4px 10px",
             fontSize: 11,
-            color: "#8C7355",
+            color: "#6F5A3F",
             textAlign: "center",
           }}
         >
-          tolk.pro/{label}
+          tolkplace.ru/{label}
         </div>
       </div>
       {children}
@@ -1635,7 +1635,7 @@ function HowItWorksInteractive() {
                 borderRadius: "50%",
                 background: i <= currentStep ? "#2D6A5C" : "#E5DFD5",
                 border: "none",
-                color: i <= currentStep ? "#fff" : "#8C7355",
+                color: i <= currentStep ? "#fff" : "#6F5A3F",
                 fontWeight: 700,
                 fontSize: 14,
                 cursor: "pointer",
@@ -1657,7 +1657,7 @@ function HowItWorksInteractive() {
             transition={{ duration: 0.5, ease: "easeInOut" }}
             style={{
               height: "100%",
-              background: "linear-gradient(90deg, #2D6A5C 0%, #1BAF7A 100%)",
+              background: "linear-gradient(90deg, #2D6A5C 0%, #157347 100%)",
               borderRadius: 2,
             }}
           />
@@ -1719,7 +1719,7 @@ function HowItWorksInteractive() {
           style={{
             padding: "10px 20px",
             background: currentStep === 0 ? "#E5DFD5" : "#F5F3EF",
-            color: currentStep === 0 ? "#8C7355" : "#2D6A5C",
+            color: currentStep === 0 ? "#6F5A3F" : "#2D6A5C",
             border: "1px solid #E5DFD5",
             borderRadius: 8,
             fontSize: 13,
@@ -1754,7 +1754,7 @@ function HowItWorksInteractive() {
           <button
             style={{
               padding: "10px 20px",
-              background: "#1BAF7A",
+              background: "#157347",
               color: "#fff",
               border: "none",
               borderRadius: 8,
@@ -1764,7 +1764,7 @@ function HowItWorksInteractive() {
               transition: "all 0.2s",
             }}
             onMouseEnter={(e) => (e.currentTarget.style.background = "#15966b")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "#1BAF7A")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "#157347")}
           >
             Начать ✓
           </button>
@@ -1772,7 +1772,7 @@ function HowItWorksInteractive() {
       </div>
 
       {/* Step indicator */}
-      <div style={{ textAlign: "center", marginTop: 20, fontSize: 12, color: "#8C7355" }}>
+      <div style={{ textAlign: "center", marginTop: 20, fontSize: 12, color: "#6F5A3F" }}>
         Шаг {currentStep + 1} из {steps.length}
       </div>
     </motion.div>
@@ -2019,8 +2019,8 @@ function FeaturesCardStack({ featureId, cardIndex, onCardChange, onBack }: any) 
             height: 56,
             borderRadius: "50%",
             border: "none",
-            background: cardIndex === 0 ? "#E5DFD5" : "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
-            color: cardIndex === 0 ? "#8C7355" : "#FFFFFF",
+            background: cardIndex === 0 ? "#E5DFD5" : "linear-gradient(135deg, #2D6A5C 0%, #157347 100%)",
+            color: cardIndex === 0 ? "#6F5A3F" : "#FFFFFF",
             cursor: cardIndex === 0 ? "not-allowed" : "pointer",
             fontSize: 24,
             fontWeight: 700,
@@ -2031,7 +2031,7 @@ function FeaturesCardStack({ featureId, cardIndex, onCardChange, onBack }: any) 
           ←
         </motion.button>
 
-        <div style={{ fontSize: 12, color: "#8C7355", fontWeight: 600 }}>
+        <div style={{ fontSize: 12, color: "#6F5A3F", fontWeight: 600 }}>
           {cardIndex + 1} / {totalCards}
         </div>
 
@@ -2045,8 +2045,8 @@ function FeaturesCardStack({ featureId, cardIndex, onCardChange, onBack }: any) 
             height: 56,
             borderRadius: "50%",
             border: "none",
-            background: !hasMore ? "#E5DFD5" : "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
-            color: !hasMore ? "#8C7355" : "#FFFFFF",
+            background: !hasMore ? "#E5DFD5" : "linear-gradient(135deg, #2D6A5C 0%, #157347 100%)",
+            color: !hasMore ? "#6F5A3F" : "#FFFFFF",
             cursor: !hasMore ? "not-allowed" : "pointer",
             fontSize: 24,
             fontWeight: 700,
@@ -2072,7 +2072,7 @@ const FEATURES_DATA = {
     ],
   },
   "Управление практикой": {
-    color: "#1BAF7A",
+    color: "#157347",
     items: [
       { id: "scheduling", name: "Умный календарь", desc: "Google и Яндекс Календарь создают видеокомнату сами", icon: Calendar, badge: undefined as string | undefined },
       { id: "forms", name: "Тесты и опросники", desc: "30+ проверенных психологических тестов — отправляете в один клик", icon: ListChecks, badge: undefined as string | undefined },
@@ -2089,7 +2089,7 @@ const FEATURES_DATA = {
     ],
   },
   "Оплата и аналитика": {
-    color: "#8B5CF6",
+    color: "#6D28D9",
     items: [
       { id: "payments", name: "Приём оплаты", desc: "Автонапоминание и ссылка на оплату через СБП", icon: CreditCard, badge: undefined as string | undefined },
       { id: "insurance", name: "Динамика клиента", desc: "Видно, как меняется состояние клиента от сессии к сессии", icon: TrendingUp, badge: undefined as string | undefined },
@@ -2183,7 +2183,7 @@ function AssistantChatSection() {
             style={{
               width: 32,
               height: 32,
-              background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+              background: "linear-gradient(135deg, #2D6A5C 0%, #157347 100%)",
               borderRadius: "50%",
               display: "flex",
               alignItems: "center",
@@ -2197,7 +2197,7 @@ function AssistantChatSection() {
             <div style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E" }}>
               ТОЛК Помощник
             </div>
-            <div style={{ fontSize: 10, color: "#1BAF7A" }}>Всегда готов</div>
+            <div style={{ fontSize: 10, color: "#157347" }}>Всегда готов</div>
           </div>
         </div>
 
@@ -2244,7 +2244,7 @@ function AssistantChatSection() {
                 style={{
                   width: 6,
                   height: 6,
-                  background: "#8C7355",
+                  background: "#6F5A3F",
                   borderRadius: "50%",
                   animation: "bounce 1.4s infinite",
                 }}
@@ -2253,7 +2253,7 @@ function AssistantChatSection() {
                 style={{
                   width: 6,
                   height: 6,
-                  background: "#8C7355",
+                  background: "#6F5A3F",
                   borderRadius: "50%",
                   animation: "bounce 1.4s infinite",
                   animationDelay: "0.2s",
@@ -2263,7 +2263,7 @@ function AssistantChatSection() {
                 style={{
                   width: 6,
                   height: 6,
-                  background: "#8C7355",
+                  background: "#6F5A3F",
                   borderRadius: "50%",
                   animation: "bounce 1.4s infinite",
                   animationDelay: "0.4s",
@@ -2391,7 +2391,7 @@ function AssistantChatSection() {
                   gap: 6,
                 }}
               >
-                <span style={{ color: "#1BAF7A" }}>✓</span>
+                <span style={{ color: "#157347" }}>✓</span>
                 {item}
               </li>
             ))}
@@ -2410,7 +2410,7 @@ function AssistantChatSection() {
             style={{
               fontSize: 11,
               fontWeight: 700,
-              color: "#8C7355",
+              color: "#6F5A3F",
               textTransform: "uppercase",
               letterSpacing: "0.05em",
               marginBottom: 8,
@@ -2455,7 +2455,7 @@ export default function LandingPage() {
       icon: <IconAnimatedCalendar />,
       title: "Умный календарь",
       desc: "Поставьте встречу в Google или Яндекс Календаре — платформа сама создаёт видеокомнату и шлёт ссылку.",
-      color: "#1BAF7A",
+      color: "#157347",
       benefits: ["Google и Яндекс Календарь", "Автосоздание видеокомнаты", "Напоминания клиенту без вашего участия"],
     },
     {
@@ -2469,7 +2469,7 @@ export default function LandingPage() {
       icon: <IconAnimatedAnalytics />,
       title: "Аналитика практики",
       desc: "Динамика тестов, повторяющиеся темы, загрузка и финансовая картина — практика видна целиком.",
-      color: "#8B5CF6",
+      color: "#6D28D9",
       benefits: ["График динамики по клиенту", "Раннее предупреждение об отклонении от плана", "Загрузка и удержание клиентов"],
     },
     {
@@ -2510,7 +2510,7 @@ export default function LandingPage() {
       rating: 5,
       text: "Использую режим «Супервизор» — все материалы по клиентам структурированы в одном треке, готовиться к разбору стало в разы быстрее.",
       avatar: "ИС",
-      color: "#1BAF7A",
+      color: "#157347",
     },
     {
       name: "Елена Волкова",
@@ -2541,7 +2541,7 @@ export default function LandingPage() {
       desc: "Разрешение семейных конфликтов, кризисы",
       clients: 18,
       rating: 4.8,
-      color: "#1BAF7A",
+      color: "#157347",
     },
     {
       name: "Елена Волкова",
@@ -2561,7 +2561,7 @@ export default function LandingPage() {
       desc: "Личностное развитие, супервизия, сложные случаи",
       clients: 12,
       rating: 4.9,
-      color: "#8B5CF6",
+      color: "#6D28D9",
     },
   ];
 
@@ -2830,7 +2830,7 @@ export default function LandingPage() {
                       alignItems: "center",
                     }}
                   >
-                    <span style={{ fontSize: 13, color: "#8C7355" }}>
+                    <span style={{ fontSize: 13, color: "#6F5A3F" }}>
                       Фиксированная подписка без сгораемых токенов
                     </span>
                     <Link
@@ -3259,7 +3259,7 @@ export default function LandingPage() {
                     <div style={{ fontSize: 20, fontWeight: 800, color: "#2D6A5C" }}>
                       {item.metric}
                     </div>
-                    <div style={{ fontSize: 11, color: "#8C7355" }}>{item.metricDesc}</div>
+                    <div style={{ fontSize: 11, color: "#6F5A3F" }}>{item.metricDesc}</div>
                   </div>
                 </div>
 
@@ -3497,7 +3497,7 @@ export default function LandingPage() {
         <div style={{ maxWidth: 1100, margin: "0 auto", position: "relative", zIndex: 1 }}>
           <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} style={{ marginBottom: 48 }}>
             <h2 style={{ fontSize: 36, fontWeight: 800, color: "#1C1C1E", marginBottom: 12 }}>
-              <span style={{ color: "#1BAF7A" }}>Толковые</span> специалисты
+              <span style={{ color: "#157347" }}>Толковые</span> специалисты
             </h2>
             <p style={{ fontSize: 15, color: "#6B6058", maxWidth: 600 }}>
               Опытные и толковые психологи, избравшие ТОЛК. Они доступны для супервизии и консультаций через нашу платформу. Делимся опытом и помогаем расти вместе.
@@ -3641,7 +3641,7 @@ export default function LandingPage() {
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: 24,
-                    color: "#8C7355",
+                    color: "#6F5A3F",
                   }}
                 >
                   +
@@ -3814,8 +3814,8 @@ export default function LandingPage() {
                   <th style={{ textAlign: "center", padding: 12, fontWeight: 700, color: "#2D6A5C" }}>
                     ТОЛК
                   </th>
-                  <th style={{ textAlign: "center", padding: 12, color: "#8C7355" }}>Аналог А</th>
-                  <th style={{ textAlign: "center", padding: 12, color: "#8C7355" }}>Аналог Б</th>
+                  <th style={{ textAlign: "center", padding: 12, color: "#6F5A3F" }}>Аналог А</th>
+                  <th style={{ textAlign: "center", padding: 12, color: "#6F5A3F" }}>Аналог Б</th>
                 </tr>
               </thead>
               <tbody>
@@ -3834,11 +3834,11 @@ export default function LandingPage() {
                 ].map((row, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid #E5DFD5" }}>
                     <td style={{ padding: 12, color: "#1C1C1E", fontWeight: 500 }}>{row[0]}</td>
-                    <td style={{ textAlign: "center", padding: 12, color: "#1BAF7A", fontWeight: 700 }}>
+                    <td style={{ textAlign: "center", padding: 12, color: "#157347", fontWeight: 700 }}>
                       {row[1]}
                     </td>
-                    <td style={{ textAlign: "center", padding: 12, color: "#8C7355" }}>{row[2]}</td>
-                    <td style={{ textAlign: "center", padding: 12, color: "#8C7355" }}>{row[3]}</td>
+                    <td style={{ textAlign: "center", padding: 12, color: "#6F5A3F" }}>{row[2]}</td>
+                    <td style={{ textAlign: "center", padding: 12, color: "#6F5A3F" }}>{row[3]}</td>
                   </tr>
                 ))}
               </tbody>
@@ -4019,7 +4019,7 @@ export default function LandingPage() {
                 style={{
                   padding: 32,
                   background: plan.highlighted
-                    ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)"
+                    ? "linear-gradient(135deg, #2D6A5C 0%, #157347 100%)"
                     : "#FFFFFF",
                   borderRadius: 12,
                   border: plan.highlighted ? "none" : "1px solid #E5DFD5",
@@ -4226,7 +4226,7 @@ export default function LandingPage() {
                 style={{
                   padding: 32,
                   background: plan.highlighted
-                    ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)"
+                    ? "linear-gradient(135deg, #2D6A5C 0%, #157347 100%)"
                     : "#FFFFFF",
                   borderRadius: 12,
                   border: plan.highlighted ? "none" : "1px solid #E5DFD5",
@@ -4365,7 +4365,7 @@ export default function LandingPage() {
       <section
         style={{
           padding: "80px 24px",
-          background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+          background: "linear-gradient(135deg, #2D6A5C 0%, #157347 100%)",
           textAlign: "center",
           color: "#fff",
           position: "relative",
@@ -4493,12 +4493,12 @@ export default function LandingPage() {
                       outline: "none",
                       fontSize: 28,
                       cursor: "pointer",
-                      color: "#8C7355",
+                      color: "#6F5A3F",
                       lineHeight: 1,
                       zIndex: 1,
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.color = "#2D6A5C")}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = "#8C7355")}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = "#6F5A3F")}
                   >
                     ✕
                   </button>
@@ -4507,7 +4507,7 @@ export default function LandingPage() {
                   <h2 style={{ fontSize: 28, fontWeight: 800, color: "#1C1C1E", marginBottom: 8, textAlign: "center" }}>
                     Все возможности ТОЛК
                   </h2>
-                  <p style={{ fontSize: 14, color: "#8C7355", textAlign: "center", marginBottom: 40 }}>
+                  <p style={{ fontSize: 14, color: "#6F5A3F", textAlign: "center", marginBottom: 40 }}>
                     Выберите функцию, чтобы узнать подробнее
                   </p>
                   <div
@@ -4719,7 +4719,7 @@ export default function LandingPage() {
                   <div style={{ color: "#fff", fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
                     Демо-видео скоро будет здесь
                   </div>
-                  <div style={{ color: "#8C7355", fontSize: 13, maxWidth: 420, textAlign: "center", padding: "0 24px" }}>
+                  <div style={{ color: "#B8A68A", fontSize: 13, maxWidth: 420, textAlign: "center", padding: "0 24px" }}>
                     Пока готовим запись — а прямо сейчас можно попробовать интерактивную демку ассистента ниже на странице.
                   </div>
                 </div>
@@ -4752,7 +4752,7 @@ export default function LandingPage() {
         style={{
           padding: "40px 24px",
           background: "#1C1C1E",
-          color: "#8C7355",
+          color: "#B8A68A",
           fontSize: 12,
           borderTop: "1px solid #1a1f35",
         }}

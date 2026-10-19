@@ -291,7 +291,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                           display: "flex", alignItems: "center", justifyContent: "center",
                         }}
                       >
-                        <ChevronLeft size={13} />
+                        <ChevronLeft size={14} color="#1C1C1E" />
                       </button>
                       <button
                         onClick={() => setWeekOffset(w => (w + 1) * 7 < datesWithSlots.length ? w + 1 : w)}
@@ -304,7 +304,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                           display: "flex", alignItems: "center", justifyContent: "center",
                         }}
                       >
-                        <ChevronRight size={13} />
+                        <ChevronRight size={14} color="#1C1C1E" />
                       </button>
                     </div>
                   </div>

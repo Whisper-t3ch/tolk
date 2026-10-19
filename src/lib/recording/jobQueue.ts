@@ -158,6 +158,7 @@ export async function processNextRecordingJob(
       return { jobId: job.id, outcome: { kind: "requeued", reason: assembly.reason } };
     }
     await setJobStatus(supabase, job.id, { status: "failed", last_error: assembly.reason });
+    await setSessionRecordingStatus(supabase, job.session_id, { recording_status: "failed", transcript_error: assembly.reason });
     return { jobId: job.id, outcome: { kind: "failed", reason: assembly.reason } };
   }
 
@@ -177,6 +178,8 @@ export async function processNextRecordingJob(
     await setJobStatus(supabase, job.id, { status: "blocked", result: outcome.result ?? null, last_error: outcome.reason });
   } else {
     await setJobStatus(supabase, job.id, { status: "failed", last_error: outcome.reason });
+    // Без этого сессия навсегда оставалась 'processing' (ASR вернул пусто / ошибка).
+    await setSessionRecordingStatus(supabase, job.session_id, { recording_status: "failed", transcript_error: outcome.reason });
   }
   return { jobId: job.id, outcome };
 }
