@@ -1,3 +1,4 @@
+import { telegramBotUrl } from "./telegramApi";
 // ============================================================
 // Отправка сообщений через Telegram Bot API и VK Bot API.
 //
@@ -27,7 +28,7 @@ export async function sendTelegramMessage(
   chatId: string,
   text: string
 ): Promise<SendResult> {
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+  const res = await fetch(telegramBotUrl(botToken, "sendMessage"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -48,7 +49,7 @@ export async function sendTelegramMessage(
 }
 
 export async function setTelegramWebhook(botToken: string, webhookUrl: string, secretToken: string) {
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+  const res = await fetch(telegramBotUrl(botToken, "setWebhook"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -98,7 +99,7 @@ function explainVkError(raw: string | undefined, code: number | undefined): stri
 }
 
 export async function getTelegramBotInfo(botToken: string): Promise<{ username: string; id: number }> {
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+  const res = await fetch(telegramBotUrl(botToken, "getMe"));
   const data = await res.json();
   if (!res.ok || !data.ok) {
     throw new MessengerSendError(explainTelegramError(data?.description), "telegram");

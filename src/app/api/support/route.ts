@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { telegramBotUrl } from "@/lib/messengers/telegramApi";
 
 // POST /api/support { message, pageUrl? }
 // Сохраняет обращение в support_tickets (migration 044) и, если заданы
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
   if (token && chatId) {
     try {
       const text = `Обращение в поддержку ТОЛК #${String(data.id).slice(0, 8)}\n${name || "—"} <${user.email ?? "нет email"}>\n\n${message}`;
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const res = await fetch(telegramBotUrl(token, "sendMessage"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000) }),

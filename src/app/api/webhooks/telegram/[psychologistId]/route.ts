@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { telegramBotUrl } from "@/lib/messengers/telegramApi";
 
 // POST /api/webhooks/telegram/[psychologistId]
 //
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 async function sendTelegramReply(botToken: string | null, chatId: string, text: string) {
   if (!botToken) return;
   try {
-    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    await fetch(telegramBotUrl(botToken, "sendMessage"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text }),
