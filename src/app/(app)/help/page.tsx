@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, Send, LifeBuoy } from "lucide-react";
 import { Button, Card, CardContent, Textarea } from "@/components/ui";
@@ -35,7 +35,28 @@ const FAQ = [
   },
 ];
 
+interface MyTicket {
+  id: string;
+  created_at: string;
+  message: string;
+  status: string;
+  reply: string | null;
+  replied_at: string | null;
+}
+
 export default function HelpPage() {
+  const [tickets, setTickets] = useState<MyTicket[]>([]);
+  const loadTickets = useCallback(async () => {
+    try {
+      const res = await fetch("/api/support");
+      if (!res.ok) return;
+      const data = await res.json();
+      setTickets(data.items ?? []);
+    } catch {
+      /* не критично */
+    }
+  }, []);
+  useEffect(() => { void loadTickets(); }, [loadTickets]);
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -59,6 +80,7 @@ export default function HelpPage() {
       if (!res.ok) throw new Error(data.error ?? "Не удалось отправить обращение");
       setSent(true);
       setMessage("");
+      void loadTickets();
       setTimeout(() => setSent(false), 8000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось отправить обращение");
@@ -130,7 +152,7 @@ export default function HelpPage() {
             </h3>
           </div>
           <p style={{ fontSize: 12.5, color: "#4B443C", marginBottom: 12 }}>
-            Опишите вопрос или проблему — обращение сразу попадёт к команде ТОЛК. Ответим на email вашего аккаунта.
+            Опишите вопрос или проблему — обращение сразу попадёт к команде ТОЛК. Ответ появится ниже на этой странице и в уведомлениях, а при подключённом Telegram придёт и туда.
           </p>
           <Textarea
             value={message}
@@ -151,13 +173,37 @@ export default function HelpPage() {
                 exit={{ opacity: 0 }}
                 style={{ marginTop: 10, fontSize: 12.5, color: "#166534", fontWeight: 600 }}
               >
-                ✓ Обращение отправлено. Ответим на email аккаунта.
+                ✓ Обращение отправлено. Ответ появится на этой странице.
               </motion.div>
             )}
           </AnimatePresence>
           {error && <p style={{ marginTop: 10, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
         </CardContent>
       </Card>
+
+      {tickets.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 12 }}>Мои обращения</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {tickets.map(t => (
+              <Card key={t.id}>
+                <CardContent className="pt-4 pb-4">
+                  <div style={{ fontSize: 12, color: "#6F5A3F", marginBottom: 6 }}>
+                    {new Date(t.created_at).toLocaleString("ru")} · {t.reply ? "Есть ответ" : "Ждёт ответа"}
+                  </div>
+                  <p style={{ fontSize: 13, color: "#1C1C1E", whiteSpace: "pre-wrap", margin: 0 }}>{t.message}</p>
+                  {t.reply && (
+                    <div style={{ marginTop: 10, padding: "10px 12px", background: "#EEF5F1", borderRadius: 8, border: "1px solid #CFE3D8" }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#1E6B54", marginBottom: 4 }}>Ответ поддержки</div>
+                      <p style={{ fontSize: 13, color: "#1C1C1E", whiteSpace: "pre-wrap", margin: 0 }}>{t.reply}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

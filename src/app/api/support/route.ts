@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   let notified = false;
   if (token && chatId) {
     try {
-      const text = `Обращение в поддержку ТОЛК #${String(data.id).slice(0, 8)}\n${name || "—"} <${user.email ?? "нет email"}>\n\n${message}`;
+      const text = `Обращение в поддержку ТОЛК #${String(data.id).slice(0, 8)}\n${name || "—"} <${user.email ?? "нет email"}>\n\n${message}\n\n↩︎ Ответьте на это сообщение — ответ уйдёт пользователю.`;
       const res = await fetch(telegramBotUrl(token, "sendMessage"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -57,4 +57,19 @@ export async function POST(request: NextRequest) {
   }
   console.log("SUPPORT_TICKET", data.id, notified ? "tg_sent" : "tg_not_sent");
   return NextResponse.json({ ok: true, id: data.id });
+}
+
+// GET /api/support — собственные обращения пользователя и ответы поддержки.
+export async function GET() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  const { data, error } = await supabase
+    .from("support_tickets")
+    .select("id, created_at, message, status, reply, replied_at")
+    .eq("psychologist_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return NextResponse.json({ error: "Не удалось загрузить обращения" }, { status: 500 });
+  return NextResponse.json({ items: data ?? [] });
 }

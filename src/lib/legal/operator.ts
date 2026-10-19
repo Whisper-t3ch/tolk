@@ -6,7 +6,7 @@ export const OPERATOR = {
   nameGenitive: "индивидуального предпринимателя Алейникова Артёма Анатольевича",
   inn: "550117070005",
   ogrnip: "323554300070355",
-  email: "goldwors@gmail.com",
+  email: "tolkplace@gmail.com",
   updatedAt: "19 октября 2026 г.",
 };
 

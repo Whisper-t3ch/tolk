@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSlotAvailable, type WorkingHours } from "@/lib/booking";
+import { notifyUserTelegram } from "@/lib/notify/platformTelegram";
 import { normalizeTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 
 // POST /api/public/booking/[slug]/create
@@ -187,6 +188,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // тоже может сработать здесь как последняя линия защиты от гонки —
     // отдаём тот же понятный ответ, что и при обычной проверке занятости.
     return NextResponse.json({ error: "Не удалось создать бронь — возможно, время уже занято" }, { status: 409 });
+  }
+
+  // Уведомление психологу в Telegram (если привязал). Best-effort, не блокирует ответ клиенту.
+  try {
+    const when = new Intl.DateTimeFormat("ru-RU", { timeZone, day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
+      .format(new Date(scheduledAt));
+    await notifyUserTelegram(
+      psychologistId,
+      `Новая запись: ${clientName}, ${when} (${timeZone}).\nTelegram клиента: @${clientTelegram}\nСтатус: ожидает подтверждения — свяжитесь с клиентом.`
+    );
+  } catch {
+    /* уведомление не критично */
   }
 
   return NextResponse.json({

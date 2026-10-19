@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeTimeZone } from "@/lib/timezone";
 
 type Notif = { id: string; text: string; at: string; upcoming?: boolean };
 
@@ -21,8 +22,10 @@ export async function GET() {
 
   const now = Date.now();
   const items: Notif[] = [];
+  const { data: prof } = await supabase.from("psychologists").select("timezone").eq("id", user.id).maybeSingle();
+  const tz = normalizeTimeZone(prof?.timezone as string | undefined);
 
-  const [tests, transcripts, upcoming] = await Promise.all([
+  const [tests, transcripts, upcoming, bookings, replies] = await Promise.all([
     supabase
       .from("test_results")
       .select("id, completed_at, clients ( name ), test_questionnaires ( title )")
@@ -47,6 +50,22 @@ export async function GET() {
       .lte("scheduled_at", new Date(now + 24 * 3600_000).toISOString())
       .order("scheduled_at", { ascending: true })
       .limit(10),
+    supabase
+      .from("sessions")
+      .select("id, scheduled_at, created_at, client_contact_name")
+      .eq("psychologist_id", user.id)
+      .eq("booked_via", "public_link")
+      .gte("created_at", new Date(now - 7 * 86400_000).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(10),
+    supabase
+      .from("support_tickets")
+      .select("id, replied_at")
+      .eq("psychologist_id", user.id)
+      .not("replied_at", "is", null)
+      .gte("replied_at", new Date(now - 14 * 86400_000).toISOString())
+      .order("replied_at", { ascending: false })
+      .limit(5),
   ]);
 
   for (const t of tests.data ?? []) {
@@ -77,6 +96,16 @@ export async function GET() {
     });
   }
 
+  for (const b of bookings.data ?? []) {
+    items.push({
+      id: `bk-${b.id}`,
+      text: `Новая запись: ${(b.client_contact_name as string | null)?.trim() || "клиент"}, ${new Date(b.scheduled_at as string).toLocaleString("ru-RU", { timeZone: tz, day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`,
+      at: b.created_at as string,
+    });
+  }
+  for (const r of replies.data ?? []) {
+    items.push({ id: `sr-${r.id}`, text: "Ответ поддержки на ваше обращение — смотрите в разделе «Помощь»", at: r.replied_at as string });
+  }
   items.sort((a, b) => (a.at < b.at ? 1 : -1));
   return NextResponse.json({ items: items.slice(0, 20) });
 }

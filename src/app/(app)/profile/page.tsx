@@ -20,6 +20,41 @@ export default function ProfilePage() {
   const [specialty, setSpecialty] = useState("");
     const [notification, setNotification] = useState<string | null>(null);
 
+  const [tg, setTg] = useState<{ connected: boolean; username: string | null } | null>(null);
+  const [tgBusy, setTgBusy] = useState(false);
+  const loadTg = async () => {
+    try {
+      const res = await fetch("/api/notifications/telegram");
+      if (res.ok) setTg(await res.json());
+    } catch { /* не критично */ }
+  };
+  useEffect(() => { void loadTg(); }, []);
+  async function connectTg() {
+    setTgBusy(true);
+    try {
+      const res = await fetch("/api/notifications/telegram", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Не удалось создать ссылку");
+      window.open(data.url, "_blank", "noopener");
+      // Привязка происходит в Telegram по нажатию «Запустить» — опрашиваем статус.
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const st = await fetch("/api/notifications/telegram").then(r => r.json()).catch(() => null);
+        if (st?.connected) { setTg(st); notify("Telegram подключён"); break; }
+      }
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setTgBusy(false);
+    }
+  }
+  async function disconnectTg() {
+    setTgBusy(true);
+    await fetch("/api/notifications/telegram", { method: "DELETE" }).catch(() => null);
+    await loadTg();
+    setTgBusy(false);
+  }
+
   useEffect(() => {
     if (profile) {
       setName(profile.name);
@@ -208,6 +243,28 @@ export default function ProfilePage() {
                 {copied ? <><Check size={12} style={{ marginRight: 4 }} /> Скопировано</> : <><Copy size={12} style={{ marginRight: 4 }} /> Копировать</>}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Telegram-уведомления */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }}>
+        <Card>
+          <CardContent className="pt-6">
+            <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#1C1C1E" }}>Telegram-уведомления</h3>
+            <p style={{ fontSize: 13, color: "#6B6058", marginBottom: 14 }}>
+              Новые записи клиентов и ответы поддержки — сразу в Telegram, без захода в кабинет.
+            </p>
+            {tg?.connected ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>✓ Подключено{tg.username ? ` (@${tg.username})` : ""}</span>
+                <Button onClick={disconnectTg} variant="secondary" size="sm" disabled={tgBusy}>Отключить</Button>
+              </div>
+            ) : (
+              <Button onClick={connectTg} variant="primary" size="sm" disabled={tgBusy}>
+                {tgBusy ? "Ждём подтверждения в Telegram…" : "Подключить Telegram"}
+              </Button>
+            )}
           </CardContent>
         </Card>
       </motion.div>

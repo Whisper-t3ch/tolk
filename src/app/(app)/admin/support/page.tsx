@@ -9,6 +9,8 @@ interface Ticket {
   message: string;
   page_url: string | null;
   status: "new" | "in_progress" | "resolved";
+  reply?: string | null;
+  replied_at?: string | null;
 }
 
 const STATUS_LABELS: Record<Ticket["status"], string> = { new: "Новое", in_progress: "В работе", resolved: "Решено" };
@@ -18,6 +20,8 @@ export default function AdminSupportPage() {
   const [items, setItems] = useState<Ticket[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [info, setInfo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,6 +49,20 @@ export default function AdminSupportPage() {
     await load();
   }
 
+  async function sendReply(id: string) {
+    const reply = (drafts[id] ?? "").trim();
+    if (!reply) return;
+    const res = await fetch("/api/admin/support", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, reply }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setInfo(res.ok ? `Ответ отправлен${data.telegram ? " (и в Telegram)" : " (в приложении)"}` : data.error ?? "Ошибка");
+    if (res.ok) setDrafts(d => ({ ...d, [id]: "" }));
+    await load();
+  }
+
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "0 24px" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>Обращения в поддержку</h1>
@@ -64,6 +82,7 @@ export default function AdminSupportPage() {
           </button>
         ))}
       </div>
+      {info && <p style={{ color: "#166534", fontSize: 13.5 }}>{info}</p>}
       {error && <p style={{ color: "#B91C1C", fontSize: 14 }}>{error}</p>}
       {!error && loading && <p style={{ color: "#6F5A3F", fontSize: 14 }}>Загрузка…</p>}
       {!error && !loading && items.length === 0 && <p style={{ color: "#6F5A3F", fontSize: 14 }}>Обращений нет</p>}
@@ -78,7 +97,18 @@ export default function AdminSupportPage() {
             </div>
             <p style={{ fontSize: 14, color: "#1C1C1E", whiteSpace: "pre-wrap", margin: "0 0 10px" }}>{t.message}</p>
             {t.page_url && <p style={{ fontSize: 12, color: "#6F5A3F", margin: "0 0 10px", wordBreak: "break-all" }}>Страница: {t.page_url}</p>}
+            {t.reply && (
+              <p style={{ fontSize: 13, color: "#1E6B54", margin: "0 0 10px", whiteSpace: "pre-wrap" }}>↩︎ Ответ: {t.reply}</p>
+            )}
+            <textarea
+              value={drafts[t.id] ?? ""}
+              onChange={e => setDrafts(d => ({ ...d, [t.id]: e.target.value }))}
+              placeholder="Ответ пользователю…"
+              rows={2}
+              style={{ width: "100%", border: "1px solid #D9D2C5", borderRadius: 8, padding: 8, fontSize: 13, marginBottom: 8, fontFamily: "inherit" }}
+            />
             <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => sendReply(t.id)} disabled={!(drafts[t.id] ?? "").trim()} style={{ ...btn, background: "#2D6A5C", color: "#FFFFFF", border: "1px solid #2D6A5C" }}>Отправить ответ</button>
               {t.status !== "in_progress" && (
                 <button onClick={() => setStatus(t.id, "in_progress")} style={btn}>В работу</button>
               )}
