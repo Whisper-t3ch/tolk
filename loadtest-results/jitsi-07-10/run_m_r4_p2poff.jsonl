@@ -1,0 +1,24 @@
+{"t":"2026-10-07T09:15:15.557Z","event":"start","run":"lmnjnv","domain":"meet.tolkplace.ru","rooms":4,"perRoom":2,"participants":8,"minutes":3,"p2p":false,"cpus":16}
+{"t":"2026-10-07T09:15:28.453Z","event":"tick","generatorCpuPct":94.1,"load1":100.89,"joined":0,"failed":0,"roomsFull":0,"p2pActive":0,"expected":8,"invalidGenerator":false}
+{"t":"2026-10-07T09:15:40.090Z","event":"tick","generatorCpuPct":96.7,"load1":112.26,"joined":4,"failed":0,"roomsFull":2,"p2pActive":0,"expected":8,"invalidGenerator":false}
+{"t":"2026-10-07T09:15:49.462Z","event":"tick","generatorCpuPct":95.7,"load1":113.11,"joined":6,"failed":0,"roomsFull":3,"p2pActive":0,"expected":8,"invalidGenerator":false}
+{"t":"2026-10-07T09:15:52.064Z","event":"all-join-attempts-done","ok":8,"failed":0,"joinMsP50":10312,"joinMsP95":16999,"errors":[]}
+{"t":"2026-10-07T09:15:58.492Z","event":"tick","generatorCpuPct":99.4,"load1":121.8,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":false}
+{"t":"2026-10-07T09:16:08.485Z","event":"tick","generatorCpuPct":100,"load1":131.03,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":false}
+{"t":"2026-10-07T09:16:18.494Z","event":"tick","generatorCpuPct":95.9,"load1":134.74,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":false}
+{"t":"2026-10-07T09:16:28.489Z","event":"tick","generatorCpuPct":99.6,"load1":132.36,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:16:38.473Z","event":"tick","generatorCpuPct":99.6,"load1":128.91,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:16:48.476Z","event":"tick","generatorCpuPct":97.6,"load1":128.01,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:16:58.491Z","event":"tick","generatorCpuPct":99.9,"load1":129.04,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:17:08.468Z","event":"tick","generatorCpuPct":99.3,"load1":122.68,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:17:18.500Z","event":"tick","generatorCpuPct":99.8,"load1":129.62,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:17:28.474Z","event":"tick","generatorCpuPct":98.4,"load1":129.24,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:17:38.490Z","event":"tick","generatorCpuPct":99.9,"load1":130.47,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:17:48.465Z","event":"tick","generatorCpuPct":99.6,"load1":121.65,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:17:58.479Z","event":"tick","generatorCpuPct":99.6,"load1":117.24,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:18:08.504Z","event":"tick","generatorCpuPct":99.4,"load1":120.99,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:18:18.505Z","event":"tick","generatorCpuPct":98.6,"load1":117.24,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:18:30.747Z","event":"tick","generatorCpuPct":99.2,"load1":117.58,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:18:38.476Z","event":"tick","generatorCpuPct":99.8,"load1":121.77,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:18:48.482Z","event":"tick","generatorCpuPct":99.5,"load1":127.48,"joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true}
+{"t":"2026-10-07T09:18:49.176Z","event":"end","joined":8,"failed":0,"roomsFull":4,"p2pActive":0,"expected":8,"invalidGenerator":true,"note":"ПРОГОН НЕВАЛИДЕН: генератор перегружен, уменьшите число участников"}

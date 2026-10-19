@@ -1,0 +1,1673 @@
+From c797d30b9a1d49fd4ded09affbbb133ead30bc58 Mon Sep 17 00:00:00 2001
+From: Anton <alejnikovanton182@gmail.com>
+Date: Tue, 22 Sep 2026 16:30:19 +0600
+Subject: [PATCH 1/2] =?UTF-8?q?=D0=91=D1=80=D0=B0=D1=83=D0=B7=D0=B5=D1=80?=
+ =?UTF-8?q?=D0=BD=D0=B0=D1=8F=20=D0=B7=D0=B0=D0=BF=D0=B8=D1=81=D1=8C=20?=
+ =?UTF-8?q?=D0=B4=D0=B2=D1=83=D1=85=20=D0=B0=D1=83=D0=B4=D0=B8=D0=BE=D0=B4?=
+ =?UTF-8?q?=D0=BE=D1=80=D0=BE=D0=B6=D0=B5=D0=BA:=20=D1=8F=D0=B4=D1=80?=
+ =?UTF-8?q?=D0=BE,=20preflight,=20=D1=81=D1=85=D0=B5=D0=BC=D0=B0=20(22.09)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Переход с серверной записи (Jibri) на запись в браузере психолога:
+локальный микрофон и удалённая дорожка клиента пишутся раздельно,
+на устройстве клиента не запускается ничего.
+
+Причина замены — cross-origin: Jitsi встроен обычным iframe на чужом
+домене, и MediaStream дорожки клиента снаружи недоступен. Отсюда же
+решение перейти на lib-jitsi-meet со своим UI звонка (отдельная задача).
+
+Ядро не зависит от Jitsi — принимает готовые MediaStream, поэтому
+проверяется без видеосервера: outputs/tests/recording_browser_check.mjs
+гоняет его в реальном Chromium на синтетических потоках (29 проверок).
+
+migration_036 прогнана на PostgreSQL 16 поверх реконструированной схемы
+(12 проверок: идемпотентность, RLS, отбой дублей, каскады). Попутно
+выяснилось, что CREATE POLICY не имеет формы IF NOT EXISTS — без
+drop policy if exists миграция падает на повторном прогоне. В 036
+исправлено; в migration_034 та же проблема осталась.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Hktyf3hQNowNVtERF9joWD
+---
+ .../migration_036_browser_recording.sql       | 277 +++++++++++++++++
+ outputs/tests/recording_browser_check.mjs     | 231 ++++++++++++++
+ src/lib/recording/checksum.ts                 |  22 ++
+ src/lib/recording/mime.ts                     |  67 ++++
+ src/lib/recording/preflight.ts                | 289 ++++++++++++++++++
+ src/lib/recording/sessionRecorder.ts          | 140 +++++++++
+ src/lib/recording/trackRecorder.ts            | 234 ++++++++++++++
+ src/lib/recording/types.ts                    |  89 ++++++
+ 8 files changed, 1349 insertions(+)
+ create mode 100644 outputs/backend/migration_036_browser_recording.sql
+ create mode 100644 outputs/tests/recording_browser_check.mjs
+ create mode 100644 src/lib/recording/checksum.ts
+ create mode 100644 src/lib/recording/mime.ts
+ create mode 100644 src/lib/recording/preflight.ts
+ create mode 100644 src/lib/recording/sessionRecorder.ts
+ create mode 100644 src/lib/recording/trackRecorder.ts
+ create mode 100644 src/lib/recording/types.ts
+
+diff --git a/outputs/backend/migration_036_browser_recording.sql b/outputs/backend/migration_036_browser_recording.sql
+new file mode 100644
+index 0000000..c128db5
+--- /dev/null
++++ b/outputs/backend/migration_036_browser_recording.sql
+@@ -0,0 +1,277 @@
++-- ============================================================
++-- migration_036_browser_recording.sql
++--
++-- Переход с серверной записи (Jibri) на браузерную запись двух
++-- аудиодорожек в браузере психолога. Решение принято 22.09.
++--
++-- Что меняется по сути. Раньше запись была ОДНИМ файлом, который
++-- Jibri клал на диск ВМ и отдавал платформе одним `recording_url`
++-- (migration_007). Теперь запись — это ДВЕ дорожки (психолог и
++-- клиент), каждая нарезана на фрагменты по 15-30 секунд, которые
++-- браузер выгружает в объектное хранилище по мере записи. Поэтому:
++--
++--   * одного recording_url больше не достаточно — нужен реестр
++--     фрагментов, чтобы проверить, что запись доехала целиком;
++--   * транскрипт перестаёт быть плоским текстом — раздельные дорожки
++--     дают готовую разметку по спикерам без диаризации, и терять её,
++--     склеивая всё в один текст, было бы потерей главного
++--     преимущества архитектуры.
++--
++-- Что сознательно НЕ трогаем: session_transcripts.raw_text остаётся
++-- источником для SOAP, суммаризации и RAG-чанкинга. Он собирается из
++-- сегментов как диалог ("Психолог: ... / Клиент: ...") — весь
++-- существующий пайплайн (soap.ts, periodSummary.ts,
++-- transcriptChunking.ts, match_session_transcript_chunks) продолжает
++-- работать без изменений, а сегменты добавляют детализацию сверху.
++--
++-- Применять через Supabase SQL Editor. Все операции идемпотентны.
++-- ============================================================
++
++-- ------------------------------------------------------------
++-- 1. Реестр фрагментов записи
++--
++-- Каждая строка — один Blob, который браузер психолога нарезал и
++-- выгрузил. Нужен именно реестр в БД, а не просто список объектов в
++-- хранилище: по нему backend проверяет целостность (все ли номера на
++-- месте, нет ли дублей, совпал ли checksum) прежде чем отправлять
++-- запись в ASR. Листинг бакета этого не даёт — там не видно, сколько
++-- фрагментов ДОЛЖНО быть.
++--
++-- ВАЖНО: фрагмент не является самостоятельным аудиофайлом. При записи
++-- в WebM/Opus заголовок контейнера попадает только в фрагмент с
++-- sequence = 0, остальные — продолжение потока. Сборка дорожки
++-- (FFmpeg remux) обязательна перед расшифровкой.
++-- ------------------------------------------------------------
++create table if not exists session_recording_chunks (
++  id uuid primary key default gen_random_uuid(),
++  session_id uuid not null references sessions(id) on delete cascade,
++  track text not null check (track in ('psychologist', 'client')),
++  -- Сквозной номер внутри дорожки, начиная с 0. Дыра в нумерации =
++  -- потерянный фрагмент, это и есть главный признак неполной записи.
++  sequence int not null,
++  -- Ключ объекта в хранилище: recordings/{session_id}/{track}/{NNNNNN}.{ext}
++  storage_key text not null,
++  mime_type text not null,
++  size_bytes int not null check (size_bytes > 0),
++  -- "sha256:<hex>", считается в браузере до выгрузки. Сверяется при
++  -- приёме — отличает «фрагмент дошёл целым» от «дошёл битым».
++  checksum text not null,
++  -- Смещение от начала записи дорожки и фактическая длительность.
++  -- Нужны, чтобы свести сегменты двух дорожек в единый диалог по
++  -- времени, и чтобы увидеть разрыв при переподключении клиента.
++  started_at_ms int not null check (started_at_ms >= 0),
++  duration_ms int not null check (duration_ms >= 0),
++  uploaded_at timestamptz not null default now(),
++  -- Повторная выгрузка того же фрагмента (retry после сбоя сети) не
++  -- должна плодить дубли — upsert по этому ключу делает приём
++  -- идемпотентным.
++  unique (session_id, track, sequence)
++);
++
++create index if not exists idx_session_recording_chunks_session
++  on session_recording_chunks(session_id, track, sequence);
++
++alter table session_recording_chunks enable row level security;
++
++-- Тот же паттерн, что у session_transcript_chunks (migration_034):
++-- доступ через JOIN до sessions.psychologist_id, без денормализации.
++--
++-- drop ... if exists перед каждым create: у CREATE POLICY нет формы
++-- IF NOT EXISTS, и без явного drop повторный прогон миграции падает
++-- на "policy already exists" (проверено на PostgreSQL 16).
++drop policy if exists "own_recording_chunks_select" on session_recording_chunks;
++create policy "own_recording_chunks_select" on session_recording_chunks
++  for select using (
++    exists (
++      select 1 from sessions s
++      where s.id = session_recording_chunks.session_id
++        and s.psychologist_id = auth.uid()
++    )
++  );
++
++drop policy if exists "own_recording_chunks_insert" on session_recording_chunks;
++create policy "own_recording_chunks_insert" on session_recording_chunks
++  for insert with check (
++    exists (
++      select 1 from sessions s
++      where s.id = session_recording_chunks.session_id
++        and s.psychologist_id = auth.uid()
++    )
++  );
++
++drop policy if exists "own_recording_chunks_delete" on session_recording_chunks;
++create policy "own_recording_chunks_delete" on session_recording_chunks
++  for delete using (
++    exists (
++      select 1 from sessions s
++      where s.id = session_recording_chunks.session_id
++        and s.psychologist_id = auth.uid()
++    )
++  );
++
++-- ------------------------------------------------------------
++-- 2. Сегменты транскрипта со спикерами
++--
++-- Раздельные дорожки дают точную атрибуцию реплик бесплатно —
++-- диаризация не нужна. Храним сегменты отдельно, а не только склеенным
++-- текстом, потому что по ним можно: показать психологу реплики с
++-- таймкодами, посчитать распределение времени говорения, переобработать
++-- одного спикера, не трогая второго.
++-- ------------------------------------------------------------
++create table if not exists session_transcript_segments (
++  id uuid primary key default gen_random_uuid(),
++  session_id uuid not null references sessions(id) on delete cascade,
++  speaker text not null check (speaker in ('psychologist', 'client')),
++  -- Позиция в сведённом по времени диалоге (обе дорожки вместе).
++  ordinal int not null,
++  start_ms int not null check (start_ms >= 0),
++  end_ms int not null check (end_ms >= 0),
++  -- Текст УЖЕ анонимизированный: как и в webhooks/recording, сырой
++  -- вывод ASR не доживает до первой записи в БД.
++  text text not null,
++  created_at timestamptz not null default now(),
++  unique (session_id, ordinal)
++);
++
++create index if not exists idx_session_transcript_segments_session
++  on session_transcript_segments(session_id, ordinal);
++
++alter table session_transcript_segments enable row level security;
++
++drop policy if exists "own_transcript_segments_select" on session_transcript_segments;
++create policy "own_transcript_segments_select" on session_transcript_segments
++  for select using (
++    exists (
++      select 1 from sessions s
++      where s.id = session_transcript_segments.session_id
++        and s.psychologist_id = auth.uid()
++    )
++  );
++
++drop policy if exists "own_transcript_segments_insert" on session_transcript_segments;
++create policy "own_transcript_segments_insert" on session_transcript_segments
++  for insert with check (
++    exists (
++      select 1 from sessions s
++      where s.id = session_transcript_segments.session_id
++        and s.psychologist_id = auth.uid()
++    )
++  );
++
++drop policy if exists "own_transcript_segments_delete" on session_transcript_segments;
++create policy "own_transcript_segments_delete" on session_transcript_segments
++  for delete using (
++    exists (
++      select 1 from sessions s
++      where s.id = session_transcript_segments.session_id
++        and s.psychologist_id = auth.uid()
++    )
++  );
++
++-- ------------------------------------------------------------
++-- 3. Manifest и runtime-контроль на sessions
++--
++-- Manifest браузер присылает после остановки записи: какие дорожки,
++-- в каком формате, с какого по какой номер. Без него backend не знает,
++-- сколько фрагментов ДОЛЖНО было приехать, и не может отличить
++-- «запись закончилась» от «вкладка психолога умерла на середине».
++--
++-- Heartbeat браузер шлёт каждые 10-15 секунд во время консультации.
++-- Он нужен, чтобы поймать молчаливый отказ: MediaRecorder остановился,
++-- удалённая дорожка исчезла, очередь невыгруженных фрагментов растёт.
++-- Одного preflight для этого недостаточно.
++-- ------------------------------------------------------------
++alter table sessions
++  add column if not exists recording_manifest jsonb;
++
++alter table sessions
++  add column if not exists recording_heartbeat_at timestamptz;
++
++-- Последнее известное состояние рекордера из heartbeat — чтобы
++-- показать психологу подтверждённый статус ("запись идёт", "запись
++-- клиента прервана"), а не просто красную точку.
++alter table sessions
++  add column if not exists recording_client_state text;
++
++-- ------------------------------------------------------------
++-- 3a. Новые значения recording_status
++--
++--   uploading  — запись остановлена, но не все фрагменты доехали.
++--                Отдельный статус нужен, потому что это НЕ ошибка и
++--                НЕ готовность: сессию ещё рано отдавать в ASR.
++--   incomplete — manifest не сошёлся с реестром фрагментов (дыра в
++--                нумерации, битый checksum, вкладка закрылась). Запись
++--                частично есть и её можно расшифровать, но психолога
++--                нужно предупредить, что фрагмент разговора отсутствует.
++--
++-- 'stopped_by_client' сохраняем: в браузерной архитектуре клиент
++-- ничего не записывает, но кнопка отзыва согласия на запись остаётся
++-- за ним, и значение уже могло попасть в данные (migration_008).
++--
++-- Констрейнт мог быть создан как безымянный inline CHECK в
++-- migration_007 либо под именем sessions_recording_status_check в
++-- migration_008 — ищем реальное имя вместо того, чтобы гадать.
++-- ------------------------------------------------------------
++do $$
++declare
++  constraint_name_var text;
++begin
++  select tc.constraint_name into constraint_name_var
++  from information_schema.constraint_column_usage ccu
++  join information_schema.table_constraints tc on tc.constraint_name = ccu.constraint_name
++  where ccu.table_name = 'sessions'
++    and ccu.column_name = 'recording_status'
++    and tc.constraint_type = 'CHECK';
++
++  if constraint_name_var is not null then
++    execute format('alter table sessions drop constraint %I', constraint_name_var);
++  end if;
++end $$;
++
++alter table sessions add constraint sessions_recording_status_check
++  check (recording_status in (
++    'none', 'recording', 'uploading', 'processing', 'ready',
++    'failed', 'incomplete', 'stopped_by_client'
++  ));
++
++-- ------------------------------------------------------------
++-- 4. session_transcripts.source — происхождение расшифровки
++--
++-- 'jitsi_browser' — новая браузерная запись двух дорожек.
++-- 'jitsi_gigaam'  — старая Jibri-запись одним файлом. Значение
++--                   остаётся допустимым, чтобы уже существующие
++--                   строки не нарушили констрейнт; новые записи с ним
++--                   не создаются.
++-- ------------------------------------------------------------
++do $$
++declare
++  constraint_name_var text;
++begin
++  select tc.constraint_name into constraint_name_var
++  from information_schema.constraint_column_usage ccu
++  join information_schema.table_constraints tc on tc.constraint_name = ccu.constraint_name
++  where ccu.table_name = 'session_transcripts'
++    and ccu.column_name = 'source'
++    and tc.constraint_type = 'CHECK';
++
++  if constraint_name_var is not null then
++    execute format('alter table session_transcripts drop constraint %I', constraint_name_var);
++  end if;
++end $$;
++
++alter table session_transcripts add constraint session_transcripts_source_check
++  check (source in ('jitsi_browser', 'jitsi_gigaam', 'manual'));
++
++-- ------------------------------------------------------------
++-- 5. Проверки после применения (выполнить вручную, не автоматизируется)
++--
++-- select recording_status, count(*) from sessions group by 1;
++--   → убедиться, что старые значения не нарушают новый констрейнт.
++--
++-- select source, count(*) from session_transcripts group by 1;
++--   → то же для source.
++--
++-- select tablename, rowsecurity from pg_tables
++--   where tablename in ('session_recording_chunks', 'session_transcript_segments');
++--   → rowsecurity должен быть true у обеих.
++-- ------------------------------------------------------------
+diff --git a/outputs/tests/recording_browser_check.mjs b/outputs/tests/recording_browser_check.mjs
+new file mode 100644
+index 0000000..c89cd6c
+--- /dev/null
++++ b/outputs/tests/recording_browser_check.mjs
+@@ -0,0 +1,231 @@
++// ============================================================
++// Проверка браузерного рекордера в реальном Chromium.
++//
++// Зачем отдельный скрипт, а не обычный юнит-тест: MediaRecorder,
++// getUserMedia, IndexedDB и crypto.subtle не существуют в Node — код
++// записи можно проверить только в браузере. Скрипт поднимает Chromium
++// с поддельным микрофоном, собирает src/lib/recording через esbuild и
++// прогоняет рекордер на двух синтетических потоках, изображающих
++// дорожку психолога и дорожку клиента.
++//
++// Это закрывает Этап 1 («технический прототип») в части, не требующей
++// видеосервера: подтверждает, что две дорожки пишутся независимо,
++// нарезаются на фрагменты со сквозной нумерацией и дают непустые Blob.
++// Реальные local/remote треки Jitsi подставляются на их место без
++// изменений в рекордере — он принимает готовый MediaStream.
++//
++// Запуск:  node outputs/tests/recording_browser_check.mjs
++// ============================================================
++
++import { createServer } from "node:http";
++import { fileURLToPath } from "node:url";
++import path from "node:path";
++import esbuild from "esbuild";
++import { chromium } from "playwright";
++
++const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
++
++// ------------------------------------------------------------
++// 1. Сборка модуля записи в один браузерный бандл
++// ------------------------------------------------------------
++const entry = `
++  export { SessionRecorder } from "${repoRoot}/src/lib/recording/sessionRecorder.ts";
++  export { runPreflight } from "${repoRoot}/src/lib/recording/preflight.ts";
++  export { selectMimeType, listSupportedMimeTypes } from "${repoRoot}/src/lib/recording/mime.ts";
++`;
++
++const built = await esbuild.build({
++  stdin: { contents: entry, resolveDir: repoRoot, loader: "ts" },
++  bundle: true,
++  format: "iife",
++  globalName: "TolkRecording",
++  target: "chrome120",
++  write: false,
++});
++const bundle = built.outputFiles[0].text;
++
++// ------------------------------------------------------------
++// 2. Страница на localhost — secure context нужен для crypto.subtle
++//    и getUserMedia (about:blank не подошёл бы).
++// ------------------------------------------------------------
++const server = createServer((_req, res) => {
++  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
++  res.end(`<!doctype html><meta charset="utf-8"><title>recorder check</title><script>${bundle}</script>`);
++});
++await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
++const origin = `http://127.0.0.1:${server.address().port}/`;
++
++const browser = await chromium.launch({
++  args: [
++    "--use-fake-device-for-media-capture",
++    "--use-fake-ui-for-media-stream",
++    "--autoplay-policy=no-user-gesture-required",
++  ],
++});
++
++const failures = [];
++const check = (name, ok, detail = "") => {
++  console.log(`${ok ? "  ok  " : " FAIL "} ${name}${detail ? ` — ${detail}` : ""}`);
++  if (!ok) failures.push(name);
++};
++
++try {
++  const context = await browser.newContext({ permissions: ["microphone"] });
++  const page = await context.newPage();
++  page.on("pageerror", e => console.error("  page error:", e.message));
++  await page.goto(origin);
++
++  // ----------------------------------------------------------
++  // Тест 1. Preflight на устройстве с поддельным микрофоном
++  // ----------------------------------------------------------
++  // В этом контейнере нет аудиоустройств вообще: getUserMedia падает с
++  // NotFoundError при любых флагах Chromium (--use-fake-device-for-media-capture
++  // и --use-file-for-fake-audio-capture проверены, enumerateDevices пуст).
++  // Поэтому проверяем две вещи по отдельности: (1) всю цепочку preflight
++  // на подставленном потоке и (2) корректную деградацию, когда микрофона
++  // действительно нет.
++  console.log("\nPreflight — полная цепочка на подставленном потоке");
++  const preflight = await page.evaluate(async () => {
++    const ctx = new AudioContext();
++    await ctx.resume();
++    const result = await window.TolkRecording.runPreflight({
++      testRecordingMs: 400,
++      getMicrophoneStream: async () => {
++        const oscillator = ctx.createOscillator();
++        const destination = ctx.createMediaStreamDestination();
++        oscillator.connect(destination);
++        oscillator.start();
++        return destination.stream;
++      },
++      // Запас квоты в headless-профиле меньше продового порога —
++      // проверяем саму механику, а не объём диска CI.
++      minStorageBytes: 1024,
++    });
++    ctx.close();
++    return {
++      verdict: result.verdict,
++      mimeType: result.mimeType,
++      storageRemainingBytes: result.storageRemainingBytes,
++      checks: result.checks.map(c => `${c.id}:${c.status}`),
++    };
++  });
++  check("вердикт allow", preflight.verdict === "allow", `${preflight.verdict} [${preflight.checks.join(", ")}]`);
++  check("формат выбран в runtime", Boolean(preflight.mimeType), preflight.mimeType ?? "нет");
++  check("тестовая запись прошла", preflight.checks.includes("test_recording:pass"));
++  check("локальный буфер работает", preflight.checks.includes("indexed_db:pass"));
++  check("квота хранилища прочитана", preflight.checks.includes("storage_quota:pass"));
++  check("WebRTC доступен", preflight.checks.includes("webrtc:pass"));
++
++  console.log("\nPreflight — деградация без микрофона");
++  const noMic = await page.evaluate(async () => {
++    const result = await window.TolkRecording.runPreflight({ testRecordingMs: 200 });
++    return {
++      verdict: result.verdict,
++      checks: result.checks.map(c => `${c.id}:${c.status}`),
++    };
++  });
++  check("вердикт microphone_blocked", noMic.verdict === "microphone_blocked", noMic.verdict);
++  check("проверки после микрофона пропущены", noMic.checks.includes("test_recording:skipped"));
++
++  // ----------------------------------------------------------
++  // Тест 2. Две дорожки пишутся одновременно и независимо.
++  //
++  // Синтетические потоки: два осциллятора разной частоты через
++  // MediaStreamAudioDestinationNode. Для рекордера это обычные
++  // MediaStream — ровно то, что придёт из lib-jitsi-meet через
++  // getOriginalStream() для локальной и удалённой дорожки.
++  // ----------------------------------------------------------
++  console.log("\nЗапись двух дорожек");
++  const run = await page.evaluate(async () => {
++    const ctx = new AudioContext();
++    await ctx.resume();
++    const makeStream = frequency => {
++      const oscillator = ctx.createOscillator();
++      oscillator.frequency.value = frequency;
++      const destination = ctx.createMediaStreamDestination();
++      oscillator.connect(destination);
++      oscillator.start();
++      return destination.stream;
++    };
++
++    const chunks = [];
++    const recorder = new window.TolkRecording.SessionRecorder({
++      sessionId: "test-session",
++      localStream: makeStream(440), // психолог
++      remoteStream: makeStream(880), // клиент
++      timesliceMs: 300,
++      onChunk: chunk =>
++        chunks.push({
++          role: chunk.role,
++          sequence: chunk.sequence,
++          size: chunk.size,
++          checksum: chunk.checksum,
++          mimeType: chunk.mimeType,
++          startedAtMs: chunk.startedAtMs,
++          durationMs: chunk.durationMs,
++        }),
++    });
++
++    recorder.start();
++    const statusDuringCall = recorder.getStatus();
++    await new Promise(r => setTimeout(r, 2200));
++    const manifest = await recorder.stop();
++    ctx.close();
++    return { chunks, manifest, statusDuringCall };
++  });
++
++  const byRole = role => run.chunks.filter(c => c.role === role).sort((a, b) => a.sequence - b.sequence);
++  const psychologist = byRole("psychologist");
++  const client = byRole("client");
++
++  check("дорожка психолога пишется", psychologist.length >= 3, `${psychologist.length} фрагментов`);
++  check("дорожка клиента пишется", client.length >= 3, `${client.length} фрагментов`);
++  check("обе дорожки идут одновременно", run.statusDuringCall.tracks.length === 2 && run.statusDuringCall.recording);
++  check("клиент подключён", run.statusDuringCall.awaitingClient === false);
++
++  for (const [role, list] of [["психолог", psychologist], ["клиент", client]]) {
++    const contiguous = list.every((c, i) => c.sequence === i);
++    check(`нумерация без дыр (${role})`, contiguous, list.map(c => c.sequence).join(","));
++    check(`все фрагменты непустые (${role})`, list.every(c => c.size > 0), `мин ${Math.min(...list.map(c => c.size))} байт`);
++    check(
++      `checksum посчитан (${role})`,
++      list.every(c => /^sha256:[0-9a-f]{64}$/.test(c.checksum))
++    );
++    const monotonic = list.every((c, i) => i === 0 || c.startedAtMs >= list[i - 1].startedAtMs);
++    check(`тайминги монотонны (${role})`, monotonic);
++  }
++
++  // Дорожки должны быть РАЗНЫМИ — иначе мы пишем один и тот же звук дважды
++  // и раздельные дорожки не дают ничего. Разные частоты → разные байты.
++  const sameData = psychologist[0] && client[0] && psychologist[0].checksum === client[0].checksum;
++  check("дорожки содержат разный звук", !sameData);
++
++  // ----------------------------------------------------------
++  // Тест 3. Manifest
++  // ----------------------------------------------------------
++  console.log("\nManifest");
++  const manifest = run.manifest;
++  check("manifest описывает обе дорожки", manifest.tracks.length === 2, manifest.tracks.map(t => t.role).join(", "));
++  for (const track of manifest.tracks) {
++    const recorded = byRole(track.role);
++    check(
++      `${track.role}: счётчик совпадает с фактом`,
++      track.chunkCount === recorded.length && track.lastSequence === recorded.length - 1,
++      `manifest ${track.chunkCount}, фактически ${recorded.length}`
++    );
++    check(`${track.role}: дорожка остановлена штатно`, track.state === "stopped", track.state);
++    check(`${track.role}: длительность ненулевая`, track.totalDurationMs > 0, `${track.totalDurationMs} мс`);
++  }
++  const [a, b] = manifest.tracks.map(t => t.totalDurationMs);
++  check("дорожки не разъехались по длительности", Math.abs(a - b) < 1000, `разница ${Math.abs(a - b)} мс`);
++} finally {
++  await browser.close();
++  server.close();
++}
++
++console.log(
++  failures.length === 0
++    ? "\nВсе проверки прошли.\n"
++    : `\nПровалено ${failures.length}: ${failures.join("; ")}\n`
++);
++process.exit(failures.length === 0 ? 0 : 1);
+diff --git a/src/lib/recording/checksum.ts b/src/lib/recording/checksum.ts
+new file mode 100644
+index 0000000..df37aa5
+--- /dev/null
++++ b/src/lib/recording/checksum.ts
+@@ -0,0 +1,22 @@
++// ============================================================
++// SHA-256 фрагмента записи.
++//
++// Зачем: при выгрузке с retry один и тот же фрагмент может доехать
++// дважды, а при сбое сети — доехать частично. Backend сверяет checksum
++// на приёме и при валидации manifest, чтобы отличить «фрагмент дошёл
++// целым» от «дошёл битым» до того, как запись уйдёт в ASR.
++//
++// crypto.subtle доступен только в secure context (https/localhost) —
++// то же требование, что и у getUserMedia, так что отдельной деградации
++// не нужно: без secure context запись всё равно невозможна.
++// ============================================================
++
++/** "sha256:<hex>" для содержимого Blob. */
++export async function checksumBlob(blob: Blob): Promise<string> {
++  const buffer = await blob.arrayBuffer();
++  const digest = await crypto.subtle.digest("SHA-256", buffer);
++  const hex = Array.from(new Uint8Array(digest))
++    .map(b => b.toString(16).padStart(2, "0"))
++    .join("");
++  return `sha256:${hex}`;
++}
+diff --git a/src/lib/recording/mime.ts b/src/lib/recording/mime.ts
+new file mode 100644
+index 0000000..ad33a26
+--- /dev/null
++++ b/src/lib/recording/mime.ts
+@@ -0,0 +1,67 @@
++// ============================================================
++// Runtime-выбор аудиоформата для MediaRecorder.
++//
++// Формат нельзя захардкодить: Chrome/Chromium обычно даёт WebM/Opus,
++// Safari — MP4/AAC. Поэтому кандидаты перебираются в порядке
++// предпочтения через MediaRecorder.isTypeSupported().
++//
++// ВАЖНОЕ ОГРАНИЧЕНИЕ: isTypeSupported() === true означает только
++// заявленную браузером поддержку. Фактическая запись всё равно может
++// провалиться (нехватка ресурсов, отсутствие кодека в конкретной
++// сборке). Поэтому preflight не доверяет этому флагу и дополнительно
++// пишет тестовый фрагмент, проверяя, что Blob получился непустым.
++//
++// Backend обязан принимать оба семейства форматов и приводить их к
++// единому PCM/WAV перед GigaAM.
++// ============================================================
++
++/** Порядок предпочтения. Opus первым — лучшее качество на битрейт для речи. */
++export const MIME_CANDIDATES: readonly string[] = [
++  "audio/webm;codecs=opus",
++  "audio/mp4",
++  "audio/webm",
++  "audio/ogg;codecs=opus",
++] as const;
++
++/**
++ * true, если в этом браузере вообще есть MediaRecorder.
++ * В SSR-окружении (сборка Next.js) window отсутствует — возвращаем false
++ * вместо падения, вызывающий код работает только на клиенте.
++ */
++export function isMediaRecorderAvailable(): boolean {
++  return typeof window !== "undefined" && typeof window.MediaRecorder !== "undefined";
++}
++
++/** Все поддерживаемые браузером кандидаты — для отчёта preflight. */
++export function listSupportedMimeTypes(): string[] {
++  if (!isMediaRecorderAvailable()) return [];
++  return MIME_CANDIDATES.filter(type => {
++    try {
++      return MediaRecorder.isTypeSupported(type);
++    } catch {
++      return false;
++    }
++  });
++}
++
++/**
++ * Первый поддерживаемый формат, либо null — тогда записывать нельзя и
++ * preflight обязан заблокировать старт записываемой консультации,
++ * предложив другой браузер. Серверного источника аудио в этой
++ * архитектуре нет, поэтому «запишем как-нибудь потом» не вариант.
++ */
++export function selectMimeType(): string | null {
++  return listSupportedMimeTypes()[0] ?? null;
++}
++
++/**
++ * Расширение файла для ключа объекта в хранилище. Нужно, чтобы backend
++ * при сборке дорожки понимал контейнер, не разбирая бинарь.
++ */
++export function extensionForMimeType(mimeType: string): string {
++  const base = mimeType.split(";")[0].trim().toLowerCase();
++  if (base === "audio/webm") return "webm";
++  if (base === "audio/mp4") return "m4a";
++  if (base === "audio/ogg") return "ogg";
++  return "bin";
++}
+diff --git a/src/lib/recording/preflight.ts b/src/lib/recording/preflight.ts
+new file mode 100644
+index 0000000..4d37a8b
+--- /dev/null
++++ b/src/lib/recording/preflight.ts
+@@ -0,0 +1,289 @@
++// ============================================================
++// Preflight — проверка устройства психолога за 10-20 секунд до входа
++// в комнату.
++//
++// Зачем это обязательный шаг, а не необязательная диагностика: в
++// браузерной архитектуре записи серверного источника аудио нет вообще.
++// Если рекордер не заработает, запись консультации не появится ниоткуда
++// — и психолог узнает об этом через час, когда транскрипт не придёт.
++// Поэтому при красном preflight записываемую консультацию начинать
++// нельзя.
++//
++// Проверки намеренно идут от дешёвых к дорогим и ранний провал
++// прекращает цепочку: нет смысла просить микрофон, если MediaRecorder
++// в этом браузере отсутствует.
++// ============================================================
++
++import { isMediaRecorderAvailable, listSupportedMimeTypes, selectMimeType } from "./mime";
++
++export type PreflightCheckId =
++  | "media_recorder"
++  | "mime_type"
++  | "microphone"
++  | "test_recording"
++  | "indexed_db"
++  | "storage_quota"
++  | "webrtc"
++  | "upload";
++
++export type PreflightCheckStatus = "pass" | "fail" | "skipped";
++
++export interface PreflightCheck {
++  id: PreflightCheckId;
++  status: PreflightCheckStatus;
++  /** Текст для психолога — на русском, без технического жаргона. */
++  message: string;
++}
++
++/** Что делать по итогам — соответствует таблице решений в архитектуре. */
++export type PreflightVerdict =
++  /** Все проверки успешны — разрешить начало консультации. */
++  | "allow"
++  /** Не найден поддерживаемый формат — предложить другой браузер. */
++  | "unsupported_browser"
++  /** Нет доступа к микрофону — показать инструкцию по разрешениям. */
++  | "microphone_blocked"
++  /** Недостаточно локального места — освободить место или сменить устройство. */
++  | "insufficient_storage"
++  /** Не работает тестовая запись — блокировать записываемую консультацию. */
++  | "recording_broken"
++  /** Не работает загрузка — повторить проверку; старт только по явному решению психолога. */
++  | "upload_broken";
++
++export interface PreflightResult {
++  verdict: PreflightVerdict;
++  checks: PreflightCheck[];
++  mimeType: string | null;
++  supportedMimeTypes: string[];
++  storageRemainingBytes: number | null;
++}
++
++export interface PreflightOptions {
++  /**
++   * Проверка выгрузки: запросить upload URL и положить туда пробный
++   * объект. Необязательна — без неё preflight не поймает сломанное
++   * хранилище, поэтому в продакшене её нужно передавать.
++   */
++  probeUpload?: () => Promise<void>;
++  /** Длительность тестовой записи, мс. */
++  testRecordingMs?: number;
++  /** Минимум свободного места в браузерном хранилище. */
++  minStorageBytes?: number;
++  /**
++   * Откуда взять аудиопоток для проверки. По умолчанию — микрофон
++   * через getUserMedia.
++   *
++   * Параметризовано по двум причинам. Первая: когда звонок уже поднят
++   * (lib-jitsi-meet сам держит локальную дорожку), повторный
++   * getUserMedia открывает устройство второй раз — лучше передать
++   * существующий поток. Вторая: в средах без аудиоустройств
++   * (CI, контейнер) getUserMedia падает с NotFoundError, и без этой
++   * точки подмены остальные проверки нечем прогнать.
++   */
++  getMicrophoneStream?: () => Promise<MediaStream>;
++  /**
++   * Останавливать ли дорожки потока после проверки. false, когда поток
++   * пришёл снаружи и будет использоваться дальше в звонке.
++   */
++  stopStreamAfterCheck?: boolean;
++}
++
++/**
++ * Часовая консультация двумя дорожками в Opus ~32 кбит/с даёт порядка
++ * 30 МБ. IndexedDB держит только неотправленные фрагменты, но при
++ * получасовом отсутствии сети очередь дорастает примерно до этого
++ * объёма — поэтому запас берём с кратностью.
++ */
++export const DEFAULT_MIN_STORAGE_BYTES = 200 * 1024 * 1024;
++
++const TEST_DB_NAME = "tolk-preflight";
++
++export async function runPreflight(options: PreflightOptions = {}): Promise<PreflightResult> {
++  const checks: PreflightCheck[] = [];
++  const testRecordingMs = options.testRecordingMs ?? 500;
++  const minStorageBytes = options.minStorageBytes ?? DEFAULT_MIN_STORAGE_BYTES;
++
++  const finish = (verdict: PreflightVerdict, extra: Partial<PreflightResult> = {}): PreflightResult => ({
++    verdict,
++    checks,
++    mimeType: extra.mimeType ?? null,
++    supportedMimeTypes: extra.supportedMimeTypes ?? [],
++    storageRemainingBytes: extra.storageRemainingBytes ?? null,
++  });
++
++  const skipRest = (from: PreflightCheckId[]) => {
++    for (const id of from) {
++      checks.push({ id, status: "skipped", message: "Проверка пропущена" });
++    }
++  };
++
++  // 1. MediaRecorder
++  if (!isMediaRecorderAvailable()) {
++    checks.push({ id: "media_recorder", status: "fail", message: "Браузер не умеет записывать звук" });
++    skipRest(["mime_type", "microphone", "test_recording", "indexed_db", "storage_quota", "webrtc", "upload"]);
++    return finish("unsupported_browser");
++  }
++  checks.push({ id: "media_recorder", status: "pass", message: "Запись звука поддерживается" });
++
++  // 2. Формат
++  const supportedMimeTypes = listSupportedMimeTypes();
++  const mimeType = selectMimeType();
++  if (!mimeType) {
++    checks.push({ id: "mime_type", status: "fail", message: "Нет поддерживаемого формата записи" });
++    skipRest(["microphone", "test_recording", "indexed_db", "storage_quota", "webrtc", "upload"]);
++    return finish("unsupported_browser", { supportedMimeTypes });
++  }
++  checks.push({ id: "mime_type", status: "pass", message: `Формат записи: ${mimeType}` });
++
++  // 3. Микрофон
++  const acquireStream =
++    options.getMicrophoneStream ?? (() => navigator.mediaDevices.getUserMedia({ audio: true }));
++  const shouldStopStream = options.stopStreamAfterCheck ?? !options.getMicrophoneStream;
++
++  let stream: MediaStream;
++  try {
++    stream = await acquireStream();
++  } catch (e) {
++    const denied = e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "SecurityError");
++    checks.push({
++      id: "microphone",
++      status: "fail",
++      message: denied ? "Доступ к микрофону запрещён" : "Микрофон недоступен",
++    });
++    skipRest(["test_recording", "indexed_db", "storage_quota", "webrtc", "upload"]);
++    return finish("microphone_blocked", { mimeType, supportedMimeTypes });
++  }
++  checks.push({ id: "microphone", status: "pass", message: "Микрофон доступен" });
++
++  // 4. Тестовая запись. isTypeSupported() обещает поддержку, но
++  //    фактическая запись всё равно может дать пустой Blob — только
++  //    эта проверка отличает «заявлено» от «работает».
++  try {
++    const blob = await recordSample(stream, mimeType, testRecordingMs);
++    if (!blob || blob.size === 0) {
++      checks.push({ id: "test_recording", status: "fail", message: "Тестовая запись получилась пустой" });
++      skipRest(["indexed_db", "storage_quota", "webrtc", "upload"]);
++      return finish("recording_broken", { mimeType, supportedMimeTypes });
++    }
++    checks.push({ id: "test_recording", status: "pass", message: "Тестовая запись прошла" });
++  } catch (e) {
++    checks.push({
++      id: "test_recording",
++      status: "fail",
++      message: `Тестовая запись не удалась: ${e instanceof Error ? e.message : String(e)}`,
++    });
++    skipRest(["indexed_db", "storage_quota", "webrtc", "upload"]);
++    return finish("recording_broken", { mimeType, supportedMimeTypes });
++  } finally {
++    // Поток, пришедший снаружи, останавливать нельзя — он нужен звонку.
++    if (shouldStopStream) stopStream(stream);
++  }
++
++  // 5. IndexedDB — буфер неотправленных фрагментов
++  const indexedDbOk = await probeIndexedDb();
++  if (!indexedDbOk) {
++    checks.push({ id: "indexed_db", status: "fail", message: "Браузер не даёт сохранять фрагменты локально" });
++    skipRest(["storage_quota", "webrtc", "upload"]);
++    return finish("recording_broken", { mimeType, supportedMimeTypes });
++  }
++  checks.push({ id: "indexed_db", status: "pass", message: "Локальный буфер работает" });
++
++  // 6. Свободное место
++  const storageRemainingBytes = await estimateStorageRemaining();
++  if (storageRemainingBytes !== null && storageRemainingBytes < minStorageBytes) {
++    checks.push({ id: "storage_quota", status: "fail", message: "Недостаточно места в браузере" });
++    skipRest(["webrtc", "upload"]);
++    return finish("insufficient_storage", { mimeType, supportedMimeTypes, storageRemainingBytes });
++  }
++  checks.push({ id: "storage_quota", status: "pass", message: "Места достаточно" });
++
++  // 7. WebRTC
++  if (typeof RTCPeerConnection === "undefined") {
++    checks.push({ id: "webrtc", status: "fail", message: "Браузер не поддерживает видеозвонки" });
++    skipRest(["upload"]);
++    return finish("unsupported_browser", { mimeType, supportedMimeTypes, storageRemainingBytes });
++  }
++  checks.push({ id: "webrtc", status: "pass", message: "Видеосвязь поддерживается" });
++
++  // 8. Выгрузка
++  if (!options.probeUpload) {
++    checks.push({ id: "upload", status: "skipped", message: "Проверка загрузки не выполнялась" });
++    return finish("allow", { mimeType, supportedMimeTypes, storageRemainingBytes });
++  }
++  try {
++    await options.probeUpload();
++    checks.push({ id: "upload", status: "pass", message: "Загрузка работает" });
++  } catch (e) {
++    checks.push({
++      id: "upload",
++      status: "fail",
++      message: `Загрузка не работает: ${e instanceof Error ? e.message : String(e)}`,
++    });
++    return finish("upload_broken", { mimeType, supportedMimeTypes, storageRemainingBytes });
++  }
++
++  return finish("allow", { mimeType, supportedMimeTypes, storageRemainingBytes });
++}
++
++/** Записывает короткий фрагмент и отдаёт его Blob. */
++function recordSample(stream: MediaStream, mimeType: string, durationMs: number): Promise<Blob> {
++  return new Promise((resolve, reject) => {
++    let recorder: MediaRecorder;
++    try {
++      recorder = new MediaRecorder(stream, { mimeType });
++    } catch (e) {
++      reject(e instanceof Error ? e : new Error(String(e)));
++      return;
++    }
++    const parts: Blob[] = [];
++    recorder.ondataavailable = e => {
++      if (e.data && e.data.size > 0) parts.push(e.data);
++    };
++    recorder.onerror = () => reject(new Error("MediaRecorder сообщил об ошибке"));
++    recorder.onstop = () => resolve(new Blob(parts, { type: mimeType }));
++    recorder.start();
++    setTimeout(() => {
++      if (recorder.state !== "inactive") recorder.stop();
++    }, durationMs);
++  });
++}
++
++function stopStream(stream: MediaStream): void {
++  for (const track of stream.getTracks()) track.stop();
++}
++
++/** Открыть базу, записать и прочитать пробное значение, затем удалить базу. */
++async function probeIndexedDb(): Promise<boolean> {
++  if (typeof indexedDB === "undefined") return false;
++  try {
++    const db = await new Promise<IDBDatabase>((resolve, reject) => {
++      const request = indexedDB.open(TEST_DB_NAME, 1);
++      request.onupgradeneeded = () => request.result.createObjectStore("probe");
++      request.onsuccess = () => resolve(request.result);
++      request.onerror = () => reject(request.error);
++    });
++    await new Promise<void>((resolve, reject) => {
++      const tx = db.transaction("probe", "readwrite");
++      tx.objectStore("probe").put(new Blob(["ok"]), "probe");
++      tx.oncomplete = () => resolve();
++      tx.onerror = () => reject(tx.error);
++    });
++    db.close();
++    indexedDB.deleteDatabase(TEST_DB_NAME);
++    return true;
++  } catch {
++    return false;
++  }
++}
++
++/** Остаток квоты браузерного хранилища, либо null если браузер не сообщает. */
++async function estimateStorageRemaining(): Promise<number | null> {
++  try {
++    if (!navigator.storage?.estimate) return null;
++    const { quota, usage } = await navigator.storage.estimate();
++    if (typeof quota !== "number" || typeof usage !== "number") return null;
++    return Math.max(0, quota - usage);
++  } catch {
++    return null;
++  }
++}
+diff --git a/src/lib/recording/sessionRecorder.ts b/src/lib/recording/sessionRecorder.ts
+new file mode 100644
+index 0000000..c5f1459
+--- /dev/null
++++ b/src/lib/recording/sessionRecorder.ts
+@@ -0,0 +1,140 @@
++// ============================================================
++// Оркестрация записи консультации: две независимые дорожки в браузере
++// психолога — его собственный микрофон и удалённый аудиопоток клиента.
++//
++// Дорожки стартуют в разное время: микрофон психолога доступен сразу
++// после preflight, а дорожка клиента появляется только когда он
++// подключился к звонку. Поэтому запись психолога не ждёт клиента —
++// иначе начало консультации было бы потеряно, — а дорожка клиента
++// подключается через attachRemoteStream() по факту появления.
++//
++// На устройстве клиента при этом не происходит ничего: рекордер не
++// создаётся, IndexedDB под аудио не используется, выгрузка не идёт.
++// Клиент участвует в обычном WebRTC-звонке и видит индикатор записи.
++// ============================================================
++
++import type { RecordedChunk, RecordingManifest, TrackRole, TrackStatus } from "./types";
++import { TrackRecorder, DEFAULT_TIMESLICE_MS } from "./trackRecorder";
++
++export interface SessionRecorderOptions {
++  sessionId: string;
++  /** Локальный микрофон психолога — получен через getUserMedia. */
++  localStream: MediaStream;
++  /** Дорожка клиента, если она уже есть на момент старта. */
++  remoteStream?: MediaStream;
++  timesliceMs?: number;
++  mimeType?: string;
++  onChunk: (chunk: RecordedChunk) => void;
++  onStatusChange?: (status: RecordingStatusSnapshot) => void;
++  now?: () => number;
++}
++
++/** Сводка для heartbeat и для индикатора записи в интерфейсе психолога. */
++export interface RecordingStatusSnapshot {
++  sessionId: string;
++  recording: boolean;
++  tracks: TrackStatus[];
++  /** true, если дорожка клиента ещё ни разу не подключалась. */
++  awaitingClient: boolean;
++}
++
++export class SessionRecorder {
++  private readonly sessionId: string;
++  private readonly options: SessionRecorderOptions;
++  private readonly recorders = new Map<TrackRole, TrackRecorder>();
++
++  private startedAt: Date | null = null;
++  private finishedAt: Date | null = null;
++  private clientEverAttached = false;
++
++  constructor(options: SessionRecorderOptions) {
++    this.sessionId = options.sessionId;
++    this.options = options;
++  }
++
++  /** Запускает дорожку психолога; дорожку клиента — если поток уже есть. */
++  start(): void {
++    this.startedAt = new Date();
++    this.startTrack("psychologist", this.options.localStream);
++    if (this.options.remoteStream) {
++      this.attachRemoteStream(this.options.remoteStream);
++    }
++  }
++
++  /**
++   * Клиент подключился (или переподключился) — появился новый remote
++   * MediaStream. При переподключении нумерация фрагментов продолжается
++   * сквозной, чтобы backend видел непрерывную последовательность.
++   */
++  attachRemoteStream(stream: MediaStream): void {
++    this.clientEverAttached = true;
++    const existing = this.recorders.get("client");
++    if (existing) {
++      void existing.replaceStream(stream);
++      return;
++    }
++    this.startTrack("client", stream);
++  }
++
++  private startTrack(role: TrackRole, stream: MediaStream): void {
++    const recorder = new TrackRecorder({
++      role,
++      stream,
++      timesliceMs: this.options.timesliceMs ?? DEFAULT_TIMESLICE_MS,
++      mimeType: this.options.mimeType,
++      now: this.options.now,
++      onChunk: this.options.onChunk,
++      onStateChange: () => this.emitStatus(),
++    });
++    this.recorders.set(role, recorder);
++    recorder.start();
++    this.emitStatus();
++  }
++
++  getStatus(): RecordingStatusSnapshot {
++    const tracks = [...this.recorders.values()].map(r => r.getStatus());
++    return {
++      sessionId: this.sessionId,
++      recording: tracks.some(t => t.state === "recording"),
++      tracks,
++      awaitingClient: !this.clientEverAttached,
++    };
++  }
++
++  /**
++   * Останавливает обе дорожки, дожидается последних фрагментов и
++   * возвращает manifest. Backend по нему проверяет, что все номера на
++   * месте, нет дублей и дорожки не разъехались по длительности —
++   * только после этого сессия становится готовой к расшифровке.
++   */
++  async stop(): Promise<RecordingManifest> {
++    await Promise.all([...this.recorders.values()].map(r => r.stop()));
++    this.finishedAt = new Date();
++    this.emitStatus();
++
++    const tracks: RecordingManifest["tracks"] = [...this.recorders.entries()].map(([role, recorder]) => {
++      const status = recorder.getStatus();
++      const chunkCount = recorder.getChunkCount();
++      return {
++        role,
++        mimeType: status.mimeType,
++        firstSequence: chunkCount > 0 ? 0 : -1,
++        lastSequence: chunkCount - 1,
++        chunkCount,
++        totalDurationMs: Math.round(recorder.getTotalDurationMs()),
++        state: status.state,
++      };
++    });
++
++    return {
++      sessionId: this.sessionId,
++      startedAt: (this.startedAt ?? new Date()).toISOString(),
++      finishedAt: this.finishedAt.toISOString(),
++      tracks,
++    };
++  }
++
++  private emitStatus(): void {
++    this.options.onStatusChange?.(this.getStatus());
++  }
++}
+diff --git a/src/lib/recording/trackRecorder.ts b/src/lib/recording/trackRecorder.ts
+new file mode 100644
+index 0000000..daa284d
+--- /dev/null
++++ b/src/lib/recording/trackRecorder.ts
+@@ -0,0 +1,234 @@
++// ============================================================
++// Запись ОДНОЙ аудиодорожки через MediaRecorder с нарезкой на фрагменты.
++//
++// MediaRecorder.start(timeslice) сам отдаёт Blob каждые timeslice мс
++// через dataavailable — не нужно останавливать и перезапускать запись,
++// чтобы получить фрагмент. Это важно: перезапуск дал бы разрыв между
++// фрагментами, а нам нужна непрерывная дорожка.
++//
++// Нарезка 15-30 секунд — компромисс: короче тем больше накладных
++// расходов на запросы выгрузки, длиннее тем больше теряется при
++// внезапном закрытии вкладки (последний ненарезанный фрагмент потерян
++// всегда — это принципиальная цена браузерной записи).
++//
++// Класс намеренно ничего не знает ни о Jitsi, ни о выгрузке: он
++// получает MediaStream и отдаёт фрагменты через колбэк. Буферизация
++// (IndexedDB) и выгрузка живут отдельно, чтобы их можно было
++// тестировать и чинить независимо от захвата звука.
++// ============================================================
++
++import type { RecordedChunk, TrackRole, TrackState, TrackStatus } from "./types";
++import { checksumBlob } from "./checksum";
++import { selectMimeType } from "./mime";
++
++/** 20 секунд — середина рекомендованного диапазона 15-30с. */
++export const DEFAULT_TIMESLICE_MS = 20_000;
++
++export interface TrackRecorderOptions {
++  role: TrackRole;
++  stream: MediaStream;
++  timesliceMs?: number;
++  /** Принудительный MIME (для тестов). По умолчанию выбирается в runtime. */
++  mimeType?: string;
++  onChunk: (chunk: RecordedChunk) => void;
++  onStateChange?: (status: TrackStatus) => void;
++  /** Источник монотонного времени — подменяется в тестах. */
++  now?: () => number;
++}
++
++export class TrackRecorderError extends Error {
++  constructor(
++    message: string,
++    public code: "no_mime" | "no_audio_track" | "recorder_failed"
++  ) {
++    super(message);
++    this.name = "TrackRecorderError";
++  }
++}
++
++export class TrackRecorder {
++  private readonly role: TrackRole;
++  private readonly timesliceMs: number;
++  private readonly onChunk: (chunk: RecordedChunk) => void;
++  private readonly onStateChange?: (status: TrackStatus) => void;
++  private readonly now: () => number;
++
++  private stream: MediaStream;
++  private recorder: MediaRecorder | null = null;
++  private audioTrack: MediaStreamTrack | null = null;
++
++  private state: TrackState = "idle";
++  private mimeType: string | null = null;
++  private error: string | null = null;
++
++  private sequence = 0;
++  private startedAt = 0;
++  /** Смещение конца предыдущего фрагмента от старта записи, мс. */
++  private previousOffsetMs = 0;
++  /** Сериализация обработки фрагментов: checksum асинхронный, а порядок номеров важен. */
++  private chunkQueue: Promise<void> = Promise.resolve();
++
++  constructor(options: TrackRecorderOptions) {
++    this.role = options.role;
++    this.stream = options.stream;
++    this.timesliceMs = options.timesliceMs ?? DEFAULT_TIMESLICE_MS;
++    this.onChunk = options.onChunk;
++    this.onStateChange = options.onStateChange;
++    this.now = options.now ?? (() => performance.now());
++    this.mimeType = options.mimeType ?? null;
++  }
++
++  getStatus(): TrackStatus {
++    return {
++      role: this.role,
++      state: this.state,
++      lastChunkSequence: this.sequence - 1,
++      mimeType: this.mimeType,
++      error: this.error,
++    };
++  }
++
++  /** Суммарная длительность нарезанного, мс — для manifest. */
++  getTotalDurationMs(): number {
++    return this.previousOffsetMs;
++  }
++
++  getChunkCount(): number {
++    return this.sequence;
++  }
++
++  start(): void {
++    if (this.state === "recording") return;
++
++    const audioTracks = this.stream.getAudioTracks();
++    if (audioTracks.length === 0) {
++      this.fail("no_audio_track", "В потоке нет аудиодорожки");
++      throw new TrackRecorderError(`Дорожка ${this.role}: в потоке нет аудио`, "no_audio_track");
++    }
++
++    const mimeType = this.mimeType ?? selectMimeType();
++    if (!mimeType) {
++      this.fail("no_mime", "Браузер не поддерживает ни один аудиоформат записи");
++      throw new TrackRecorderError("Браузер не поддерживает запись аудио", "no_mime");
++    }
++    this.mimeType = mimeType;
++
++    try {
++      this.recorder = new MediaRecorder(this.stream, { mimeType });
++    } catch (e) {
++      const message = e instanceof Error ? e.message : String(e);
++      this.fail("recorder_failed", message);
++      throw new TrackRecorderError(`Не удалось создать MediaRecorder: ${message}`, "recorder_failed");
++    }
++
++    this.attachTrackListeners(audioTracks[0]);
++
++    this.recorder.ondataavailable = event => this.enqueueChunk(event.data);
++    this.recorder.onerror = event => {
++      const err = (event as unknown as { error?: DOMException }).error;
++      this.fail("recorder_failed", err?.message ?? "MediaRecorder сообщил об ошибке");
++    };
++
++    this.startedAt = this.now();
++    this.previousOffsetMs = 0;
++    this.recorder.start(this.timesliceMs);
++    this.setState("recording");
++  }
++
++  /**
++   * Останавливает запись и дожидается, пока последний фрагмент будет
++   * нарезан и обработан. MediaRecorder при stop() отдаёт остаток
++   * последним dataavailable — его нельзя потерять.
++   */
++  async stop(): Promise<void> {
++    const recorder = this.recorder;
++    if (!recorder || recorder.state === "inactive") {
++      this.setState("stopped");
++      await this.chunkQueue;
++      return;
++    }
++
++    await new Promise<void>(resolve => {
++      recorder.onstop = () => resolve();
++      try {
++        recorder.stop();
++      } catch {
++        resolve();
++      }
++    });
++
++    await this.chunkQueue;
++    if (this.state !== "failed") this.setState("stopped");
++  }
++
++  /**
++   * Переподключение клиента: remote track пересоздаётся, старый
++   * MediaRecorder к нему уже не привязать. Нумерация фрагментов
++   * продолжается сквозной, поэтому backend увидит непрерывную
++   * последовательность, а разрыв виден по скачку startedAtMs.
++   */
++  async replaceStream(stream: MediaStream): Promise<void> {
++    const carriedOffset = this.previousOffsetMs;
++    await this.stop();
++    this.stream = stream;
++    this.recorder = null;
++    this.error = null;
++    this.start();
++    // start() обнулил смещение — восстанавливаем, чтобы тайминги
++    // оставались сквозными по всей сессии, а не по одному сегменту.
++    this.previousOffsetMs = carriedOffset;
++    this.startedAt = this.now() - carriedOffset;
++  }
++
++  private attachTrackListeners(track: MediaStreamTrack): void {
++    this.audioTrack = track;
++    // ended = дорожка исчезла насовсем (клиент вышел, устройство отвалилось).
++    // mute/unmute = временная тишина (клиент выключил микрофон) — запись
++    // продолжается и пишет тишину, это не потеря дорожки.
++    track.addEventListener("ended", () => {
++      if (this.state === "recording") this.setState("track_lost");
++    });
++  }
++
++  private enqueueChunk(blob: Blob): void {
++    // Пустые Blob случаются (браузер отдал событие без данных). Номер не
++    // тратим, иначе в последовательности появится дыра, которую backend
++    // не отличит от потерянного фрагмента.
++    if (!blob || blob.size === 0) return;
++
++    const receivedAt = this.now();
++    this.chunkQueue = this.chunkQueue
++      .then(async () => {
++        const offsetMs = Math.max(0, receivedAt - this.startedAt);
++        const startedAtMs = this.previousOffsetMs;
++        const durationMs = Math.max(0, Math.round(offsetMs - startedAtMs));
++        this.previousOffsetMs = startedAtMs + durationMs;
++
++        const chunk: RecordedChunk = {
++          role: this.role,
++          sequence: this.sequence++,
++          blob,
++          startedAtMs: Math.round(startedAtMs),
++          durationMs,
++          mimeType: this.mimeType ?? blob.type,
++          size: blob.size,
++          checksum: await checksumBlob(blob),
++        };
++        this.onChunk(chunk);
++      })
++      .catch(e => {
++        this.fail("recorder_failed", e instanceof Error ? e.message : String(e));
++      });
++  }
++
++  private fail(_code: string, message: string): void {
++    this.error = message;
++    this.setState("failed");
++  }
++
++  private setState(state: TrackState): void {
++    if (this.state === state) return;
++    this.state = state;
++    this.onStateChange?.(this.getStatus());
++  }
++}
+diff --git a/src/lib/recording/types.ts b/src/lib/recording/types.ts
+new file mode 100644
+index 0000000..76b1ccf
+--- /dev/null
++++ b/src/lib/recording/types.ts
+@@ -0,0 +1,89 @@
++// ============================================================
++// Общие типы браузерной записи консультации.
++//
++// Архитектурное решение (2026-09-22, заменяет Jibri): запись выполняется
++// ТОЛЬКО в браузере психолога и содержит обе стороны разговора двумя
++// раздельными дорожками — локальный микрофон психолога и удалённая
++// аудиодорожка клиента, полученная из WebRTC-соединения. На устройстве
++// клиента не создаётся MediaRecorder, не используется IndexedDB под
++// аудио и ничего не выгружается в хранилище.
++//
++// Почему две дорожки, а не один смешанный файл: точное определение
++// спикера без диаризации, независимая нормализация громкости, удаление
++// тишины перед ASR, обнаружение пропадания одной из сторон и
++// возможность переобработать только проблемного спикера.
++//
++// Модуль сознательно НЕ зависит от Jitsi: на вход подаются готовые
++// MediaStream. Это позволяет (1) тестировать рекордер на синтетических
++// потоках без видеосервера и (2) пережить смену способа интеграции
++// звонка, не переписывая запись.
++// ============================================================
++
++/** Кто говорит на дорожке. Значения попадают в ключи объектов в хранилище. */
++export type TrackRole = "psychologist" | "client";
++
++export const TRACK_ROLES: readonly TrackRole[] = ["psychologist", "client"] as const;
++
++/**
++ * Один фрагмент записи, полученный из MediaRecorder.
++ *
++ * ВАЖНО: фрагмент НЕ является самостоятельным аудиофайлом. При записи
++ * в WebM/Opus заголовок контейнера попадает только в первый фрагмент,
++ * остальные — продолжение потока. Поэтому backend обязан хранить
++ * последовательность и собирать/ремуксить дорожку целиком (FFmpeg)
++ * перед отправкой в ASR, а не расшифровывать фрагменты поодиночке.
++ */
++export interface RecordedChunk {
++  role: TrackRole;
++  /** Сквозной номер внутри дорожки, начиная с 0. Дыр быть не должно. */
++  sequence: number;
++  blob: Blob;
++  /** Смещение начала фрагмента от старта записи дорожки, мс. */
++  startedAtMs: number;
++  /** Фактическая длительность фрагмента, мс (не равна timeslice в точности). */
++  durationMs: number;
++  mimeType: string;
++  size: number;
++  /** "sha256:<hex>" — считается в браузере, backend сверяет при приёме. */
++  checksum: string;
++}
++
++/** Состояние записи одной дорожки — то, что показывается психологу и уходит в heartbeat. */
++export type TrackState =
++  | "idle"
++  | "recording"
++  /** Дорожка исчезла (клиент отключился / выключил микрофон на уровне устройства). */
++  | "track_lost"
++  | "stopped"
++  | "failed";
++
++export interface TrackStatus {
++  role: TrackRole;
++  state: TrackState;
++  /** Номер последнего нарезанного фрагмента, -1 если ещё ничего не было. */
++  lastChunkSequence: number;
++  mimeType: string | null;
++  error: string | null;
++}
++
++/**
++ * Manifest завершённой записи. Отправляется на backend после остановки —
++ * именно по нему проверяется целостность (все ли номера на месте, нет ли
++ * дублей, насколько разъехались длительности дорожек) прежде чем сессия
++ * получит статус готовности к расшифровке.
++ */
++export interface RecordingManifest {
++  sessionId: string;
++  startedAt: string;
++  finishedAt: string;
++  tracks: Array<{
++    role: TrackRole;
++    mimeType: string | null;
++    firstSequence: number;
++    lastSequence: number;
++    /** Сколько фрагментов реально нарезано — для сверки с диапазоном номеров. */
++    chunkCount: number;
++    totalDurationMs: number;
++    state: TrackState;
++  }>;
++}
+-- 
+2.43.0
+
+
+From 19bf6bc0f55ceb52aa8966ff7a02943121043acc Mon Sep 17 00:00:00 2001
+From: Anton <alejnikovanton182@gmail.com>
+Date: Tue, 22 Sep 2026 17:48:37 +0600
+Subject: [PATCH 2/2] =?UTF-8?q?=D0=94=D0=BE=D0=B1=D0=B0=D0=B2=D0=B8=D1=82?=
+ =?UTF-8?q?=D1=8C=20CLAUDE=5FCONTEXT=5FHANDOFF.md=20=D0=B2=20=D1=80=D0=B5?=
+ =?UTF-8?q?=D0=BF=D0=BE=D0=B7=D0=B8=D1=82=D0=BE=D1=80=D0=B8=D0=B9=20(22.09?=
+ =?UTF-8?q?)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Раньше файл существовал только как документ claude.ai Project — в самом
+репозитории на этом пути ничего не было (git ls-files подтверждает: до
+этого коммита файла не было). Любая сессия, которая просто клонирует
+репозиторий без привязки к тому же Project, не видела контекст вообще.
+
+Также фиксирует находку по git-доступу облачных сессий: push блокируется
+policy-proxy по authorized repository set, который не меняется ни личным
+PAT, ни account-level GitHub-коннектором, добавленным постфактум — только
+явным выбором репозитория при создании сессии/задачи.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Hktyf3hQNowNVtERF9joWD
+---
+ CLAUDE_CONTEXT_HANDOFF.md | 184 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 184 insertions(+)
+ create mode 100644 CLAUDE_CONTEXT_HANDOFF.md
+
+diff --git a/CLAUDE_CONTEXT_HANDOFF.md b/CLAUDE_CONTEXT_HANDOFF.md
+new file mode 100644
+index 0000000..3a6746a
+--- /dev/null
++++ b/CLAUDE_CONTEXT_HANDOFF.md
+@@ -0,0 +1,184 @@
++# Контекст проекта ТОЛК — для нового агента
++
++> Этот файл также хранится (и обновляется) как документ claude.ai Project
++> «ТОЛК» — если новая сессия подключена к тому же Project, там может быть
++> более свежая версия. Если сессия НЕ подключена к Project — эта копия в
++> репозитории единственный источник контекста, держи её в актуальном виде.
++
++Ты подключаешься к разработке ТОЛК — SaaS-платформы для российских психологов
++на Next.js + Supabase + YandexGPT, с AI-ассистентом (function calling, 18
++инструментов) внутри продукта. Прод: https://tolk-three.vercel.app.
++Репозиторий: https://github.com/Whisper-t3ch/tolk (ветка main).
++
++## КРИТИЧНО ПРО ДЕНЬГИ — прочитай прежде чем что-либо тестировать
++
++Есть два аккаунта Yandex Cloud:
++- **Основной аккаунт** — только для реальной инфраструктуры беты (боевые
++  ключи в Vercel Production: YANDEX_GPT_API_KEY, YANDEX_GPT_FOLDER_ID,
++  YANDEX_SEARCH_API_KEY). НЕ ТРОГАТЬ трафиком тестов.
++- **Тестовый аккаунт** — покрывается грантом, тратит грант, а не деньги
++  пользователя. ИМЕННО СЮДА должны идти все тестовые вызовы.
++
++Значит: **никогда не гоняй тестовые запросы через https://tolk-three.vercel.app
++напрямую** (это Production = боевой ключ = основной аккаунт = реальные деньги).
++Для тестирования используй одно из:
++1. Preview-деплой Vercel (запушь в любую ветку, отличную от main — Vercel
++   сам поднимает Preview URL, там подтянутся тестовые Preview/Development
++   переменные окружения, НЕ боевые).
++2. Локальный `npm run dev` с `.env.local`, где вписаны ТЕСТОВЫЕ значения
++   YANDEX_GPT_API_KEY / YANDEX_GPT_FOLDER_ID (спроси у пользователя, если
++   их нет под рукой — НЕ бери значения из Vercel Production).
++
++Если сомневаешься, на каком ключе выполняется запрос — остановись и спроси
++пользователя, не угадывай.
++
++## Что уже сделано (не переизобретай)
++
++- Агентский цикл с function calling, до 5 итераций, 18 инструментов
++  (create_client, create_session, search_knowledge_base, send_session_invite
++  и т.д.) — схема в `src/lib/agent/tools.ts`, выполнение в
++  `src/lib/agent/executor.ts`, оркестрация в `src/app/api/assistant/route.ts`.
++- ТРИ независимые попытки динамически/постоянно сузить список 18
++  инструментов (topK, keyword routing, embedding retrieval) — ВСЕ
++  провалились и были откачены. Постоянное удаление write-инструментов
++  с UI-альтернативой — рассмотрено и отклонено (экономия токенов не
++  оправдывает потерю UX). Эта ветка оптимизации закрыта, не предлагай её
++  снова без явного запроса пользователя.
++- Известный класс багов: YandexGPT Pro 5.1 нестабильно генерирует
++  структурированные tool calls — иногда пишет псевдо-вызов текстом
++  (перехватывается `pseudoToolCallParser.ts`), иногда заявляет о
++  намерении не выполнив его ("сейчас проверю..."), иногда обещает
++  результат действия текстом без вызова инструмента вообще (retry-
++  эвристики в `route.ts`, ищи `looksLikeUnfulfilledIntent` и
++  `looksLikeFakeWebSearchOffer`). Если увидишь новый вариант этого
++  класса — расширяй существующую эвристику, не пиши новый параллельный
++  механизм.
++- Веб-поиск при пустой базе знаний — реализован как отдельный узкий
++  путь (`/api/assistant/web-search`), НЕ 19-й инструмент в схеме.
++  Yandex Search API ключ подтверждён рабочим.
++- ОТКРЫТАЯ НАХОДКА (не решена): на тяжёлых клинических темах
++  (диссоциативное расстройство идентичности, ПТСР от травмы) модель
++  систематически отказывается вызывать search_knowledge_base — похоже
++  на встроенный guardrail YandexGPT, не на случайную нестабильность.
++  Requires дальнейшего исследования на других тяжёлых темах (суицид,
++  самоповреждение, насилие) прежде чем делать выводы.
++
++## Запись консультаций: переход с Jibri на браузерную запись (22.09)
++
++### Принятые решения
++
++Запись консультации переводится с серверного Jibri на **запись двух
++аудиодорожек в браузере психолога**: его локальный микрофон и удалённая
++дорожка клиента, полученная из WebRTC. На устройстве клиента не
++запускается MediaRecorder, не используется IndexedDB под аудио и ничего
++не выгружается — он участвует в обычном звонке и видит индикатор записи.
++Фрагменты по 15-30 секунд выгружаются в объектное хранилище по мере
++записи, после остановки браузер присылает manifest, backend проверяет
++целостность и только потом отдаёт запись в GigaAM.
++
++Решения пользователя, принятые явно (не переоткрывай без запроса):
++- **Интеграция: lib-jitsi-meet со своим UI звонка.** Не iframe, не patch
++  внутри сборки Jitsi.
++- **ВМ ещё нет.** Инфраструктуры не существует, `NEXT_PUBLIC_JITSI_DOMAIN`
++  не задан, реальные звонки сейчас протестировать негде.
++- **Jibri заменяется полностью**, не остаётся как fallback.
++
++### Блокер, из-за которого это решение и потребовалось
++
++Jitsi сейчас встроен в `src/app/(app)/session/[id]/page.tsx` как обычный
++`<iframe src={videoRoomUrl}>` на чужом домене, даже без External API.
++Из-за same-origin policy родительская страница **не может** получить
++MediaStream дорожек из этого iframe: `getOriginalStream()` существует
++только внутри контекста Jitsi. Локальный микрофон психолога доступен и
++так (свой `getUserMedia`), а вот голос клиента — нет. Поэтому браузерная
++запись обеих сторон невозможна, пока звонок живёт в чужом iframe; отсюда
++и переход на lib-jitsi-meet.
++
++### Что уже написано и проверено
++
++- `src/lib/recording/` — ядро записи, не зависящее от Jitsi (на вход
++  принимает готовые MediaStream): `types.ts`, `mime.ts` (runtime-выбор
++  формата), `checksum.ts`, `trackRecorder.ts` (одна дорожка, нарезка,
++  сквозная нумерация, переподключение клиента), `sessionRecorder.ts`
++  (две дорожки + manifest), `preflight.ts` (проверка устройства и
++  вердикт о допуске к записываемой консультации).
++- `outputs/tests/recording_browser_check.mjs` — прогон в реальном
++  Chromium через Playwright на синтетических потоках. 29 проверок,
++  все зелёные: обе дорожки пишутся, нумерация без дыр, фрагменты
++  непустые, дорожки содержат разный звук, manifest сходится с фактом,
++  расхождение длительностей 0-1 мс. Запуск: `node outputs/tests/recording_browser_check.mjs`.
++- `outputs/backend/migration_036_browser_recording.sql` — схема:
++  `session_recording_chunks` (реестр фрагментов), `session_transcript_segments`
++  (реплики со спикерами и таймкодами), manifest и heartbeat на `sessions`,
++  новые статусы `uploading`/`incomplete`, `source='jitsi_browser'`.
++  Прогнана на настоящем PostgreSQL 16 поверх реконструированной схемы:
++  12 проверок, включая идемпотентность, RLS, отбой дублей и каскады.
++  ЕЩЁ НЕ ПРИМЕНЕНА к реальному Supabase-проекту.
++
++Важные детали, чтобы не наступить повторно:
++- Фрагмент **не является самостоятельным аудиофайлом**: в WebM/Opus
++  заголовок контейнера попадает только во фрагмент с sequence=0.
++  Сборка/remux дорожки обязательна перед ASR.
++- `CREATE POLICY` не имеет формы `IF NOT EXISTS` — без `drop policy if
++  exists` миграция падает на повторном прогоне. Проверено, в 036
++  исправлено. В `migration_034` та же проблема осталась (не трогали).
++- В контейнерах без аудиоустройств `getUserMedia` падает с NotFoundError
++  при любых флагах Chromium (`--use-fake-device-for-media-capture` и
++  `--use-file-for-fake-audio-capture` проверены, `enumerateDevices` пуст).
++  Поэтому у `runPreflight` есть параметр `getMicrophoneStream` — он же
++  убирает повторный запрос микрофона, когда звонок уже держит дорожку.
++
++### Что осталось
++
++- Буфер IndexedDB и загрузчик фрагментов (retry/resume, idempotency key).
++- API: выдача pre-signed upload URL, приём подтверждений, manifest,
++  heartbeat. Хранилище пока не выбрано окончательно — deploy-док
++  предлагал Supabase Storage (bucket `recordings`), в репо Storage
++  нигде ещё не используется.
++- Замена iframe на lib-jitsi-meet со своим UI звонка.
++- Backend: сборка дорожек (FFmpeg), VAD, вызов GigaAM по двум дорожкам,
++  сведение сегментов по таймкодам. Текущий `src/lib/asr.ts` принимает
++  ОДИН `audio_url` и возвращает плоский текст — контракт придётся менять.
++- Удаление Jibri-пути: `/api/webhooks/recording` и раздел про Jibri в
++  `outputs/backend/deploy_jitsi_gigaam.md`. Учти: `session_transcripts.raw_text`
++  остаётся источником для SOAP/суммаризации/RAG — он собирается из
++  сегментов как диалог, чтобы существующий пайплайн не пришлось трогать.
++
++## Git-доступ этой cloud-сессии (важно для следующей сессии)
++
++22.09 обнаружилась проблема, актуальная для ЛЮБОЙ облачной Claude-сессии
++над этим репо, не только этой: исходящий git этой сессии идёт через
++policy-proxy, который проверяет push (не только чтение) по отдельному
++"authorized repository set", привязанному, похоже, к моменту СОЗДАНИЯ
++сессии/задачи — а не к тому, что подключено потом. Проверено эмпирически:
++ни личный GitHub PAT (чтение работало, push — нет), ни account-level
++коннектор «GitHub Integration», добавленный постфактум через Connectors,
++push не разблокировали — ошибка от прокси идентична во всех случаях:
++`access denied by the git proxy: <repo> is not in this session's
++authorized repository set`.
++
++Если начинаешь новую сессию и тебе тоже нужен push: проверяй доступ сразу
++(`git push --dry-run origin main` или любой безвредный push) и, если он
++заблокирован той же ошибкой, не трать время на повторные попытки или
++альтернативные токены — вместо этого ищи в интерфейсе Cowork/claude.ai
++явный пункт выбора GitHub-репозитория ИМЕННО при создании задачи/сессии
++(до первого сообщения), а не в общих настройках коннекторов постфактум.
++
++## Протокол тестирования (соблюдай строго)
++
++Пользователь установил жёсткое правило: если ХОТЯ БЫ ОДИН тест
++показывает провал (нужный инструмент не сработал, модель не справилась) —
++откатываем изменение ПОЛНОСТЬЮ, не патчим точечно. Это применялось трижды
++подряд к попыткам сузить список инструментов. Уважай этот протокол для
++любых экспериментов с оптимизацией стоимости/схемы.
++
++## Стиль работы пользователя
++
++- Просит SQL-проверки вместо предположений — "сначала проверить через SQL"
++  повторяющийся паттерн.
++- Требует точных логов (Vercel Logs, конкретный request_id) как
++  доказательство, не довольствуется "похоже заработало".
++- Явно против удаления функциональности "на всякий случай снизить число
++  инструментов" без количественного обоснования.
++- Ценит честные отчёты о найденных проблемах даже когда основная задача
++  выполнена — не скрывай сопутствующие находки.
+-- 
+2.43.0
+

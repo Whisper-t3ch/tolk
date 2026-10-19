@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Тест фрагментов MediaRecorder — для проверки remux (Этап 3, ТОЛК)</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; line-height: 1.5; }
+  button { font-size: 16px; padding: 10px 18px; margin-right: 8px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #log { white-space: pre-wrap; background: #f4f4f4; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 13px; margin-top: 16px; max-height: 300px; overflow: auto; }
+  .downloads { margin-top: 16px; }
+  .downloads a { display: block; margin: 4px 0; }
+  .note { color: #555; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>Тест фрагментов записи (только звук)</h1>
+<p class="note">
+  Автономная страница вне продукта ТОЛК — только браузерный MediaRecorder API,
+  без Jitsi, без логина, без загрузки куда-либо. Нужна для проверки Этапа 3
+  (remux дорожки из отдельных фрагментов): реальный браузер режет запись на
+  куски иначе, чем можно синтетически подделать через ffmpeg — нужны
+  настоящие фрагменты из настоящего MediaRecorder.
+</p>
+<p>
+  Нажми «Начать запись», скажи что-нибудь вслух секунд 10-15 (или просто
+  оставь звук в комнате — подойдёт любой звук, даже тишина), затем «Остановить».
+  Появятся 3 файла для скачивания: отдельные фрагменты (chunk_000000.webm,
+  chunk_000001.webm, ...) и один уже склеенный на стороне браузера файл
+  (combined.webm). Пришли все файлы обратно в сессию — этого достаточно для
+  проверки remux без доступа к прод-инфраструктуре.
+</p>
+<button id="startBtn">Начать запись</button>
+<button id="stopBtn" disabled>Остановить</button>
+<div id="log"></div>
+<div class="downloads" id="downloads"></div>
+
+<script>
+const logEl = document.getElementById('log');
+const downloadsEl = document.getElementById('downloads');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+function log(msg) {
+  logEl.textContent += msg + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+let mediaRecorder;
+let chunks = [];
+let mimeType = '';
+
+startBtn.onclick = async () => {
+  chunks = [];
+  downloadsEl.innerHTML = '';
+  logEl.textContent = '';
+
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+  ];
+  mimeType = candidates.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  log('Выбранный MIME: ' + (mimeType || '(браузер сам решит)'));
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    log('Ошибка доступа к микрофону: ' + e.message);
+    return;
+  }
+
+  mediaRecorder = mimeType
+    ? new MediaRecorder(stream, { mimeType })
+    : new MediaRecorder(stream);
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      chunks.push(e.data);
+      log(`Фрагмент #${chunks.length - 1}: ${e.data.size} байт, type=${e.data.type}`);
+    }
+  };
+
+  mediaRecorder.onstop = () => {
+    stream.getTracks().forEach(t => t.stop());
+    log(`\nЗапись остановлена. Всего фрагментов: ${chunks.length}`);
+    buildDownloads();
+  };
+
+  // timeslice 3000ms — примерно как в реальном рекордере ТОЛК (там 15-30с,
+  // здесь короче, чтобы не ждать долго; сам механизм фрагментации тот же)
+  mediaRecorder.start(3000);
+  log('Запись началась (фрагменты каждые 3 секунды)...');
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+};
+
+stopBtn.onclick = () => {
+  mediaRecorder.stop();
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+};
+
+function buildDownloads() {
+  chunks.forEach((chunk, i) => {
+    const url = URL.createObjectURL(chunk);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chunk_${String(i).padStart(6, '0')}.webm`;
+    a.textContent = `Скачать ${a.download} (${chunk.size} байт)`;
+    downloadsEl.appendChild(a);
+  });
+
+  const combined = new Blob(chunks, { type: mimeType || 'audio/webm' });
+  const combinedUrl = URL.createObjectURL(combined);
+  const combinedLink = document.createElement('a');
+  combinedLink.href = combinedUrl;
+  combinedLink.download = 'combined.webm';
+  combinedLink.textContent = `Скачать combined.webm (склеено в браузере, ${combined.size} байт) — главный файл для проверки`;
+  combinedLink.style.fontWeight = 'bold';
+  downloadsEl.appendChild(combinedLink);
+
+  log('\nГотово. Пришли хотя бы combined.webm (в идеале — и отдельные chunk_*.webm тоже).');
+}
+</script>
+</body>
+</html>

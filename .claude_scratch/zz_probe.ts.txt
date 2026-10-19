@@ -1,0 +1,19 @@
+import { it, expect, vi } from "vitest";
+vi.mock("@/lib/yandexgpt", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/yandexgpt")>("@/lib/yandexgpt");
+  return { ...actual, yandexGptCompleteJson: vi.fn() };
+});
+import { yandexGptCompleteJson, YandexGptError } from "@/lib/yandexgpt";
+import { anonymizeTranscript } from "../anonymize";
+const mocked = vi.mocked(yandexGptCompleteJson);
+it("all-fail", async () => {
+  mocked.mockImplementation(async () => { throw new YandexGptError("x 503", 503); });
+  let r = ""; try { await anonymizeTranscript("Вчера сестра Оксана приехала.", "Игорь", { retryDelayMs: 0 }); } catch (e) { r = (e as {reason:string}).reason; }
+  expect(r).toBe("llm_error");
+});
+it("second-fail", async () => {
+  let c = 0;
+  mocked.mockImplementation(async () => { if (++c === 1) return { replacements: [] }; throw new YandexGptError("y 503", 503); });
+  let r = ""; try { await anonymizeTranscript("Вчера сестра Оксана приехала.", "Игорь", { retryDelayMs: 0 }); } catch (e) { r = (e as {reason:string}).reason; }
+  expect(r).toBe("llm_error");
+});
