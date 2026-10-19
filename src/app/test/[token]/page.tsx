@@ -138,7 +138,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{
             width: 56, height: 56, borderRadius: "50%",
-            background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+            background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
             display: "flex", alignItems: "center", justifyContent: "center",
             margin: "0 auto 14px", color: "#fff", fontSize: 22, fontWeight: 800,
           }}>
@@ -283,7 +283,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
                     disabled={!canSubmit || submitting}
                     style={{
                       padding: "10px 18px", borderRadius: 10, border: "none",
-                      background: canSubmit ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)" : "#E5DFD5",
+                      background: canSubmit ? "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)" : "#E5DFD5",
                       color: canSubmit ? "#fff" : "#6F5A3F",
                       fontSize: 13.5, fontWeight: 700, cursor: canSubmit ? "pointer" : "default",
                       fontFamily: "var(--font-sans)", whiteSpace: "nowrap",
@@ -363,7 +363,7 @@ export default function PublicTestPage({ params }: { params: Promise<{ token: st
                     disabled={!allAnswered || submitting}
                     style={{
                       padding: "10px 18px", borderRadius: 10, border: "none",
-                      background: allAnswered ? "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)" : "#E5DFD5",
+                      background: allAnswered ? "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)" : "#E5DFD5",
                       color: allAnswered ? "#fff" : "#6F5A3F",
                       fontSize: 13.5, fontWeight: 700, cursor: allAnswered ? "pointer" : "default",
                       fontFamily: "var(--font-sans)", whiteSpace: "nowrap",

@@ -58,6 +58,12 @@ export async function GET() {
   const telegramIntegration = integrations?.find(i => i.platform === "telegram");
   const vkIntegration = integrations?.find(i => i.platform === "vk");
 
+  const { data: booking } = await supabase
+    .from("booking_settings")
+    .select("public_slug, is_active")
+    .eq("psychologist_id", user.id)
+    .maybeSingle();
+
   const limitStatus = await getAssistantLimitStatus(supabase, user.id);
   const handle = user.id.slice(0, 8);
 
@@ -75,6 +81,7 @@ export async function GET() {
     memberSince: formatMemberSince(user.created_at),
     handle,
     roomUrl: `tolk.pro/room/${handle}`,
+    bookingSlug: booking?.is_active && booking?.public_slug ? (booking.public_slug as string) : null,
     avatarData: (psychologist?.avatar_data as string | null) ?? null,
     bio: (psychologist?.bio as string | null) ?? "",
     plan: {

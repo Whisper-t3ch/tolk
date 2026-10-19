@@ -170,7 +170,7 @@ export default function CalendarPage() {
         <div style={{ flex: "1 1 auto", minWidth: 640 }}>
           <Card style={{ overflow: "hidden" }}>
             <div style={{
-              background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+              background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
               padding: "18px 24px",
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
@@ -368,7 +368,7 @@ export default function CalendarPage() {
             >
               <Card style={{ position: "sticky", top: 16, maxWidth: 320, overflow: "hidden" }}>
                 <div style={{
-                  background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                  background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
                   padding: "16px 20px",
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                 }}>
@@ -521,7 +521,7 @@ export default function CalendarPage() {
                       style={{
                         display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                         padding: "11px 12px",
-                        background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                        background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
                         border: "none",
                         borderRadius: 10, cursor: "pointer", color: "#fff", fontSize: 13, fontWeight: 700,
                         marginTop: "auto",

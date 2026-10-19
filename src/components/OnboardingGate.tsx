@@ -170,7 +170,7 @@ export default function OnboardingGate() {
               disabled={submitting}
               style={{
                 padding: "12px 16px",
-                background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
                 border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 700,
                 cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1,
                 boxShadow: "0 4px 14px rgba(45,106,92,0.3)",

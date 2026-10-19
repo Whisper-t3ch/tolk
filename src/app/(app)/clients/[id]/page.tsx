@@ -1677,7 +1677,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 <button
                   onClick={confirmDeleteClient}
                   disabled={deletingClient}
-                  style={{ flex: 1, padding: "10px", background: "#EF4444", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#fff", cursor: deletingClient ? "not-allowed" : "pointer" }}
+                  style={{ flex: 1, padding: "10px", background: "#B91C1C", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#fff", cursor: deletingClient ? "not-allowed" : "pointer" }}
                 >
                   {deletingClient ? "Удаляю..." : "Удалить"}
                 </button>

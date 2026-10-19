@@ -502,7 +502,7 @@ function ClientsPageInner() {
             onClick={() => setSpecialFilter(specialFilter === "attention" ? null : "attention")}
             style={{
               padding: "6px 12px",
-              background: specialFilter === "attention" ? "#F59E0B" : "#F5F3EF",
+              background: specialFilter === "attention" ? "#92400E" : "#F5F3EF",
               color: specialFilter === "attention" ? "#FFFFFF" : "#92400E",
               border: "none",
               borderRadius: 6,
@@ -872,7 +872,7 @@ function ClientsPageInner() {
                     width: 44,
                     height: 44,
                     borderRadius: "50%",
-                    background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                    background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
                     border: "none",
                     display: "flex",
                     alignItems: "center",

@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { Copy, Check, QrCode, X, Settings as SettingsIcon, Sparkles } from "lucide-react";
+import { Copy, Check, Settings as SettingsIcon, Sparkles } from "lucide-react";
 import { useProfile } from "@/lib/ProfileContext";
 import Avatar from "@/components/Avatar";
 import PlanPickerModal from "@/components/PlanPickerModal";
@@ -18,7 +18,6 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [specialty, setSpecialty] = useState("");
-  const [showQr, setShowQr] = useState(false);
     const [notification, setNotification] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,7 +30,8 @@ export default function ProfilePage() {
 
   const plan = profile?.plan ?? { key: "", extra: 0, name: "—", assistantRequests: { used: 0, total: 1 } };
   const extraCredits = plan.extra ?? 0;
-  const roomUrl = profile?.roomUrl ?? "";
+  const bookingPath = profile?.bookingSlug ? `/book/${profile.bookingSlug}` : null;
+  const bookingUrl = bookingPath && typeof window !== "undefined" ? `${window.location.origin}${bookingPath}` : bookingPath;
   const avatarInitials = profile?.avatarInitials ?? "…";
   const email = profile?.email ?? "";
   const memberSince = profile?.memberSince ?? "—";
@@ -44,7 +44,7 @@ export default function ProfilePage() {
   };
 
   function copyLink() {
-    navigator.clipboard?.writeText(`https://${roomUrl}`);
+    if (bookingUrl) navigator.clipboard?.writeText(bookingUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
@@ -189,7 +189,7 @@ export default function ProfilePage() {
         <Card>
           <CardContent className="pt-6">
             <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14, color: "#1C1C1E" }}>
-              Ваша ссылка для клиентов
+              Ссылка для онлайн-записи клиентов
             </h3>
             <div style={{
               display: "flex", alignItems: "center", gap: 10,
@@ -199,16 +199,13 @@ export default function ProfilePage() {
               borderRadius: 10,
               marginBottom: 12,
             }}>
-              <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: "#2D6A5C" }}>
-                {roomUrl}
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: "#2D6A5C", wordBreak: "break-all" }}>
+                {bookingUrl ?? "Онлайн-запись выключена — включите её в «Настройки → Публичная запись»"}
               </span>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Button onClick={copyLink} variant={copied ? "primary" : "secondary"} size="sm">
+              <Button onClick={copyLink} variant={copied ? "primary" : "secondary"} size="sm" disabled={!bookingUrl}>
                 {copied ? <><Check size={12} style={{ marginRight: 4 }} /> Скопировано</> : <><Copy size={12} style={{ marginRight: 4 }} /> Копировать</>}
-              </Button>
-              <Button onClick={() => setShowQr(true)} variant="outline" size="sm">
-                <QrCode size={12} style={{ marginRight: 4 }} /> QR-код
               </Button>
             </div>
           </CardContent>
@@ -287,47 +284,6 @@ export default function ProfilePage() {
         </Card>
       </motion.div>
 
-      {/* Модал QR-кода */}
-      <AnimatePresence>
-        {showQr && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setShowQr(false)}
-              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 40 }}
-            />
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              style={{
-                position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-                background: "#FFFFFF", borderRadius: 16, width: "90%", maxWidth: 340,
-                zIndex: 45, boxShadow: "0 25px 80px rgba(0,0,0,0.2)", padding: 24, textAlign: "center",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button onClick={() => setShowQr(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F" }}>
-                  <X size={18} />
-                </button>
-              </div>
-              <div style={{
-                width: 200, height: 200, margin: "0 auto 16px",
-                background: "repeating-conic-gradient(#1C1C1E 0% 25%, #FFFFFF 0% 50%) 0 0 / 20px 20px",
-                borderRadius: 8, border: "1px solid #E5DFD5",
-              }} />
-              <p style={{ fontSize: 12, color: "#6B6058", marginBottom: 16 }}>
-                Клиенты сканируют этот QR-код, чтобы сразу открыть {roomUrl}
-              </p>
-              <Button
-                onClick={() => { notify("QR-код сохранён в загрузки"); setShowQr(false); }}
-                variant="secondary" className="w-full"
-              >
-                Скачать PNG
-              </Button>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
       {/* Уведомление */}
       <AnimatePresence>
         {notification && (
@@ -335,7 +291,7 @@ export default function ProfilePage() {
             initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             style={{
               position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)",
-              background: "#1BAF7A", color: "#fff", padding: "12px 20px",
+              background: "#157347", color: "#fff", padding: "12px 20px",
               borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 60,
               boxShadow: "0 4px 12px rgba(27, 175, 122, 0.3)",
             }}

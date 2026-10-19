@@ -78,7 +78,7 @@ export default function AIAssistant() {
                 style={{
                   width: 32,
                   height: 32,
-                  background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                  background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
                   borderRadius: "50%",
                   display: "flex",
                   alignItems: "center",
@@ -149,7 +149,7 @@ export default function AIAssistant() {
             width: 52,
             height: 52,
             borderRadius: "50%",
-            background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+            background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
             border: "none",
             display: "flex",
             alignItems: "center",
@@ -218,7 +218,7 @@ export default function AIAssistant() {
                     style={{
                       width: 32,
                       height: 32,
-                      background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                      background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
                       borderRadius: "50%",
                       display: "flex",
                       alignItems: "center",

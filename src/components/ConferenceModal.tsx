@@ -246,7 +246,7 @@ export default function ConferenceModal({ isOpen, clientName, conferenceLink, on
                     style={{
                       width: "100%",
                       padding: "12px 16px",
-                      background: "#1BAF7A",
+                      background: "#157347",
                       color: "#fff",
                       border: "none",
                       borderRadius: 8,

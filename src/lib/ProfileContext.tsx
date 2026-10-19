@@ -17,6 +17,8 @@ export interface Profile {
   memberSince: string;
   handle: string;
   roomUrl: string;
+  /** Публичный slug страницы записи (/book/[slug]) или null, если запись выключена. */
+  bookingSlug: string | null;
   avatarData: string | null;
   bio: string;
   plan: {

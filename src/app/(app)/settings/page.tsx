@@ -12,7 +12,6 @@ import { Button, Card, CardContent, Badge } from "@/components/ui";
 
 // Заявки на опасные действия (удаление аккаунта и т.п.) пока обрабатываются
 // вручную через почту поддержки — отдельного API для этого ещё нет.
-const SUPPORT_EMAIL = "support@tolk.pro";
 
 const SECTIONS = [
   { id: "notifications", label: "Уведомления", icon: Bell },
@@ -673,8 +672,7 @@ export default function SettingsPage() {
                 <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Удалить аккаунт?</h3>
               </div>
               <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.5, marginBottom: 16 }}>
-                Удаление аккаунта — необратимая операция, которую мы пока обрабатываем вручную, чтобы точно ничего не удалить по ошибке. Напишите нам на{" "}
-                <strong>{SUPPORT_EMAIL}</strong> с темой «Удаление аккаунта» — подтвердим личность и удалим аккаунт вместе со всеми данными клиентов.
+                Удаление аккаунта — необратимая операция, которую мы пока обрабатываем вручную, чтобы точно ничего не удалить по ошибке. Напишите нам через форму в разделе «Помощь» с темой «Удаление аккаунта» — подтвердим личность и удалим аккаунт вместе со всеми данными клиентов.
               </p>
               <div style={{ display: "flex", gap: 8 }}>
                 <Button
@@ -684,7 +682,7 @@ export default function SettingsPage() {
                   Отмена
                 </Button>
                 <Button
-                  onClick={() => { window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Удаление аккаунта")}`; setShowDeleteConfirm(false); }}
+                  onClick={() => { setShowDeleteConfirm(false); window.location.href = "/help"; }}
                   variant="danger" className="w-full"
                 >
                   Написать в поддержку
@@ -702,7 +700,7 @@ export default function SettingsPage() {
             initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             style={{
               position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)",
-              background: "#1BAF7A", color: "#fff", padding: "12px 20px",
+              background: "#157347", color: "#fff", padding: "12px 20px",
               borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 60,
               boxShadow: "0 4px 12px rgba(27, 175, 122, 0.3)",
             }}

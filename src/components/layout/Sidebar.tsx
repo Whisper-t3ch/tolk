@@ -709,7 +709,7 @@ export default function Sidebar() {
               top: 24,
               left: "50%",
               transform: "translateX(-50%)",
-              background: "#1BAF7A",
+              background: "#157347",
               color: "#fff",
               padding: "12px 20px",
               borderRadius: 8,

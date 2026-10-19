@@ -185,7 +185,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{
             width: 56, height: 56, borderRadius: "50%",
-            background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+            background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
             display: "flex", alignItems: "center", justifyContent: "center",
             margin: "0 auto 14px", color: "#fff", fontSize: 22, fontWeight: 800,
           }}>
@@ -400,7 +400,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                           disabled={submitting}
                           style={{
                             width: "100%", padding: "12px 16px", borderRadius: 10, border: "none",
-                            background: "linear-gradient(135deg, #2D6A5C 0%, #1BAF7A 100%)",
+                            background: "linear-gradient(135deg, #2D6A5C 0%, #1E7F5F 100%)",
                             color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",
                             fontFamily: "var(--font-sans)",
                             opacity: submitting ? 0.7 : 1,

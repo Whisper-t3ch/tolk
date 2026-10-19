@@ -742,7 +742,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
           animate={{ opacity: 1, y: 0 }}
           style={{
             position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)",
-            background: "#1BAF7A", color: "#fff", padding: "12px 20px",
+            background: "#157347", color: "#fff", padding: "12px 20px",
             borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 60,
             boxShadow: "0 4px 12px rgba(27, 175, 122, 0.3)",
           }}
