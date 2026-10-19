@@ -43,3 +43,12 @@ export default function Avatar({
     </div>
   );
 }
+
+/** Содержимое кружка клиента: фото из мессенджера (если есть) или инициалы. Кружок (размер, фон) задаёт родитель. */
+export function ClientFace({ avatarData, initials }: { avatarData?: string | null; initials: string }) {
+  if (avatarData) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={avatarData} alt="" style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block" }} />;
+  }
+  return <>{initials}</>;
+}

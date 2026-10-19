@@ -23,6 +23,7 @@ export interface DbClient {
   hwTotal: number;
   createdAt: string;
   updatedAt: string;
+  avatarData?: string | null; // фото из мессенджера (data URL), если подтянулось
   // Не хранятся в Supabase — отдельная предметная область (тесты/прогресс),
   // не мигрирована в Этапе 2. Всегда undefined для реальных клиентов;
   // UI показывает заглушки вместо этих полей.
@@ -58,6 +59,7 @@ interface ClientRow {
   hw_total: number;
   created_at: string;
   updated_at: string;
+  avatar_data?: string | null;
 }
 
 function mapRow(row: ClientRow): DbClient {
@@ -76,11 +78,12 @@ function mapRow(row: ClientRow): DbClient {
     hwTotal: row.hw_total,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    avatarData: row.avatar_data ?? null,
   };
 }
 
 const CLIENT_COLUMNS =
-  "id, name, request, approach, status, age, gender, joined_date, needs_attention, hw_completed, hw_total, created_at, updated_at";
+  "id, name, request, approach, status, age, gender, joined_date, needs_attention, hw_completed, hw_total, created_at, updated_at, avatar_data";
 
 // Удалённые клиенты (deleted_at is not null) не попадают ни в один
 // список. Раньше фильтра здесь не было, хотя softDeleteClient ниже уже

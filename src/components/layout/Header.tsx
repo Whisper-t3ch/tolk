@@ -9,6 +9,7 @@ import Avatar from "@/components/Avatar";
 import { useProfile } from "@/lib/ProfileContext";
 import { createClient } from "@/lib/supabase/client";
 import { useClients } from "@/lib/ClientsContext";
+import { ClientFace } from "@/components/Avatar";
 
 interface Toast {
   id: string;
@@ -187,7 +188,7 @@ export default function Header() {
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0,
                     }}>
-                      {client.initials}
+                      <ClientFace avatarData={client.avatarData} initials={client.initials} />
                     </div>
                     <span style={{ fontSize: 13, color: "#1C1C1E", fontWeight: 500 }}>{client.name}</span>
                   </button>

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getTelegramBotInfo,
-  setTelegramWebhook,
   getVkGroupInfo,
   MessengerSendError,
 } from "@/lib/messengers/client";
@@ -80,29 +79,9 @@ export async function POST(request: NextRequest) {
       .single();
     if (saveError) return NextResponse.json({ error: saveError.message }, { status: 500 });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (!appUrl) {
-      return NextResponse.json({
-        integration: { platform: "telegram", bot_username: botInfo.username, status: "connected" },
-        warning: "NEXT_PUBLIC_APP_URL не задан — webhook не зарегистрирован автоматически. Задайте переменную окружения и переподключите бота.",
-      });
-    }
-
-    try {
-      await setTelegramWebhook(
-        botToken,
-        `${appUrl}/api/webhooks/telegram/${user.id}`,
-        saved.webhook_secret
-      );
-    } catch (err) {
-      const message = err instanceof MessengerSendError ? err.message : "Не удалось зарегистрировать webhook";
-      await supabase
-        .from("messenger_integrations")
-        .update({ status: "error", last_error: message })
-        .eq("id", saved.id);
-      return NextResponse.json({ error: `Токен верный, но не удалось настроить webhook: ${message}` }, { status: 500 });
-    }
-
+    // Входящие сообщения клиентов принимаются через long polling (/api/jobs/telegram-poll):
+    // Telegram не может достучаться до домена с вебхуком. Бот подхватывается опросом в течение минуты,
+    // а старый вебхук (если был) бот снимает сам при первом опросе.
     return NextResponse.json({
       integration: { platform: "telegram", bot_username: botInfo.username, status: "connected" },
     });

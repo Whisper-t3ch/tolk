@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { telegramBotUrl } from "@/lib/messengers/telegramApi";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { handlePlatformUpdate, type TgUpdate } from "@/lib/notify/platformTelegramHandler";
+import { handleClientTelegramUpdate } from "@/lib/messengers/telegramInbound";
 
-// GET/POST /api/jobs/telegram-poll — приём сообщений платформенного бота через long polling.
-// Нужен, потому что Telegram не может достучаться до tolkplace.ru с вебхуком (из-за блокировок
-// на стороне Telegram/провайдера), а сами мы ходим в Telegram через прокси (TELEGRAM_API_BASE).
+// GET/POST /api/jobs/telegram-poll — приём сообщений Telegram через long polling.
+// Нужен, потому что Telegram не может достучаться до tolkplace.ru с вебхуком, а сами мы
+// ходим в Telegram через прокси (TELEGRAM_API_BASE). Опрашиваются параллельно:
+//  • платформенный бот (SUPPORT_TG_BOT_TOKEN) — привязка уведомлений, ответы поддержки;
+//  • боты психологов (messenger_integrations, platform=telegram, status=connected) —
+//    сообщения клиентов и привязка по ссылке /start <client_id>.
 // Cron раз в минуту вызывает этот эндпоинт (deploy/core/telegram_poll_cron.sh, под flock);
-// он держит соединение ~50 секунд, получает обновления через getUpdates и обрабатывает их.
-// Авторизация — Bearer CRON_SECRET (как у /api/jobs/process).
+// каждый вызов держится ~50 секунд. Авторизация — Bearer CRON_SECRET (как у /api/jobs/process).
 
 export const dynamic = "force-dynamic";
 
 const BUDGET_MS = 50_000; // сколько суммарно опрашиваем за один вызов
 const LONG_POLL_S = 20;   // таймаут одного getUpdates
+const MAX_CLIENT_BOTS = 60;
 
 function checkAuth(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -32,31 +37,26 @@ async function getUpdates(token: string, offset: number | undefined, timeoutS: n
   return { ok: !!j.ok, status: 200, result: j.result ?? [] };
 }
 
-async function handle(request: NextRequest) {
-  if (!checkAuth(request)) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
-  const token = process.env.SUPPORT_TG_BOT_TOKEN;
-  if (!token) return NextResponse.json({ error: "SUPPORT_TG_BOT_TOKEN не задан" }, { status: 500 });
-
+/** Опрашивает одного бота до исчерпания бюджета. Возвращает число обработанных обновлений. */
+async function pollBot(token: string, onUpdate: (u: TgUpdate) => Promise<void>): Promise<{ processed: number; error?: string }> {
   const started = Date.now();
   let offset: number | undefined;
   let processed = 0;
-  let calls = 0;
   try {
     for (;;) {
       const remaining = BUDGET_MS - (Date.now() - started);
       // Последний вызов с timeout=0 нужен, чтобы подтвердить (offset) уже обработанные обновления.
       const timeoutS = remaining > 3000 ? Math.min(LONG_POLL_S, Math.floor(remaining / 1000)) : 0;
       let r = await getUpdates(token, offset, timeoutS);
-      calls++;
       if (!r.ok && r.status === 409) {
         // На боте остался вебхук — снимаем его и пробуем снова.
         await fetch(telegramBotUrl(token, "deleteWebhook"), { method: "POST", signal: AbortSignal.timeout(10_000) });
         r = await getUpdates(token, offset, timeoutS);
       }
-      if (!r.ok) return NextResponse.json({ error: `getUpdates ${r.status}`, processed }, { status: 502 });
+      if (!r.ok) return { processed, error: `getUpdates ${r.status}` };
       for (const u of r.result) {
         try {
-          await handlePlatformUpdate(u);
+          await onUpdate(u);
         } catch (e) {
           console.error("telegram-poll update error:", e instanceof Error ? e.message : e);
         }
@@ -66,9 +66,43 @@ async function handle(request: NextRequest) {
       if (timeoutS === 0) break;
     }
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e), processed }, { status: 502 });
+    return { processed, error: e instanceof Error ? e.message : String(e) };
   }
-  return NextResponse.json({ ok: true, processed, calls });
+  return { processed };
+}
+
+async function handle(request: NextRequest) {
+  if (!checkAuth(request)) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+
+  const platformToken = process.env.SUPPORT_TG_BOT_TOKEN;
+  const db = createAdminClient();
+  const jobs: Promise<{ processed: number; error?: string }>[] = [];
+  const labels: string[] = [];
+
+  if (platformToken) {
+    labels.push("platform");
+    jobs.push(pollBot(platformToken, handlePlatformUpdate));
+  }
+
+  const { data: bots } = await db
+    .from("messenger_integrations")
+    .select("psychologist_id, bot_token")
+    .eq("platform", "telegram")
+    .eq("status", "connected")
+    .not("bot_token", "is", null)
+    .limit(MAX_CLIENT_BOTS);
+  for (const b of bots ?? []) {
+    const token = b.bot_token as string;
+    if (!token || token === platformToken) continue;
+    labels.push(`psy:${String(b.psychologist_id).slice(0, 8)}`);
+    jobs.push(pollBot(token, (u) => handleClientTelegramUpdate(db, b.psychologist_id as string, { bot_token: token }, u)));
+  }
+
+  if (jobs.length === 0) return NextResponse.json({ error: "нет ботов для опроса" }, { status: 500 });
+  const results = await Promise.all(jobs);
+  const processed = results.reduce((s, r) => s + r.processed, 0);
+  const errors = results.map((r, i) => (r.error ? `${labels[i]}: ${r.error}` : null)).filter(Boolean);
+  return NextResponse.json({ ok: errors.length === 0, processed, bots: jobs.length, ...(errors.length ? { errors } : {}) });
 }
 
 export const GET = handle;

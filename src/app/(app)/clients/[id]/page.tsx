@@ -18,6 +18,7 @@ import { updateClientRecord, softDeleteClient } from "@/lib/data/clients";
 import { formatDateInTimeZone, formatTimeInTimeZone, todayInTimeZone, isSessionPast, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { Button, Card, CardContent } from "@/components/ui";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { ClientFace } from "@/components/Avatar";
 
 // Возраст со склонением: «21 год», «34 года», «29 лет». Раньше всегда
 // подставлялось «лет», а у клиента без возраста под именем оставалось
@@ -740,7 +741,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 18, fontWeight: 700, color: "#fff",
           }}>
-            {client.initials}
+            <ClientFace avatarData={client.avatarData} initials={client.initials} />
           </div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E" }}>{client.name}</div>

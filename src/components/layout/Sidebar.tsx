@@ -14,6 +14,7 @@ import { useSession } from "@/lib/SessionContext";
 import { useClients } from "@/lib/ClientsContext";
 import { LogoMark } from "@/components/Logo";
 import { formatDateInTimeZone, formatTimeInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { ClientFace } from "@/components/Avatar";
 
 const navItems = [
   { href: "/dashboard",      icon: LayoutDashboard, label: "Главная" },
@@ -572,7 +573,7 @@ export default function Sidebar() {
                             color: "#fff",
                             flexShrink: 0,
                           }}>
-                            {client.initials}
+                            <ClientFace avatarData={client.avatarData} initials={client.initials} />
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>

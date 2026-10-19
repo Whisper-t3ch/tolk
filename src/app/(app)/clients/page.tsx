@@ -8,6 +8,7 @@ import { useProfile } from "@/lib/ProfileContext";
 import { formatTimeInTimeZone, formatDateInTimeZone, todayInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { createClientRecord } from "@/lib/data/clients";
 import { Card, CardContent, Input } from "@/components/ui";
+import { ClientFace } from "@/components/Avatar";
 
 const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 
@@ -576,7 +577,7 @@ function ClientsPageInner() {
                     color: "#fff",
                     flexShrink: 0,
                   }}>
-                    {client.initials}
+                    <ClientFace avatarData={client.avatarData} initials={client.initials} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
@@ -638,7 +639,7 @@ function ClientsPageInner() {
                   fontWeight: 700,
                   color: "#fff",
                 }}>
-                  {selectedClient.initials}
+                  <ClientFace avatarData={selectedClient.avatarData} initials={selectedClient.initials} />
                 </div>
                 {hasMessengerLink && (
                   <div style={{
