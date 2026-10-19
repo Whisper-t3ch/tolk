@@ -224,6 +224,11 @@ function LoginForm() {
               {showPassword ? "Скрыть" : "Показать"}
             </button>
           </div>
+          {mode === "login" && (
+            <div style={{ textAlign: "right", marginTop: -4 }}>
+              <Link href="/forgot-password" style={{ fontSize: 12.5, color: "#2D6A5C", textDecoration: "underline" }}>Забыли пароль?</Link>
+            </div>
+          )}
           {mode === "register" && (
             <label style={{
               display: "flex", alignItems: "flex-start", gap: 8,
