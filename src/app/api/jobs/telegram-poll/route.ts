@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { telegramBotUrl } from "@/lib/messengers/telegramApi";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { handlePlatformUpdate, type TgUpdate } from "@/lib/notify/platformTelegramHandler";
-import { handleClientTelegramUpdate } from "@/lib/messengers/telegramInbound";
+import { handleClientTelegramUpdate, backfillTelegramAvatars } from "@/lib/messengers/telegramInbound";
 
 // GET/POST /api/jobs/telegram-poll — приём сообщений Telegram через long polling.
 // Нужен, потому что Telegram не может достучаться до tolkplace.ru с вебхуком, а сами мы
@@ -94,6 +94,8 @@ async function handle(request: NextRequest) {
   for (const b of bots ?? []) {
     const token = b.bot_token as string;
     if (!token || token === platformToken) continue;
+    // Аватарки уже привязанных клиентов — в фоне, не мешая опросу.
+    void backfillTelegramAvatars(db, b.psychologist_id as string, token).catch(() => {});
     labels.push(`psy:${String(b.psychologist_id).slice(0, 8)}`);
     jobs.push(pollBot(token, (u) => handleClientTelegramUpdate(db, b.psychologist_id as string, { bot_token: token }, u)));
   }

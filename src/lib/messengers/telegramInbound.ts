@@ -33,14 +33,17 @@ export async function syncTelegramAvatar(
   telegramUserId: string | number,
   force = false
 ): Promise<void> {
+  // avatar_checked_at: успех/«фото нет» → следующая проверка через неделю; сбой (сеть, прокси) → через ~30 минут.
+  const markChecked = (retrySoon: boolean) =>
+    db.from("clients")
+      .update({ avatar_checked_at: new Date(Date.now() - (retrySoon ? AVATAR_RECHECK_MS - 30 * 60_000 : 0)).toISOString() })
+      .eq("id", clientId);
   try {
     if (!force) {
       const { data: c } = await db.from("clients").select("avatar_checked_at").eq("id", clientId).maybeSingle();
       const last = c?.avatar_checked_at ? new Date(c.avatar_checked_at as string).getTime() : 0;
       if (Date.now() - last < AVATAR_RECHECK_MS) return;
     }
-    // Фиксируем попытку сразу — даже если фото нет или Telegram не ответил.
-    await db.from("clients").update({ avatar_checked_at: new Date().toISOString() }).eq("id", clientId);
 
     const photosRes = await fetch(telegramBotUrl(botToken, "getUserProfilePhotos"), {
       method: "POST",
@@ -48,10 +51,10 @@ export async function syncTelegramAvatar(
       body: JSON.stringify({ user_id: Number(telegramUserId), limit: 1 }),
       signal: AbortSignal.timeout(8000),
     });
-    if (!photosRes.ok) return;
+    if (!photosRes.ok) { await markChecked(true); return; }
     const photos = (await photosRes.json()) as { result?: { photos?: { file_id: string; width: number }[][] } };
     const sizes = photos.result?.photos?.[0];
-    if (!sizes || sizes.length === 0) return;
+    if (!sizes || sizes.length === 0) { await markChecked(false); return; } // у пользователя нет фото
     // Размеры идут по возрастанию — берём самый маленький (~160px): достаточно для кружка 40–56px.
     const pick = [...sizes].sort((a, b) => a.width - b.width)[0];
 
@@ -61,17 +64,40 @@ export async function syncTelegramAvatar(
       body: JSON.stringify({ file_id: pick.file_id }),
       signal: AbortSignal.timeout(8000),
     });
-    if (!fileRes.ok) return;
+    if (!fileRes.ok) { await markChecked(true); return; }
     const filePath = ((await fileRes.json()) as { result?: { file_path?: string } }).result?.file_path;
-    if (!filePath) return;
+    if (!filePath) { await markChecked(true); return; }
 
     const imgRes = await fetch(`${TELEGRAM_API_BASE}/file/bot${botToken}/${filePath}`, { signal: AbortSignal.timeout(10_000) });
-    if (!imgRes.ok) return;
+    if (!imgRes.ok) { await markChecked(true); return; } // например, прокси ещё не пропускает /file/
     const buf = Buffer.from(await imgRes.arrayBuffer());
-    if (buf.length === 0 || buf.length > AVATAR_MAX_BYTES) return;
-    await db.from("clients").update({ avatar_data: `data:image/jpeg;base64,${buf.toString("base64")}` }).eq("id", clientId);
+    if (buf.length === 0 || buf.length > AVATAR_MAX_BYTES) { await markChecked(false); return; }
+    await db
+      .from("clients")
+      .update({ avatar_data: `data:image/jpeg;base64,${buf.toString("base64")}`, avatar_checked_at: new Date().toISOString() })
+      .eq("id", clientId);
   } catch {
-    // аватарка — украшение, не критично
+    try { await markChecked(true); } catch { /* ignore */ }
+  }
+}
+
+/** Добирает аватарки уже привязанным клиентам (для которых ещё не было проверки). Не больше `limit` за вызов. */
+export async function backfillTelegramAvatars(db: SupabaseClient, psychologistId: string, botToken: string, limit = 5): Promise<void> {
+  const { data: links } = await db
+    .from("client_messenger_links")
+    .select("client_id, external_chat_id")
+    .eq("psychologist_id", psychologistId)
+    .eq("platform", "telegram");
+  if (!links || links.length === 0) return;
+  const { data: pending } = await db
+    .from("clients")
+    .select("id")
+    .in("id", links.map((l) => l.client_id as string))
+    .is("avatar_checked_at", null)
+    .limit(limit);
+  for (const c of pending ?? []) {
+    const link = links.find((l) => l.client_id === c.id);
+    if (link) await syncTelegramAvatar(db, botToken, c.id as string, link.external_chat_id as string, true);
   }
 }
 
