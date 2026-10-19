@@ -25,7 +25,7 @@ export default function AppLayout({
         <main
           style={{
             flex: 1,
-            padding: "24px",
+            padding: "24px 24px 96px",
             background: "#F5F3EF",
             overflowY: "auto",
             overflowX: "hidden",

@@ -65,6 +65,13 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
+  // Чат ассистента сообщает об использованном запросе — обновляем счётчик лимита без перезагрузки.
+  useEffect(() => {
+    const onUsed = () => { refresh(); };
+    window.addEventListener("tolk:assistant-used", onUsed);
+    return () => window.removeEventListener("tolk:assistant-used", onUsed);
+  }, [refresh]);
+
   const updateProfile = useCallback(async (patch: { name?: string; specialty?: string; bio?: string; avatarData?: string | null }) => {
     const res = await fetch("/api/profile", {
       method: "PATCH",

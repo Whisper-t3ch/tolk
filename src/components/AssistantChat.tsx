@@ -202,6 +202,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
         body: JSON.stringify({ message: text, client_id: clientId, agent_session_id: agentSessionId }),
       });
       const data = await res.json();
+      window.dispatchEvent(new Event("tolk:assistant-used"));
 
       if (!res.ok) {
         setError(data?.error ?? "Не удалось получить ответ ассистента");
@@ -431,7 +432,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
                     color: copiedId === msg.id ? "#2D6A5C" : "#6B6058",
                   }}
                 >
-                  <Copy size={12} />
+                  {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
                 </button>
                 <button
                   onClick={() => rateMessage(msg.id, msg.feedbackId!, "positive")}

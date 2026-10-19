@@ -46,10 +46,14 @@ export default function SettingsPage() {
   const [limitLoading, setLimitLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/assistant/limit")
-      .then(res => res.json())
-      .then(data => { if (!data.error) setLimitInfo(data); })
-      .finally(() => setLimitLoading(false));
+    const load = () =>
+      fetch("/api/assistant/limit")
+        .then(res => res.json())
+        .then(data => { if (!data.error) setLimitInfo(data); })
+        .finally(() => setLimitLoading(false));
+    load();
+    window.addEventListener("tolk:assistant-used", load);
+    return () => window.removeEventListener("tolk:assistant-used", load);
   }, []);
 
   // Интеграции — реальные данные из /api/integrations, а не моки.
@@ -179,6 +183,20 @@ export default function SettingsPage() {
     await refreshProfile();
   }
 
+  async function requestExport() {
+    try {
+      const res = await fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Запрос на выгрузку моих данных (клиенты, сессии, заметки). Отправлено из Настройки → Конфиденциальность.", pageUrl: "/settings" }),
+      });
+      if (!res.ok) throw new Error();
+      notify("Запрос отправлен. Подготовим выгрузку в течение 10 рабочих дней — ответ придёт в «Помощь»");
+    } catch {
+      notify("Не удалось отправить запрос — напишите в «Помощь»");
+    }
+  }
+
   async function buyCredits() {
     try {
       const res = await fetch("/api/assistant/credits", { method: "POST" });
@@ -268,7 +286,7 @@ export default function SettingsPage() {
                   <CardContent className="pt-6">
                     <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", marginBottom: 4 }}>Уведомления</h3>
                     <p style={{ fontSize: 13, color: "#6F5A3F", marginBottom: 20 }}>
-                      Настройка уведомлений (email/push) появится в одном из ближайших обновлений. Пока в приложении доступны:
+                      Уведомления о новых записях клиентов и ответах поддержки приходят в Telegram — подключите их в «Профиле». Остальные настройки (email/push) появятся в одном из ближайших обновлений:
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {[
@@ -428,9 +446,7 @@ export default function SettingsPage() {
                             {vkIntegration?.status === "connected" ? (
                               <Button variant="secondary" size="sm" onClick={() => disconnectIntegration("vk")}>Отключить</Button>
                             ) : (
-                              <Button variant="primary" size="sm" onClick={() => { setShowVkForm(v => !v); setIntegrationError(null); }}>
-                                {showVkForm ? "Закрыть" : "Подключить"}
-                              </Button>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "#6F5A3F", background: "#EDE8DF", padding: "6px 12px", borderRadius: 999 }}>Скоро</span>
                             )}
                           </div>
 
@@ -626,11 +642,14 @@ export default function SettingsPage() {
                       ))}
                     </div>
                     <Button
-                      onClick={() => notify("Экспорт данных клиентов будет отправлен на почту")}
+                      onClick={requestExport}
                       variant="secondary" className="w-full" style={{ marginTop: 16 }}
                     >
-                      Экспортировать мои данные
+                      Запросить выгрузку моих данных
                     </Button>
+                    <p style={{ fontSize: 12, color: "#6F5A3F", marginTop: 8, lineHeight: 1.5 }}>
+                      Мы подготовим архив ваших данных (клиенты, сессии, заметки) и отправим на вашу почту в течение 10 рабочих дней. Ответ придёт на странице «Помощь» и в Telegram, если он подключён.
+                    </p>
                   </CardContent>
                 </Card>
               )}
