@@ -26,6 +26,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
+  const [inviteCode, setInviteCode] = useState(searchParams.get("code") ?? "");
 
   async function handleSubmit() {
     setError(null);
@@ -52,15 +53,26 @@ function LoginForm() {
         setLoading(false);
         return;
       }
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: { name: name.trim() },
-        },
+      if (!inviteCode.trim()) {
+        setError("Введите инвайт-код");
+        setLoading(false);
+        return;
+      }
+      const res = await fetch("/api/public/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, code: inviteCode.trim() }),
       });
-      if (signUpError) {
-        setError(translateAuthError(signUpError.message));
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(j.error ?? "Не получилось создать аккаунт — попробуйте ещё раз");
+        setLoading(false);
+        return;
+      }
+      const { error: signInAfterError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (signInAfterError) {
+        setError("Аккаунт создан. Войдите, пожалуйста, с вашим email и паролем.");
+        setMode("login");
         setLoading(false);
         return;
       }
@@ -230,6 +242,26 @@ function LoginForm() {
             </div>
           )}
           {mode === "register" && (
+            <input
+              type="text"
+              placeholder="Инвайт-код"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              autoCapitalize="none"
+              style={{
+                padding: "11px 14px",
+                border: "1px solid #E5DFD5",
+                borderRadius: 10,
+                fontSize: 14,
+                outline: "none",
+                color: "#1C1C1E",
+                fontFamily: "var(--font-sans)",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+          )}
+          {mode === "register" && (
             <label style={{
               display: "flex", alignItems: "flex-start", gap: 8,
               fontSize: 11.5, color: "#6B6058", lineHeight: 1.4,
@@ -280,7 +312,7 @@ function LoginForm() {
           fontSize: 12, color: "#6F5A3F",
         }}>
           {mode === "register"
-            ? "После регистрации на почту может прийти письмо для подтверждения"
+            ? "Бета-версия закрытая: код вам выдают организаторы. Нет кода — напишите на tolkplace@gmail.com"
             : REGISTRATION_OPEN
               ? "Ещё нет аккаунта? Переключитесь на «Регистрация»"
               : "Набор в бету сейчас закрыт — аккаунты выдаём вручную. Если вас пригласили, войдите по выданным данным."}
