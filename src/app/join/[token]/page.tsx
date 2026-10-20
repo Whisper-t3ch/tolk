@@ -18,7 +18,7 @@ const INVALID_REASON_LABELS: Record<string, string> = {
   not_found: "Ссылка для подключения не найдена — проверьте, что скопировали её полностью",
   expired: "Срок действия ссылки истёк — попросите психолога отправить новую",
   revoked: "Эта ссылка больше не активна — попросите психолога отправить новую",
-  used: "Эта ссылка уже была использована для подключения",
+  used: "Ссылка уже использована (возможно, на другом устройстве) или сессия завершена — попросите психолога отправить новую",
 };
 
 function formatScheduledAt(iso: string | null): string | null {
@@ -34,6 +34,31 @@ function formatScheduledAt(iso: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+/** Память о подключении в этом браузере: позволяет вернуться в звонок после обновления страницы. */
+const JOIN_MEMO_TTL_MS = 12 * 60 * 60 * 1000;
+interface JoinMemo { sessionId: string; psychologistName: string }
+function joinMemoKey(token: string) { return `tolk_join_${token}`; }
+function readJoinMemo(token: string): JoinMemo | null {
+  try {
+    const raw = localStorage.getItem(joinMemoKey(token));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as JoinMemo & { at?: number };
+    if (!v.sessionId || typeof v.at !== "number" || Date.now() - v.at > JOIN_MEMO_TTL_MS) {
+      localStorage.removeItem(joinMemoKey(token));
+      return null;
+    }
+    return { sessionId: v.sessionId, psychologistName: v.psychologistName || "Психолог" };
+  } catch {
+    return null;
+  }
+}
+function saveJoinMemo(token: string, memo: JoinMemo) {
+  try { localStorage.setItem(joinMemoKey(token), JSON.stringify({ ...memo, at: Date.now() })); } catch { /* без хранилища просто не будет повторного входа */ }
+}
+function clearJoinMemo(token: string) {
+  try { localStorage.removeItem(joinMemoKey(token)); } catch { /* ignore */ }
 }
 
 export default function JoinSessionPage({ params }: { params: Promise<{ token: string }> }) {
@@ -52,6 +77,15 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
         const data = await res.json();
         if (cancelled) return;
         if (!data.valid) {
+          // Ссылка одноразовая, но если клиент вылетел или обновил страницу в ТОМ ЖЕ браузере,
+          // пускаем обратно в сессию без повторного согласия.
+          if (data.reason === "used") {
+            const saved = readJoinMemo(token);
+            if (saved) {
+              setState({ kind: "consented", sessionId: saved.sessionId, psychologistName: saved.psychologistName });
+              return;
+            }
+          }
           setState({ kind: "invalid", reason: data.reason ?? "not_found" });
           return;
         }
@@ -91,6 +125,7 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
       // настроены), сюда СОЗНАТЕЛЬНО не передаётся — см. заголовок
       // ClientCallView.tsx и jwt.ts: подключение остаётся анонимным, пока
       // отдельное решение не включит проверку токена на самой ВМ.
+      saveJoinMemo(token, { sessionId: data.sessionId, psychologistName });
       setState({ kind: "consented", sessionId: data.sessionId, psychologistName });
     } catch {
       setSubmitError("Не удалось связаться с сервером");
@@ -113,6 +148,7 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
             roomName={buildJitsiRoomName(state.sessionId)}
             psychologistName={state.psychologistName}
             fill
+            onEnded={() => clearJoinMemo(token)}
           />
         </div>
       </div>

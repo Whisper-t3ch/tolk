@@ -39,6 +39,8 @@ interface ClientCallViewProps {
   psychologistName: string;
   /** Занять всю высоту контейнера (полноэкранный звонок) вместо компактного окна 420px. */
   fill?: boolean;
+  /** Сессия завершена (психолог вышел и не вернулся) — страница может забыть о подключении. */
+  onEnded?: () => void;
 }
 
 type ViewState = "connecting" | "in_call" | "call_failed" | "ended";
@@ -46,7 +48,7 @@ type ViewState = "connecting" | "in_call" | "call_failed" | "ended";
 /** Сколько ждём возвращения психолога после его выхода, прежде чем считать сессию завершённой. */
 const PSYCHOLOGIST_LEFT_GRACE_MS = 12_000;
 
-export default function ClientCallView({ roomName, psychologistName, fill = false }: ClientCallViewProps) {
+export default function ClientCallView({ roomName, psychologistName, fill = false, onEnded }: ClientCallViewProps) {
   const endTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [viewState, setViewState] = useState<ViewState>("connecting");
   const [callError, setCallError] = useState<string | null>(null);
@@ -59,6 +61,16 @@ export default function ClientCallView({ roomName, psychologistName, fill = fals
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteCamStreamRef = useRef<MediaStream | null>(null);
+  const remoteScreenStreamRef = useRef<MediaStream | null>(null);
+
+  /** Главное видео: экран собеседника, если он его показывает, иначе камера. */
+  function showRemoteVideo() {
+    const screen = remoteScreenStreamRef.current;
+    const el = remoteVideoRef.current;
+    if (el) el.srcObject = screen ?? remoteCamStreamRef.current;
+    setRemoteIsScreen(!!screen);
+  }
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const sessionRef = useRef<JitsiCallSession | null>(null);
   const mountedRef = useRef(true);
@@ -97,16 +109,15 @@ export default function ClientCallView({ roomName, psychologistName, fill = fals
         setRemoteConnected(false);
       },
       onRemoteVideoTrack: (_participantId, stream, videoType) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
-        setRemoteIsScreen(videoType === "desktop");
+        // Собеседник может слать сразу камеру и экран — на главном экране показываем экран.
+        if (videoType === "desktop") remoteScreenStreamRef.current = stream;
+        else remoteCamStreamRef.current = stream;
+        showRemoteVideo();
       },
       onRemoteVideoTrackRemoved: (_participantId, stream) => {
-        // Новая дорожка (экран вместо камеры) может прийти раньше, чем снимется старая.
-        const el = remoteVideoRef.current;
-        if (el && (!stream || el.srcObject === stream)) {
-          el.srcObject = null;
-          setRemoteIsScreen(false);
-        }
+        if (!stream || remoteScreenStreamRef.current === stream) remoteScreenStreamRef.current = null;
+        if (!stream || remoteCamStreamRef.current === stream) remoteCamStreamRef.current = null;
+        showRemoteVideo();
       },
       onParticipantLeft: () => {
         setRemoteConnected(false);
@@ -118,6 +129,7 @@ export default function ClientCallView({ roomName, psychologistName, fill = fals
           if (!mountedRef.current) return;
           void sessionRef.current?.leave().catch(() => undefined);
           setViewState("ended");
+          onEnded?.();
         }, PSYCHOLOGIST_LEFT_GRACE_MS);
       },
     });

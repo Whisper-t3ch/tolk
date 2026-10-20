@@ -288,8 +288,6 @@ export class JitsiCallSession {
    * библиотека не загружена); при отказе в доступе к камере бросает ошибку браузера.
    */
   async setCameraMuted(muted: boolean): Promise<boolean> {
-    // Пока идёт демонстрация экрана, в конференции уже есть одна видеодорожка — вторую не добавляем.
-    if (this.screenTrack) return false;
     if (muted) {
       if (this.localVideoTrack) await this.localVideoTrack.mute();
       return true;
@@ -321,8 +319,8 @@ export class JitsiCallSession {
   }
 
   /**
-   * Начинает показ экрана: браузер сам спрашивает, что показывать. Камера (если была включена)
-   * на время показа заменяется экраном и возвращается при остановке.
+   * Начинает показ экрана: браузер сам спрашивает, что показывать. Экран идёт отдельной
+   * видеодорожкой, камера работает как обычно.
    * Возвращает "cancelled", если человек закрыл окно выбора, не выбрав экран.
    */
   async startScreenShare(): Promise<"started" | "cancelled"> {
@@ -355,11 +353,10 @@ export class JitsiCallSession {
     });
 
     try {
-      if (this.localVideoTrack) {
-        await this.conference.replaceTrack(this.localVideoTrack, video);
-      } else {
-        await this.conference.addTrack(video);
-      }
+      // Этот режим lib-jitsi-meet (multi-stream) НЕ позволяет подменять камеру экраном
+      // («Replacing a track of videoType=camera with ... desktop is not supported»),
+      // поэтому экран публикуется отдельной дорожкой рядом с камерой.
+      await this.conference.addTrack(video);
     } catch (e) {
       console.error("[tolk-share] не удалось опубликовать экран в конференции:", e);
       await video.dispose().catch(() => undefined);
@@ -370,16 +367,13 @@ export class JitsiCallSession {
     return "started";
   }
 
-  /** Останавливает показ экрана и возвращает камеру, если она была. Идемпотентен. */
+  /** Останавливает показ экрана (камера не затрагивается). Идемпотентен. */
   async stopScreenShare(): Promise<void> {
     const screen = this.screenTrack;
     if (!screen) return;
     this.screenTrack = null;
     try {
-      if (this.conference) {
-        if (this.localVideoTrack) await this.conference.replaceTrack(screen, this.localVideoTrack);
-        else await this.conference.removeTrack(screen);
-      }
+      if (this.conference) await this.conference.removeTrack(screen);
       console.info("[tolk-share] показ экрана остановлен");
     } catch (e) {
       console.error("[tolk-share] ошибка при остановке показа:", e);

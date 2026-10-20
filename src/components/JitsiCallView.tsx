@@ -128,6 +128,16 @@ function JitsiCallView(
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteCamStreamRef = useRef<MediaStream | null>(null);
+  const remoteScreenStreamRef = useRef<MediaStream | null>(null);
+
+  /** Главное видео: экран собеседника, если он его показывает, иначе камера. */
+  function showRemoteVideo() {
+    const screen = remoteScreenStreamRef.current;
+    const el = remoteVideoRef.current;
+    if (el) el.srcObject = screen ?? remoteCamStreamRef.current;
+    setRemoteIsScreen(!!screen);
+  }
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const sessionRef = useRef<JitsiCallSession | null>(null);
   const recorderRef = useRef<SessionRecorder | null>(null);
@@ -286,17 +296,15 @@ function JitsiCallView(
         setRemoteConnected(false);
       },
       onRemoteVideoTrack: (_participantId, stream, videoType) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
-        setRemoteIsScreen(videoType === "desktop");
+        // Собеседник может слать сразу камеру и экран — на главном экране показываем экран.
+        if (videoType === "desktop") remoteScreenStreamRef.current = stream;
+        else remoteCamStreamRef.current = stream;
+        showRemoteVideo();
       },
       onRemoteVideoTrackRemoved: (_participantId, stream) => {
-        // При замене камеры на экран новая дорожка может прийти раньше, чем снимется старая —
-        // обнуляем картинку только если снята именно та, что сейчас показана.
-        const el = remoteVideoRef.current;
-        if (el && (!stream || el.srcObject === stream)) {
-          el.srcObject = null;
-          setRemoteIsScreen(false);
-        }
+        if (!stream || remoteScreenStreamRef.current === stream) remoteScreenStreamRef.current = null;
+        if (!stream || remoteCamStreamRef.current === stream) remoteCamStreamRef.current = null;
+        showRemoteVideo();
       },
       onScreenShareEnded: () => {
         if (mountedRef.current) setSharing(false);
