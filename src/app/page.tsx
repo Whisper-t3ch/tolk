@@ -4759,48 +4759,47 @@ export default function LandingPage() {
       </AnimatePresence>
 
       {/* Footer */}
-      <footer
-        style={{
-          padding: "40px 24px",
-          background: "#1C1C1E",
-          color: "#B8A68A",
-          fontSize: 12,
-          borderTop: "1px solid #1a1f35",
-        }}
-      >
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", gap: 10, marginBottom: 32 }}>
-          <LogoMark size={26} color="#2D6A5C" />
-          <span style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", letterSpacing: "-0.3px" }}>ТОЛК</span>
-        </div>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 32, marginBottom: 32 }}>
-          {[
-            {
-              title: "Продукт",
-              links: [
-                { label: "Войти", href: "/login" },
-                { label: "Регистрация", href: "/login?mode=register" },
-              ],
-            },
-            {
-              title: "Легально",
-              links: [
-                { label: "Политика обработки данных", href: "/privacy" },
-                { label: "Условия использования и оферта", href: "/terms" },
-              ],
-            },
-          ].map((col, i) => (
-            <div key={i}>
-              <div style={{ fontWeight: 700, color: "#fff", marginBottom: 12 }}>{col.title}</div>
-              {col.links.map((link, j) => (
-                <div key={j} style={{ marginBottom: 8 }}>
-                  <a href={link.href} style={{ color: "inherit", textDecoration: "none" }}>{link.label}</a>
-                </div>
-              ))}
+      <footer style={{ padding: "48px 24px 32px", background: "#FFFFFF", borderTop: "1px solid #E5DFD5", color: "#6F5A3F", fontSize: 14 }}>
+        <div className="tolk-footer-grid" style={{ maxWidth: 1100, margin: "0 auto", display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 32 }}>
+          <div style={{ maxWidth: 340 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <LogoMark size={28} color="#2D6A5C" />
+              <span style={{ fontSize: 17, fontWeight: 700, color: "#1C1C1E", letterSpacing: "-0.3px" }}>ТОЛК</span>
             </div>
-          ))}
+            <p style={{ margin: 0, lineHeight: 1.6 }}>
+              Рабочее пространство психолога: записи, сессии, заметки и ИИ-ассистент в одном месте.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 56, flexWrap: "wrap" }}>
+            {[
+              {
+                title: "Платформа",
+                links: [
+                  { label: "Войти", href: "/login" },
+                  { label: "Регистрация", href: "/login?mode=register" },
+                ],
+              },
+              {
+                title: "Документы",
+                links: [
+                  { label: "Политика обработки данных", href: "/privacy" },
+                  { label: "Условия использования и оферта", href: "/terms" },
+                ],
+              },
+            ].map((col, i) => (
+              <div key={i}>
+                <div style={{ fontWeight: 700, color: "#1C1C1E", marginBottom: 12 }}>{col.title}</div>
+                {col.links.map((link, j) => (
+                  <div key={j} style={{ marginBottom: 8 }}>
+                    <a href={link.href} style={{ color: "#6F5A3F", textDecoration: "none" }}>{link.label}</a>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
-        <div style={{ borderTop: "1px solid #1a1f35", paddingTop: 24, textAlign: "center" }}>
-          © 2026 ТОЛК — платформа-ассистент для психологов. Все права защищены.
+        <div style={{ maxWidth: 1100, margin: "32px auto 0", paddingTop: 20, borderTop: "1px solid #E5DFD5", fontSize: 13 }}>
+          © 2026 ТОЛК. Все права защищены.
         </div>
       </footer>
     </div>

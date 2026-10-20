@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui";
 import { useClients } from "@/lib/ClientsContext";
 import AssistantChat from "@/components/AssistantChat";
+import { ClientFace } from "@/components/Avatar";
 
 export default function AssistantPage() {
   const { clients, loading: clientsLoading } = useClients();
@@ -68,7 +69,7 @@ export default function AssistantPage() {
                     borderRadius: "50%",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 11, fontWeight: 600, color: "#fff", flexShrink: 0,
-                  }}>{c.initials}</div>
+                  }}><ClientFace avatarData={c.avatarData} initials={c.initials} /></div>
                   <div style={{ overflow: "hidden" }}>
                     <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {c.name}

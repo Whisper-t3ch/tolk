@@ -10,6 +10,7 @@ import { findNearestFreeSlot } from "@/lib/calendarSlots";
 import { getScoreColor, getScoreBg } from "@/lib/utils";
 import { Users, Video, UserPlus, AlertCircle, ArrowRight, Clock, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
+import { ClientFace } from "@/components/Avatar";
 
 const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -190,7 +191,7 @@ export default function DashboardPage() {
       {/* Заголовок */}
       <div style={{ marginBottom: 32 }}>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: "#1C1C1E", letterSpacing: "-0.5px" }}>
-          {psychologistName ? `Добрый день, ${psychologistName}` : "Добрый день"}
+          {psychologistName ? `Добрый день, ${psychologistName.trim().split(/\s+/)[0]}` : "Добрый день"}
         </h1>
         <p style={{ fontSize: 15, color: "#6B6058", marginTop: 6 }}>
           Сегодня {new Date(TODAY + "T00:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" })}
@@ -408,7 +409,7 @@ export default function DashboardPage() {
                                         borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                                         fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0,
                                       }}>
-                                        {client?.initials ?? "?"}
+                                        <ClientFace avatarData={client?.avatarData} initials={client?.initials ?? "?"} />
                                       </div>
                                       <div>
                                         <div style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>{session.clientName}</div>
@@ -623,7 +624,7 @@ export default function DashboardPage() {
                       borderRadius: "50%",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 12, fontWeight: 600, color: "#fff", flexShrink: 0,
-                    }}>{client.initials}</div>
+                    }}><ClientFace avatarData={client.avatarData} initials={client.initials} /></div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 500, color: "#1C1C1E", transition: "color 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.color = "#2D6A5C"} onMouseLeave={(e) => e.currentTarget.style.color = "#1C1C1E"}>{client.name}</div>
                       <div style={{ fontSize: 12, color: "#6F5A3F" }}>{client.request}</div>

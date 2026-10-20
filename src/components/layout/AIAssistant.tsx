@@ -7,9 +7,9 @@ import AssistantChat from "@/components/AssistantChat";
 
 export default function AIAssistant() {
   const pathname = usePathname();
-  // На странице чата с клиентами плавающий кружок мешает панели ввода —
-  // там ассистент вызывается из самого чата, а не глобальным виджетом.
-  const hideFloatingButton = pathname?.startsWith("/clients");
+  // В чате с клиентами и на странице «Ассистент» плавающий кружок перекрывает панель ввода —
+  // там ассистент уже перед глазами, глобальный виджет не нужен.
+  const hideFloatingButton = pathname?.startsWith("/clients") || pathname?.startsWith("/assistant");
 
   const [isOpen, setIsOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);

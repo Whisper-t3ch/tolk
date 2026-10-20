@@ -8,6 +8,7 @@ import { useClients } from "@/lib/ClientsContext";
 import { useProfile } from "@/lib/ProfileContext";
 import { todayInTimeZone, isSessionPast, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { Button, Card, CardContent } from "@/components/ui";
+import { ClientFace } from "@/components/Avatar";
 
 const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 
@@ -158,7 +159,7 @@ export default function SessionsPage() {
                               display: "flex", alignItems: "center", justifyContent: "center",
                               fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0,
                             }}>
-                              {client?.initials ?? "?"}
+                              <ClientFace avatarData={client?.avatarData} initials={client?.initials ?? "?"} />
                             </div>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
