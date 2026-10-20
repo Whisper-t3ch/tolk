@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPlatformTelegram } from "@/lib/notify/platformTelegram";
 import { applySupportReply } from "@/lib/support/reply";
-import { handleManagedBotUpdate, type ManagedBotUpdate } from "@/lib/messengers/managedBots";
+import { handleManagedBotUpdate, claimManagedBotsForChat, type ManagedBotUpdate } from "@/lib/messengers/managedBots";
 
 // Обработка входящих сообщений платформенного Telegram-бота (@tolk_supp0rt_bot).
 // Используется и вебхуком (/api/webhooks/platform-telegram), и long-polling'ом (/api/jobs/telegram-poll).
@@ -76,6 +76,7 @@ export async function handlePlatformUpdate(update: TgUpdate): Promise<void> {
         { onConflict: "user_id,channel" }
       );
       await db.from("notification_link_tokens").delete().eq("token", token);
+      void claimManagedBotsForChat(db, row.user_id as string, chatId).catch((e) => console.error("claimManagedBots:", e instanceof Error ? e.message : e));
       await sendPlatformTelegram(chatId, "Готово ✅ Теперь сюда будут приходить уведомления ТОЛК: новые записи клиентов, ответы поддержки. Отключить: /stop");
       return;
     }

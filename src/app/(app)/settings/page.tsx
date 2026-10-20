@@ -412,9 +412,14 @@ export default function SettingsPage() {
                                 <Button size="sm" onClick={startAutoBot} disabled={integrationSubmitting || autoBotWaiting}>
                                   {autoBotWaiting ? "Ждём подтверждения в Telegram…" : "Создать бота автоматически"}
                                 </Button>
+                                {!autoBotWaiting && !profile?.telegram.connected && (
+                                  <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 8, lineHeight: 1.5 }}>
+                                    Совет: сначала подключите Telegram-уведомления в <Link href="/profile" style={{ color: "#2D6A5C", fontWeight: 600 }}>Профиле</Link> — тогда бот подключится, даже если вы измените его username.
+                                  </div>
+                                )}
                                 {autoBot && autoBotWaiting && (
                                   <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 8, lineHeight: 1.5 }}>
-                                    Telegram не открылся? <a href={autoBot.link} target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", fontWeight: 600 }}>Откройте ссылку</a> и нажмите «Создать».
+                                    Telegram не открылся? <a href={autoBot.link} target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", fontWeight: 600 }}>Откройте ссылку</a> и нажмите «Create» («Создать»). Username лучше не менять. Если поменяли — подключите Telegram в <Link href="/profile" style={{ color: "#2D6A5C", fontWeight: 600 }}>Профиле</Link>, и бот подключится сам.
                                   </div>
                                 )}
                                 {integrationError && <div style={{ fontSize: 12, color: "#B91C1C", marginTop: 8 }}>{integrationError}</div>}

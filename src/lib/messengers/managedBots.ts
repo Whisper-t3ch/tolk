@@ -112,20 +112,30 @@ export async function handleManagedBotUpdate(db: SupabaseClient, mb: ManagedBotU
   }
   // Чужого бота никому не подключаем: без однозначного соответствия запросу — игнорируем.
   if (!reqRow) {
-    console.warn(`managed_bot: нет запроса для @${username}, пропуск`);
+    console.warn(`managed_bot: нет запроса для @${username}, запоминаем до привязки Telegram создателя`);
+    await db.from("managed_bot_orphans").upsert(
+      { bot_id: botUser.id, bot_username: username, creator_tg_id: creator?.id ?? null, created_at: new Date().toISOString() },
+      { onConflict: "bot_id" }
+    );
     return;
   }
+  await db.from("managed_bot_orphans").delete().eq("bot_id", botUser.id);
 
+  await connectManagedBot(db, reqRow.psychologist_id, token, username, reqRow.id);
+}
+
+/** Сохраняет бота как Telegram-интеграцию психолога и закрывает запрос. */
+async function connectManagedBot(db: SupabaseClient, psychologistId: string, token: string, username: string, requestId: string | null): Promise<void> {
   const { data: current } = await db
     .from("messenger_integrations")
     .select("id")
-    .eq("psychologist_id", reqRow.psychologist_id)
+    .eq("psychologist_id", psychologistId)
     .eq("platform", "telegram")
     .maybeSingle();
   const { error } = await db.from("messenger_integrations").upsert(
     {
       id: current?.id,
-      psychologist_id: reqRow.psychologist_id,
+      psychologist_id: psychologistId,
       platform: "telegram",
       bot_token: token,
       bot_username: username,
@@ -136,10 +146,43 @@ export async function handleManagedBotUpdate(db: SupabaseClient, mb: ManagedBotU
     { onConflict: "psychologist_id,platform" }
   );
   if (error) {
-    await db.from("managed_bot_requests").update({ status: "error", error: error.message, done_at: new Date().toISOString() }).eq("id", reqRow.id);
+    if (requestId) await db.from("managed_bot_requests").update({ status: "error", error: error.message, done_at: new Date().toISOString() }).eq("id", requestId);
     throw new Error(`save integration: ${error.message}`);
   }
-  await db.from("managed_bot_requests").update({ status: "done", bot_username: username, done_at: new Date().toISOString() }).eq("id", reqRow.id);
+  if (requestId) await db.from("managed_bot_requests").update({ status: "done", bot_username: username, done_at: new Date().toISOString() }).eq("id", requestId);
   void brandBot(token);
-  void notifyUserTelegram(reqRow.psychologist_id, `Готово ✅ Бот @${username} создан и подключён к ТОЛК. Ссылку для клиентов можно получить в разделе «Клиенты».`);
+  void notifyUserTelegram(psychologistId, `Готово ✅ Бот @${username} создан и подключён к ТОЛК. Ссылку для клиентов можно получить в разделе «Клиенты».`);
+}
+
+/**
+ * Вызывается после привязки Telegram психолога к аккаунту: если он недавно создал бота (с другим username,
+ * чем предложили) и запрос ждёт — подключаем этого бота.
+ */
+export async function claimManagedBotsForChat(db: SupabaseClient, userId: string, chatId: string): Promise<void> {
+  const since = new Date(Date.now() - REQUEST_TTL_MS).toISOString();
+  const creatorId = Number(chatId);
+  if (!Number.isFinite(creatorId)) return;
+  const { data: orphan } = await db
+    .from("managed_bot_orphans")
+    .select("bot_id, bot_username")
+    .eq("creator_tg_id", creatorId)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!orphan) return;
+  const { data: req } = await db
+    .from("managed_bot_requests")
+    .select("id")
+    .eq("psychologist_id", userId)
+    .eq("status", "pending")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!req) return;
+  const token = await managerCall<string>("getManagedBotToken", { user_id: orphan.bot_id });
+  const info = await getTelegramBotInfo(token);
+  await connectManagedBot(db, userId, token, info.username, req.id as string);
+  await db.from("managed_bot_orphans").delete().eq("bot_id", orphan.bot_id);
 }
