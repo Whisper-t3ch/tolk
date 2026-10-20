@@ -37,3 +37,43 @@ h1, h2, h3, h4, h5, h6 {
 .chat-bubble-hover:hover .chat-reaction-trigger {
   opacity: 1 !important;
 }
+
+/* ===== Мобильная версия кабинета (≤768px) ===== */
+@media (max-width: 768px) {
+  .tolk-main-wrap { margin-left: 0 !important; }
+  .tolk-main { padding: 14px 12px 88px !important; }
+  .tolk-burger { display: flex !important; }
+  .tolk-app-header { padding: 0 12px !important; gap: 10px !important; }
+  .tolk-header-brand { display: none !important; }
+  .tolk-app-header > div[style*="max-width: 420px"], .tolk-app-header > div[style*="maxWidth"] { min-width: 0; }
+
+  /* Две колонки → одна */
+  .tolk-stack { flex-direction: column !important; height: auto !important; padding-left: 0 !important; padding-right: 0 !important; }
+  .tolk-full { width: 100% !important; max-width: 100% !important; flex: 0 0 auto !important; }
+  .tolk-full > * { max-width: 100% !important; }
+  .tolk-assistant > div:last-child { min-height: 70vh; }
+  .tolk-chatpane { min-height: 70vh; }
+
+  /* Клиенты: список ИЛИ чат */
+  .tolk-split { height: calc(100dvh - 100px) !important; }
+  .tolk-split-list, .tolk-split-detail { flex: 0 0 100% !important; width: 100% !important; }
+  .tolk-split[data-sel="1"] .tolk-split-list { display: none !important; }
+  .tolk-split[data-sel="0"] .tolk-split-detail { display: none !important; }
+  .tolk-back { display: flex !important; }
+
+  /* Сетки с фиксированным числом колонок */
+  main [style*="grid-template-columns: repeat(4, 1fr)"] { grid-template-columns: repeat(2, 1fr) !important; }
+  main [style*="grid-template-columns: repeat(3, 1fr)"],
+  main [style*="grid-template-columns: 1fr 1fr"],
+  main [style*="grid-template-columns: repeat(2, 1fr)"] { grid-template-columns: 1fr !important; }
+  /* Таблица клиентов на дашборде: имя + первая колонка */
+  main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"] { grid-template-columns: 1.6fr 1fr !important; padding-left: 14px !important; padding-right: 14px !important; }
+  main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"] > :nth-child(n+3) { display: none !important; }
+
+  /* Длинные слова и таблицы не растягивают страницу */
+  main { overflow-x: hidden; }
+  main table { display: block; overflow-x: auto; }
+
+  /* Окна и панели не шире экрана */
+  [role="dialog"], .tolk-modal { max-width: calc(100vw - 24px) !important; }
+}

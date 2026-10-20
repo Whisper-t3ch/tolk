@@ -398,9 +398,9 @@ function ClientsPageInner() {
   ];
 
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 120px)", gap: 12 }}>
+    <div className="tolk-split" data-sel={selectedClient ? "1" : "0"} style={{ display: "flex", height: "calc(100vh - 120px)", gap: 12 }}>
       {/* Левая колонка - Список клиентов */}
-      <div style={{ flex: "0 0 30%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div className="tolk-split-list" style={{ flex: "0 0 30%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E" }}>
             Клиенты
@@ -607,8 +607,16 @@ function ClientsPageInner() {
 
       {/* Правая колонка */}
       {selectedClient ? (
-        <div style={{ flex: "0 0 70%", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+        <div className="tolk-split-detail" style={{ flex: "0 0 70%", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
           {/* Хедер чата */}
+          <button
+            type="button"
+            className="tolk-back"
+            onClick={() => setSelectedClientId(null)}
+            style={{ display: "none", alignItems: "center", gap: 6, padding: "10px 16px", background: "#FFFFFF", border: "none", borderBottom: "1px solid #E5DFD5", fontSize: 13, fontWeight: 600, color: "#2D6A5C", cursor: "pointer", textAlign: "left" }}
+          >
+            ← К списку клиентов
+          </button>
           <div style={{
             padding: "12px 16px",
             background: "#FFFFFF",
@@ -892,7 +900,7 @@ function ClientsPageInner() {
           </Card>
         </div>
       ) : (
-        <div style={{
+        <div className="tolk-split-detail" style={{
           flex: "0 0 70%",
           display: "flex",
           flexDirection: "column",

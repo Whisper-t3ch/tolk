@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Users, Video, Bot, FileText,
@@ -47,7 +47,21 @@ export default function Sidebar() {
   const specialty = profile?.specialty ?? "";
   const creditPct = Math.round((plan.assistantRequests.used / plan.assistantRequests.total) * 100);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [hoverExpanded, setHoverExpanded] = useState(false);
+  // Мобильный режим: сайдбар — выезжающая панель (открывается кнопкой-«гамбургером» в шапке).
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const isExpanded = isMobile || hoverExpanded;
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    const toggle = () => setMobileOpen(v => !v);
+    window.addEventListener("tolk:toggle-menu", toggle);
+    return () => { mq.removeEventListener("change", apply); window.removeEventListener("tolk:toggle-menu", toggle); };
+  }, []);
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
   const [showNewSession, setShowNewSession] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -229,11 +243,17 @@ export default function Sidebar() {
 
   return (
     <>
+      {isMobile && mobileOpen && (
+        <div
+          onClick={() => setMobileOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 49 }}
+        />
+      )}
       <motion.aside
         ref={sidebarRef}
-        onMouseEnter={() => setIsExpanded(true)}
-        onMouseLeave={() => setIsExpanded(false)}
-        animate={{ width: isExpanded ? 240 : 80 }}
+        onMouseEnter={() => { if (!isMobile) setHoverExpanded(true); }}
+        onMouseLeave={() => { if (!isMobile) setHoverExpanded(false); }}
+        animate={isMobile ? { width: 272, x: mobileOpen ? 0 : -300 } : { width: isExpanded ? 240 : 80, x: 0 }}
         transition={{ duration: 0.3, ease: "easeInOut" }}
         style={{
           height: "100vh",

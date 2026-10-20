@@ -12,6 +12,7 @@ export default function AppLayout({
     <>
       <Sidebar />
       <div
+        className="tolk-main-wrap"
         style={{
           marginLeft: "80px",
           height: "100vh",
@@ -23,6 +24,7 @@ export default function AppLayout({
       >
         <Header />
         <main
+          className="tolk-main"
           style={{
             flex: 1,
             padding: "24px 24px 96px",

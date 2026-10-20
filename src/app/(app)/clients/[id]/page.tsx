@@ -804,8 +804,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
 
       {/* СЕССИИ: список сессий клиента + чат */}
       {activeTab === "sessions" && (
-        <div style={{ display: "flex", gap: 16, height: "calc(100vh - 340px)", minHeight: 480 }}>
-          <div style={{ flex: "0 0 34%", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto" }}>
+        <div className="tolk-stack tolk-client-sessions" style={{ display: "flex", gap: 16, height: "calc(100vh - 340px)", minHeight: 480 }}>
+          <div className="tolk-full" style={{ flex: "0 0 34%", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button
                 onClick={handleExportAllTranscripts}
@@ -887,7 +887,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           </div>
 
           {/* Чат с клиентом */}
-          <div style={{ flex: "0 0 66%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div className="tolk-full tolk-chatpane" style={{ flex: "0 0 66%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <Card style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <CardContent className="pt-4 flex-1 flex flex-col" style={{ minHeight: 0 }}>
                 {/* Баннер привязки мессенджера — показываем, пока у клиента нет ни одной привязки */}

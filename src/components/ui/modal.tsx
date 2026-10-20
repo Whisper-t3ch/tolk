@@ -48,6 +48,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
               boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)",
               zIndex: 101,
               width: 420,
+              maxWidth: "calc(100vw - 32px)",
               maxHeight: "90vh",
               overflow: "auto",
               display: "flex",

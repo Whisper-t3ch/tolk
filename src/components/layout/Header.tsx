@@ -113,9 +113,18 @@ export default function Header() {
         padding: "0 24px",
         position: "sticky", top: 0, zIndex: 40,
         gap: 24,
-      }}>
+      }} className="tolk-app-header">
+        <button
+          type="button"
+          className="tolk-burger"
+          aria-label="Меню"
+          onClick={() => window.dispatchEvent(new Event("tolk:toggle-menu"))}
+          style={{ display: "none", alignItems: "center", justifyContent: "center", width: 40, height: 40, flexShrink: 0, background: "#F5F3EF", border: "1px solid #E5DFD5", borderRadius: 10, cursor: "pointer", color: "#1C1C1E" }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
         {/* Название платформы (заголовок раздела не дублируем — он уже есть в контенте страницы) */}
-        <div style={{ flexShrink: 0, minWidth: 140 }}>
+        <div className="tolk-header-brand" style={{ flexShrink: 0, minWidth: 140 }}>
           <span style={{
             fontSize: 15, fontWeight: 700, color: "#1C1C1E",
             display: "block",
@@ -239,7 +248,7 @@ export default function Header() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     style={{
-                      position: "absolute", top: "calc(100% + 8px)", right: 0, width: 320,
+                      position: "absolute", top: "calc(100% + 8px)", right: 0, width: 320, maxWidth: "calc(100vw - 24px)",
                       background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 12,
                       boxShadow: "0 16px 40px rgba(15,22,41,0.15)", zIndex: 46, overflow: "hidden",
                     }}

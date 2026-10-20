@@ -11,9 +11,9 @@ export default function AssistantPage() {
   const [activeClientId, setActiveClientId] = useState<string | undefined>(undefined);
 
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 120px)", gap: 16, padding: "0 24px 24px" }}>
+    <div className="tolk-stack tolk-assistant" style={{ display: "flex", height: "calc(100vh - 120px)", gap: 16, padding: "0 24px 24px" }}>
       {/* Панель выбора клиента */}
-      <div style={{ width: 220, flexShrink: 0 }}>
+      <div className="tolk-full" style={{ width: 220, flexShrink: 0 }}>
         <Card>
           <CardContent className="pt-6">
             <p style={{ fontSize: 11, fontWeight: 600, color: "#6B6058", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>

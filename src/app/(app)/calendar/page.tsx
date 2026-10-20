@@ -166,7 +166,7 @@ export default function CalendarPage() {
         Календарь
       </h1>
 
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", overflowX: "auto" }}>
+      <div className="tolk-stack" style={{ display: "flex", gap: 16, alignItems: "flex-start", overflowX: "auto" }}>
         <div style={{ flex: "1 1 auto", minWidth: 640 }}>
           <Card style={{ overflow: "hidden" }}>
             <div style={{
@@ -364,7 +364,7 @@ export default function CalendarPage() {
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 24 }}
-              style={{ width: 320, flexShrink: 0 }}
+              className="tolk-full" style={{ width: 320, flexShrink: 0 }}
             >
               <Card style={{ position: "sticky", top: 16, maxWidth: 320, overflow: "hidden" }}>
                 <div style={{
