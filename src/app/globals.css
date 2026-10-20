@@ -45,7 +45,9 @@ h1, h2, h3, h4, h5, h6 {
   .tolk-burger { display: flex !important; }
   .tolk-app-header { padding: 0 12px !important; gap: 10px !important; }
   .tolk-header-brand { display: none !important; }
-  .tolk-app-header > div[style*="max-width: 420px"], .tolk-app-header > div[style*="maxWidth"] { min-width: 0; }
+  .tolk-app-header > div[style*="max-width: 420px"],
+  .tolk-app-header > div[style*="max-width:420px"],
+  .tolk-app-header > div[style*="maxWidth"] { min-width: 0; }
 
   /* Две колонки → одна */
   .tolk-stack { flex-direction: column !important; height: auto !important; padding-left: 0 !important; padding-right: 0 !important; }
@@ -61,14 +63,28 @@ h1, h2, h3, h4, h5, h6 {
   .tolk-split[data-sel="0"] .tolk-split-detail { display: none !important; }
   .tolk-back { display: flex !important; }
 
-  /* Сетки с фиксированным числом колонок */
-  main [style*="grid-template-columns: repeat(4, 1fr)"] { grid-template-columns: repeat(2, 1fr) !important; }
+  /* Сетки с фиксированным числом колонок.
+     React пишет style="prop:value" в серверном HTML без пробела — поэтому два варианта селектора. */
+  main [style*="grid-template-columns: repeat(4, 1fr)"],
+  main [style*="grid-template-columns:repeat(4, 1fr)"] { grid-template-columns: repeat(2, 1fr) !important; }
   main [style*="grid-template-columns: repeat(3, 1fr)"],
+  main [style*="grid-template-columns:repeat(3, 1fr)"],
   main [style*="grid-template-columns: 1fr 1fr"],
-  main [style*="grid-template-columns: repeat(2, 1fr)"] { grid-template-columns: 1fr !important; }
+  main [style*="grid-template-columns:1fr 1fr"],
+  main [style*="grid-template-columns: repeat(2, 1fr)"],
+  main [style*="grid-template-columns:repeat(2, 1fr)"] { grid-template-columns: 1fr !important; }
   /* Таблица клиентов на дашборде: имя + первая колонка */
-  main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"] { grid-template-columns: 1.6fr 1fr !important; padding-left: 14px !important; padding-right: 14px !important; }
-  main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"] > :nth-child(n+3) { display: none !important; }
+  main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"],
+  main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] { grid-template-columns: 1.6fr 1fr !important; padding-left: 14px !important; padding-right: 14px !important; }
+  main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"] > :nth-child(n+3),
+  main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] > :nth-child(n+3) { display: none !important; }
+
+  main [style*="grid-template-columns"] > * { min-width: 0; }
+
+  /* Календарь на дашборде: сетка месяца над списком сессий */
+  .tolk-cal-row { flex-direction: column !important; gap: 16px !important; }
+  .tolk-cal-grid { flex: 0 0 auto !important; width: 100% !important; }
+  .tolk-cal-day { border-left: none !important; padding-left: 0 !important; border-top: 1px solid #E5DFD5; padding-top: 14px; }
 
   /* Длинные слова и таблицы не растягивают страницу */
   main { overflow-x: hidden; }

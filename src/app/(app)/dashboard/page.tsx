@@ -262,9 +262,9 @@ export default function DashboardPage() {
 
         <Card>
           <CardContent className="pt-5 pb-5">
-            <div style={{ display: "flex", gap: 24 }}>
+            <div className="tolk-cal-row" style={{ display: "flex", gap: 24 }}>
               {/* Сетка месяца */}
-              <div style={{ flex: "0 0 340px" }}>
+              <div className="tolk-cal-grid" style={{ flex: "0 0 340px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                   <button
                     onClick={prevMonth}
@@ -354,7 +354,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Сессии выбранного дня */}
-              <div style={{ flex: 1, borderLeft: "1px solid #E5DFD5", paddingLeft: 24, minWidth: 0 }}>
+              <div className="tolk-cal-day" style={{ flex: 1, borderLeft: "1px solid #E5DFD5", paddingLeft: 24, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
                   <CalendarDays size={15} style={{ color: "#2D6A5C" }} />
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", textTransform: "capitalize" }}>
