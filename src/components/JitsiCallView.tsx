@@ -42,7 +42,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Mic, MicOff, Video, VideoOff, AlertTriangle, Loader2 } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, AlertTriangle, Loader2, MonitorUp, MonitorOff } from "lucide-react";
 import { JitsiCallSession, type CallConnectionState } from "@/lib/jitsi/connection";
 import { isUsingPublicTestServer } from "@/lib/jitsi/config";
 import { runPreflight, type PreflightResult, type PreflightVerdict } from "@/lib/recording/preflight";
@@ -119,6 +119,10 @@ function JitsiCallView(
   const [camError, setCamError] = useState<string | null>(null);
   const [camMuted, setCamMuted] = useState(true); // видео выключено по умолчанию — платформа аудио-центричная
   const [remoteConnected, setRemoteConnected] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  /** Клиент сам показывает экран — картинку вписываем целиком, а не обрезаем. */
+  const [remoteIsScreen, setRemoteIsScreen] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatusSnapshot | null>(null);
   const [chunkStats, setChunkStats] = useState({ count: 0, bytes: 0, failed: 0, foreignResumed: 0, quarantined: 0 });
 
@@ -281,11 +285,21 @@ function JitsiCallView(
       onRemoteAudioTrackRemoved: () => {
         setRemoteConnected(false);
       },
-      onRemoteVideoTrack: (_participantId, stream) => {
+      onRemoteVideoTrack: (_participantId, stream, videoType) => {
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
+        setRemoteIsScreen(videoType === "desktop");
       },
-      onRemoteVideoTrackRemoved: () => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      onRemoteVideoTrackRemoved: (_participantId, stream) => {
+        // При замене камеры на экран новая дорожка может прийти раньше, чем снимется старая —
+        // обнуляем картинку только если снята именно та, что сейчас показана.
+        const el = remoteVideoRef.current;
+        if (el && (!stream || el.srcObject === stream)) {
+          el.srcObject = null;
+          setRemoteIsScreen(false);
+        }
+      },
+      onScreenShareEnded: () => {
+        if (mountedRef.current) setSharing(false);
       },
       onParticipantLeft: () => {
         setRemoteConnected(false);
@@ -395,6 +409,21 @@ function JitsiCallView(
     setMicMuted(next);
   }
 
+  async function toggleShare() {
+    setShareError(null);
+    try {
+      if (sharing) {
+        await sessionRef.current?.stopScreenShare();
+        setSharing(false);
+        return;
+      }
+      const result = await sessionRef.current?.startScreenShare();
+      if (result === "started") setSharing(true);
+    } catch {
+      setShareError("Не удалось начать показ экрана. Проверьте разрешения браузера и попробуйте ещё раз");
+    }
+  }
+
   async function toggleCam() {
     const next = !camMuted;
     setCamError(null);
@@ -461,7 +490,7 @@ function JitsiCallView(
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: remoteConnected ? "block" : "none" }}
+              style={{ width: "100%", height: "100%", objectFit: remoteIsScreen ? "contain" : "cover", background: remoteIsScreen ? "#0F0F10" : undefined, display: remoteConnected ? "block" : "none" }}
             />
             <audio ref={remoteAudioRef} autoPlay />
             {!remoteConnected && viewState === "in_call" && (
@@ -520,13 +549,32 @@ function JitsiCallView(
         </div>
       </div>
 
-      {viewState === "in_call" && camError && (
-        <p style={{ textAlign: "center", fontSize: 12, color: "#B91C1C", margin: "8px 0 0" }}>{camError}</p>
+      {viewState === "in_call" && (camError || shareError) && (
+        <p style={{ textAlign: "center", fontSize: 12, color: "#B91C1C", margin: "8px 0 0" }}>{camError ?? shareError}</p>
+      )}
+      {viewState === "in_call" && sharing && (
+        <p style={{ textAlign: "center", fontSize: 12, color: "#157347", margin: "8px 0 0", fontWeight: 600 }}>
+          Идёт демонстрация экрана — клиент видит выбранное окно
+        </p>
       )}
       {viewState === "in_call" && (
         <div style={{ display: "flex", gap: 12, justifyContent: "center", padding: "12px 0" }}>
           <IconToggle active={!micMuted} onClick={toggleMic} onIcon={<Mic size={18} />} offIcon={<MicOff size={18} />} />
           <IconToggle active={!camMuted} onClick={toggleCam} onIcon={<Video size={18} />} offIcon={<VideoOff size={18} />} />
+          {JitsiCallSession.isScreenShareSupported() && (
+            <button
+              onClick={toggleShare}
+              title={sharing ? "Остановить демонстрацию экрана" : "Показать экран клиенту"}
+              aria-label={sharing ? "Остановить демонстрацию экрана" : "Показать экран клиенту"}
+              style={{
+                width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: sharing ? "#157347" : "#F5F3EF", color: sharing ? "#fff" : "#1C1C1E",
+              }}
+            >
+              {sharing ? <MonitorOff size={18} /> : <MonitorUp size={18} />}
+            </button>
+          )}
         </div>
       )}
     </div>

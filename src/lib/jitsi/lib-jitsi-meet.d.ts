@@ -21,6 +21,8 @@ declare module "lib-jitsi-meet" {
     isVideoTrack(): boolean;
     isMuted(): boolean;
     dispose(): Promise<void>;
+    /** "camera" | "desktop" — тип видеодорожки (у аудио не задан). */
+    videoType?: string;
   }
 
   export interface JitsiLocalTrack extends JitsiTrack {
@@ -43,6 +45,8 @@ declare module "lib-jitsi-meet" {
     leave(reason?: string): Promise<void>;
     addTrack(track: JitsiLocalTrack): Promise<void>;
     removeTrack(track: JitsiLocalTrack): Promise<void>;
+    /** Заменяет одну локальную дорожку другой; null вместо старой — просто добавить, вместо новой — просто убрать. */
+    replaceTrack(oldTrack: JitsiLocalTrack | null, newTrack: JitsiLocalTrack | null): Promise<void>;
     isJoined(): boolean;
     getParticipants(): JitsiParticipant[];
     getParticipantById(id: string): JitsiParticipant | undefined;

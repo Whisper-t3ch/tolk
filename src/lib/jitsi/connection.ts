@@ -43,8 +43,12 @@ export interface JitsiCallSessionOptions {
   /** Аудиодорожка клиента появилась — именно она нужна SessionRecorder. */
   onRemoteAudioTrack?: (participantId: string, stream: MediaStream) => void;
   onRemoteAudioTrackRemoved?: (participantId: string) => void;
-  onRemoteVideoTrack?: (participantId: string, stream: MediaStream) => void;
-  onRemoteVideoTrackRemoved?: (participantId: string) => void;
+  /** videoType: "camera" | "desktop" (демонстрация экрана) — по нему интерфейс выбирает, как вписывать картинку. */
+  onRemoteVideoTrack?: (participantId: string, stream: MediaStream, videoType?: string) => void;
+  /** stream — поток снятой дорожки: при замене камеры на экран новая дорожка может прийти раньше, чем снимется старая. */
+  onRemoteVideoTrackRemoved?: (participantId: string, stream?: MediaStream) => void;
+  /** Демонстрация экрана остановилась не по нашей кнопке (например, нативная кнопка «Прекратить показ» в браузере). */
+  onScreenShareEnded?: () => void;
   /** Клиент вышел из комнаты (не то же самое, что пропажа дорожки при mute). */
   onParticipantLeft?: (participantId: string) => void;
   onConnectionStateChange?: (state: CallConnectionState) => void;
@@ -64,6 +68,8 @@ export class JitsiCallSession {
   private conference: JitsiConference | null = null;
   private localAudioTrack: JitsiLocalTrack | null = null;
   private localVideoTrack: JitsiLocalTrack | null = null;
+  /** Активная демонстрация экрана. Пока она идёт, в конференции вместо камеры публикуется эта дорожка. */
+  private screenTrack: JitsiLocalTrack | null = null;
   private state: CallConnectionState = "idle";
   private leaving = false;
 
@@ -174,10 +180,12 @@ export class JitsiCallSession {
       await Promise.all([
         this.localAudioTrack?.dispose().catch(() => undefined),
         this.localVideoTrack?.dispose().catch(() => undefined),
+        this.screenTrack?.dispose().catch(() => undefined),
       ]);
     } finally {
       this.localAudioTrack = null;
       this.localVideoTrack = null;
+      this.screenTrack = null;
       this.conference = null;
       this.connection = null;
       this.setState("left");
@@ -245,7 +253,7 @@ export class JitsiCallSession {
     if (remoteTrack.isAudioTrack()) {
       this.options.onRemoteAudioTrack?.(participantId, stream);
     } else if (remoteTrack.isVideoTrack()) {
-      this.options.onRemoteVideoTrack?.(participantId, stream);
+      this.options.onRemoteVideoTrack?.(participantId, stream, remoteTrack.videoType);
     }
   }
 
@@ -258,7 +266,7 @@ export class JitsiCallSession {
     if (remoteTrack.isAudioTrack()) {
       this.options.onRemoteAudioTrackRemoved?.(participantId);
     } else if (remoteTrack.isVideoTrack()) {
-      this.options.onRemoteVideoTrackRemoved?.(participantId);
+      this.options.onRemoteVideoTrackRemoved?.(participantId, remoteTrack.getOriginalStream());
     }
   }
 
@@ -279,6 +287,8 @@ export class JitsiCallSession {
    * библиотека не загружена); при отказе в доступе к камере бросает ошибку браузера.
    */
   async setCameraMuted(muted: boolean): Promise<boolean> {
+    // Пока идёт демонстрация экрана, в конференции уже есть одна видеодорожка — вторую не добавляем.
+    if (this.screenTrack) return false;
     if (muted) {
       if (this.localVideoTrack) await this.localVideoTrack.mute();
       return true;
@@ -298,6 +308,63 @@ export class JitsiCallSession {
     this.options.onLocalVideoTrack?.(video.getOriginalStream(), video);
     if (this.conference) await this.conference.addTrack(video);
     return true;
+  }
+
+  /** Демонстрация экрана поддерживается браузером (на телефонах обычно нет). */
+  static isScreenShareSupported(): boolean {
+    return typeof navigator !== "undefined" && !!navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === "function";
+  }
+
+  isScreenSharing(): boolean {
+    return this.screenTrack !== null;
+  }
+
+  /**
+   * Начинает показ экрана: браузер сам спрашивает, что показывать. Камера (если была включена)
+   * на время показа заменяется экраном и возвращается при остановке.
+   * Возвращает "cancelled", если человек закрыл окно выбора, не выбрав экран.
+   */
+  async startScreenShare(): Promise<"started" | "cancelled"> {
+    if (this.screenTrack) return "started";
+    if (!this.JitsiMeetJS || !this.conference) throw new Error("Звонок ещё не начался");
+
+    let tracks: JitsiLocalTrack[];
+    try {
+      tracks = await this.JitsiMeetJS.createLocalTracks({ devices: ["desktop"] });
+    } catch (e) {
+      const text = `${(e as { name?: string })?.name ?? ""} ${(e as { message?: string })?.message ?? ""}`.toLowerCase();
+      if (text.includes("cancel") || text.includes("notallowed") || text.includes("permission") || text.includes("denied")) {
+        return "cancelled";
+      }
+      throw e;
+    }
+    // Если человек поставил «поделиться звуком», лишние аудиодорожки не публикуем.
+    const video = tracks.find(t => t.isVideoTrack());
+    await Promise.all(tracks.filter(t => t !== video).map(t => t.dispose().catch(() => undefined)));
+    if (!video) return "cancelled";
+
+    // Нативная кнопка браузера «Прекратить показ» завершает дорожку — узнаём об этом.
+    video.getTrack().addEventListener("ended", () => {
+      if (this.screenTrack === video) {
+        void this.stopScreenShare().finally(() => this.options.onScreenShareEnded?.());
+      }
+    });
+
+    await this.conference.replaceTrack(this.localVideoTrack, video);
+    this.screenTrack = video;
+    return "started";
+  }
+
+  /** Останавливает показ экрана и возвращает камеру, если она была. Идемпотентен. */
+  async stopScreenShare(): Promise<void> {
+    const screen = this.screenTrack;
+    if (!screen) return;
+    this.screenTrack = null;
+    try {
+      if (this.conference) await this.conference.replaceTrack(screen, this.localVideoTrack);
+    } finally {
+      await screen.dispose().catch(() => undefined);
+    }
   }
 
   isMicMuted(): boolean {

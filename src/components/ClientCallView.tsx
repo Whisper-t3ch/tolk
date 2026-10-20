@@ -48,6 +48,8 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
   const [camError, setCamError] = useState<string | null>(null);
   const [camMuted, setCamMuted] = useState(true); // видео выключено по умолчанию — та же конвенция, что и у психолога
   const [remoteConnected, setRemoteConnected] = useState(false);
+  /** Психолог показывает экран — картинку вписываем целиком, а не обрезаем. */
+  const [remoteIsScreen, setRemoteIsScreen] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -83,11 +85,17 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
       onRemoteAudioTrackRemoved: () => {
         setRemoteConnected(false);
       },
-      onRemoteVideoTrack: (_participantId, stream) => {
+      onRemoteVideoTrack: (_participantId, stream, videoType) => {
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
+        setRemoteIsScreen(videoType === "desktop");
       },
-      onRemoteVideoTrackRemoved: () => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      onRemoteVideoTrackRemoved: (_participantId, stream) => {
+        // Новая дорожка (экран вместо камеры) может прийти раньше, чем снимется старая.
+        const el = remoteVideoRef.current;
+        if (el && (!stream || el.srcObject === stream)) {
+          el.srcObject = null;
+          setRemoteIsScreen(false);
+        }
       },
       onParticipantLeft: () => {
         setRemoteConnected(false);
@@ -176,7 +184,7 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: remoteConnected ? "block" : "none" }}
+              style={{ width: "100%", height: "100%", objectFit: remoteIsScreen ? "contain" : "cover", background: remoteIsScreen ? "#0F0F10" : undefined, display: remoteConnected ? "block" : "none" }}
             />
             <audio ref={remoteAudioRef} autoPlay />
             {!remoteConnected && (
