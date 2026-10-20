@@ -76,7 +76,10 @@ h1, h2, h3, h4, h5, h6 {
   /* Таблица клиентов на дашборде: все колонки, прокрутка вправо пальцем */
   .tolk-table-scroll { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
   main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"],
-  main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] { min-width: 640px; }
+  main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] {
+    grid-template-columns: 200px 150px 120px 70px 60px 90px !important;
+    column-gap: 16px; min-width: 780px; padding-left: 16px !important; padding-right: 16px !important;
+  }
   main [style*="grid-template-columns"] > * { min-width: 0; }
 
   /* История оценок в карточке клиента: 5 колонок → 2 */
