@@ -73,12 +73,10 @@ h1, h2, h3, h4, h5, h6 {
   main [style*="grid-template-columns:1fr 1fr"],
   main [style*="grid-template-columns: repeat(2, 1fr)"],
   main [style*="grid-template-columns:repeat(2, 1fr)"] { grid-template-columns: 1fr !important; }
-  /* Таблица клиентов на дашборде: имя + первая колонка */
+  /* Таблица клиентов на дашборде: все колонки, прокрутка вправо пальцем */
+  .tolk-table-scroll { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
   main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"],
-  main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] { grid-template-columns: 1.6fr 1fr !important; padding-left: 14px !important; padding-right: 14px !important; }
-  main [style*="grid-template-columns: 2fr 1fr 1fr 0.7fr"] > :nth-child(n+3),
-  main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] > :nth-child(n+3) { display: none !important; }
-
+  main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] { min-width: 640px; }
   main [style*="grid-template-columns"] > * { min-width: 0; }
 
   /* Календарь на дашборде: сетка месяца над списком сессий */

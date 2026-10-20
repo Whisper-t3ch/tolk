@@ -567,7 +567,7 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="bg-white border border-[#E5DFD5] rounded-lg overflow-hidden shadow-sm">
+        <div className="tolk-table-scroll bg-white border border-[#E5DFD5] rounded-lg overflow-hidden shadow-sm">
           {/* Заголовок таблицы */}
           <div style={{
             display: "grid",
