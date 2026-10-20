@@ -4784,6 +4784,7 @@ export default function LandingPage() {
                 links: [
                   { label: "Политика обработки данных", href: "/privacy" },
                   { label: "Условия использования и оферта", href: "/terms" },
+                  { label: "Согласие на обработку данных", href: "/consent" },
                 ],
               },
             ].map((col, i) => (

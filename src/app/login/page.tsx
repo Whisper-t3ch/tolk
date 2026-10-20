@@ -26,6 +26,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
+  const [pdConsentChecked, setPdConsentChecked] = useState(false);
   const [inviteCode, setInviteCode] = useState(searchParams.get("code") ?? "");
 
   async function handleSubmit() {
@@ -40,6 +41,10 @@ function LoginForm() {
       return;
     }
     if (mode === "register" && !consentChecked) {
+      setError("Нужно принять пользовательское соглашение и оферту");
+      return;
+    }
+    if (mode === "register" && !pdConsentChecked) {
       setError("Нужно согласие на обработку персональных данных");
       return;
     }
@@ -262,22 +267,39 @@ function LoginForm() {
             />
           )}
           {mode === "register" && (
-            <label style={{
-              display: "flex", alignItems: "flex-start", gap: 8,
-              fontSize: 11.5, color: "#6B6058", lineHeight: 1.4,
-              marginTop: 2, cursor: "pointer",
-            }}>
-              <input
-                type="checkbox"
-                checked={consentChecked}
-                onChange={(e) => setConsentChecked(e.target.checked)}
-                style={{ marginTop: 2, accentColor: "#2D6A5C" }}
-              />
-              <span style={{ minWidth: 0 }}>
-                Согласен(на) с <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", textDecoration: "underline" }}>условиями использования и офертой</a> и{" "}
-                <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", textDecoration: "underline" }}>политикой обработки персональных данных</a>
-              </span>
-            </label>
+            <>
+              <label style={{
+                display: "flex", alignItems: "flex-start", gap: 8,
+                fontSize: 11.5, color: "#6B6058", lineHeight: 1.4,
+                marginTop: 2, cursor: "pointer",
+              }}>
+                <input
+                  type="checkbox"
+                  checked={consentChecked}
+                  onChange={(e) => setConsentChecked(e.target.checked)}
+                  style={{ marginTop: 2, accentColor: "#2D6A5C" }}
+                />
+                <span style={{ minWidth: 0 }}>
+                  Принимаю <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", textDecoration: "underline" }}>пользовательское соглашение и оферту</a>
+                </span>
+              </label>
+              <label style={{
+                display: "flex", alignItems: "flex-start", gap: 8,
+                fontSize: 11.5, color: "#6B6058", lineHeight: 1.4,
+                cursor: "pointer",
+              }}>
+                <input
+                  type="checkbox"
+                  checked={pdConsentChecked}
+                  onChange={(e) => setPdConsentChecked(e.target.checked)}
+                  style={{ marginTop: 2, accentColor: "#2D6A5C" }}
+                />
+                <span style={{ minWidth: 0 }}>
+                  Даю <a href="/consent" target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", textDecoration: "underline" }}>согласие на обработку персональных данных</a> на условиях{" "}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", textDecoration: "underline" }}>политики</a>
+                </span>
+              </label>
+            </>
           )}
           {error && (
             <p style={{
