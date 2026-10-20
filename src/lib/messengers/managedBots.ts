@@ -91,19 +91,20 @@ export async function handleManagedBotUpdate(db: SupabaseClient, mb: ManagedBotU
   reqRow = (byName as Req | null) ?? null;
 
   if (!reqRow && creator?.id) {
-    const { data: ch } = await db
+    // Один Telegram может быть привязан к нескольким аккаунтам — берём того, у кого есть ожидающий запрос.
+    const { data: chans } = await db
       .from("notification_channels")
       .select("user_id")
       .eq("channel", "telegram")
-      .eq("chat_id", String(creator.id))
-      .maybeSingle();
-    if (ch?.user_id) {
+      .eq("chat_id", String(creator.id));
+    const ids = (chans ?? []).map((c) => c.user_id as string);
+    if (ids.length) {
       const { data: byUser } = await db
         .from("managed_bot_requests")
         .select("id, psychologist_id")
         .eq("status", "pending")
         .gte("created_at", since)
-        .eq("psychologist_id", ch.user_id as string)
+        .in("psychologist_id", ids)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();

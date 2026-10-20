@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildManagedBotLink, randomBotUsername } from "@/lib/messengers/managedBots";
+import { buildManagedBotLink, randomBotUsername, claimManagedBotsForChat } from "@/lib/messengers/managedBots";
 
 // Автосоздание Telegram-бота психолога (Managed Bots).
 // POST — создаёт запрос и возвращает ссылку для подтверждения создания бота в Telegram.
@@ -50,12 +50,33 @@ export async function GET(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "Не передан id" }, { status: 400 });
 
   const db = createAdminClient();
-  const { data } = await db
-    .from("managed_bot_requests")
-    .select("status, bot_username, error")
-    .eq("id", id)
-    .eq("psychologist_id", user.id)
-    .maybeSingle();
+  const read = () =>
+    db
+      .from("managed_bot_requests")
+      .select("status, bot_username, error")
+      .eq("id", id)
+      .eq("psychologist_id", user.id)
+      .maybeSingle();
+  let { data } = await read();
   if (!data) return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+
+  // Самовосстановление: бот мог быть создан с другим username и «осесть» без владельца —
+  // если Telegram психолога привязан, подхватываем его здесь.
+  if (data.status === "pending") {
+    try {
+      const { data: ch } = await db
+        .from("notification_channels")
+        .select("chat_id")
+        .eq("user_id", user.id)
+        .eq("channel", "telegram")
+        .maybeSingle();
+      if (ch?.chat_id) {
+        await claimManagedBotsForChat(db, user.id, ch.chat_id as string);
+        data = (await read()).data ?? data;
+      }
+    } catch (e) {
+      console.error("managed claim on poll:", e instanceof Error ? e.message : e);
+    }
+  }
   return NextResponse.json(data);
 }
