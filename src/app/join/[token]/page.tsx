@@ -299,6 +299,10 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
             >
               {submitting ? "Подключаю..." : "Подключиться"}
             </button>
+            <p style={{ fontSize: 12, color: "#6F5A3F", textAlign: "center", margin: "12px 0 0", lineHeight: 1.5 }}>
+              Если у вас включён VPN, отключите его перед подключением — со включённым VPN
+              видео и звук могут отставать. Сайт работает без VPN.
+            </p>
           </div>
         )}
 

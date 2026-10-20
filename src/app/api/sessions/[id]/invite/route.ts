@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       psychologistId: user.id,
       clientId: session.client_id as string,
       sessionId,
-      text: `Здравствуйте! Ссылка на видеосессию: ${url} (действует ${hours} ч., открывайте с устройства, где есть камера и микрофон).`,
+      text: `Здравствуйте! Ссылка на видеосессию: ${url} (действует ${hours} ч., открывайте с устройства, где есть камера и микрофон). Перед входом в звонок лучше отключить VPN — со включённым VPN связь может тормозить.`,
       dedupeMinutes: body.resend ? 0 : Number(ttlMinutes),
     });
     console.log("SESSION_INVITE_DELIVERY", JSON.stringify({ status: delivery.status }));

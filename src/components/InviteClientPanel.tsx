@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Send, Check } from "lucide-react";
+import { Copy, Send, Check, Share2, Mail, MessageSquare } from "lucide-react";
 
 // Блок «Пригласить клиента» на странице сессии: при подключении психолога к звонку ссылка
 // автоматически уходит клиенту в чат (если он привязан); кнопки — отправить ещё раз и скопировать.
@@ -71,6 +71,21 @@ export default function InviteClientPanel({ sessionId, autoSend }: { sessionId: 
 
   const info = describe(delivery);
 
+  // Ссылку можно отправить не только в Telegram/VK: системное меню «Поделиться» (любой мессенджер,
+  // в том числе MAX и WhatsApp), письмо или SMS — психолог сам выбирает адресата.
+  const shareText = url
+    ? `Здравствуйте! Ссылка на видеосессию: ${url}\nОткрывайте с устройства, где есть камера и микрофон. Перед входом в звонок лучше отключить VPN — со включённым VPN связь может тормозить.`
+    : "";
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  async function share() {
+    if (!url) return;
+    try {
+      await navigator.share({ title: "Ссылка на видеосессию", text: shareText });
+    } catch {
+      /* человек закрыл меню — не ошибка */
+    }
+  }
+
   return (
     <div style={{ marginBottom: 12, padding: "10px 12px", border: "1px solid #E5DFD5", borderRadius: 8, background: "#FAF8F4" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -93,6 +108,31 @@ export default function InviteClientPanel({ sessionId, autoSend }: { sessionId: 
             {copied ? <Check size={13} /> : <Copy size={13} />}
             {copied ? "Скопировано" : "Скопировать ссылку"}
           </button>
+        )}
+        {url && canShare && (
+          <button
+            type="button"
+            onClick={share}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", fontSize: 12, borderRadius: 6, border: "1px solid #E5DFD5", color: "#1C1C1E", background: "#fff", cursor: "pointer" }}
+          >
+            <Share2 size={13} /> Поделиться
+          </button>
+        )}
+        {url && (
+          <a
+            href={`mailto:?subject=${encodeURIComponent("Ссылка на видеосессию")}&body=${encodeURIComponent(shareText)}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", fontSize: 12, borderRadius: 6, border: "1px solid #E5DFD5", color: "#1C1C1E", background: "#fff", textDecoration: "none" }}
+          >
+            <Mail size={13} /> На почту
+          </a>
+        )}
+        {url && (
+          <a
+            href={`sms:?&body=${encodeURIComponent(shareText)}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", fontSize: 12, borderRadius: 6, border: "1px solid #E5DFD5", color: "#1C1C1E", background: "#fff", textDecoration: "none" }}
+          >
+            <MessageSquare size={13} /> SMS
+          </a>
         )}
       </div>
       {(info.text || error) && (
