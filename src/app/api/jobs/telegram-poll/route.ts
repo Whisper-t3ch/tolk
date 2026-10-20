@@ -25,11 +25,11 @@ function checkAuth(request: NextRequest): boolean {
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-async function getUpdates(token: string, offset: number | undefined, timeoutS: number): Promise<{ ok: boolean; status: number; result: TgUpdate[] }> {
+async function getUpdates(token: string, offset: number | undefined, timeoutS: number, allowed: string[]): Promise<{ ok: boolean; status: number; result: TgUpdate[] }> {
   const res = await fetch(telegramBotUrl(token, "getUpdates"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ offset, timeout: timeoutS, allowed_updates: ["message"] }),
+    body: JSON.stringify({ offset, timeout: timeoutS, allowed_updates: allowed }),
     signal: AbortSignal.timeout((timeoutS + 10) * 1000),
   });
   if (!res.ok) return { ok: false, status: res.status, result: [] };
@@ -38,7 +38,7 @@ async function getUpdates(token: string, offset: number | undefined, timeoutS: n
 }
 
 /** Опрашивает одного бота до исчерпания бюджета. Возвращает число обработанных обновлений. */
-async function pollBot(token: string, onUpdate: (u: TgUpdate) => Promise<void>): Promise<{ processed: number; error?: string }> {
+async function pollBot(token: string, onUpdate: (u: TgUpdate) => Promise<void>, allowed: string[] = ["message"]): Promise<{ processed: number; error?: string }> {
   const started = Date.now();
   let offset: number | undefined;
   let processed = 0;
@@ -47,11 +47,11 @@ async function pollBot(token: string, onUpdate: (u: TgUpdate) => Promise<void>):
       const remaining = BUDGET_MS - (Date.now() - started);
       // Последний вызов с timeout=0 нужен, чтобы подтвердить (offset) уже обработанные обновления.
       const timeoutS = remaining > 3000 ? Math.min(LONG_POLL_S, Math.floor(remaining / 1000)) : 0;
-      let r = await getUpdates(token, offset, timeoutS);
+      let r = await getUpdates(token, offset, timeoutS, allowed);
       if (!r.ok && r.status === 409) {
         // На боте остался вебхук — снимаем его и пробуем снова.
         await fetch(telegramBotUrl(token, "deleteWebhook"), { method: "POST", signal: AbortSignal.timeout(10_000) });
-        r = await getUpdates(token, offset, timeoutS);
+        r = await getUpdates(token, offset, timeoutS, allowed);
       }
       if (!r.ok) return { processed, error: `getUpdates ${r.status}` };
       for (const u of r.result) {
@@ -81,7 +81,7 @@ async function handle(request: NextRequest) {
 
   if (platformToken) {
     labels.push("platform");
-    jobs.push(pollBot(platformToken, handlePlatformUpdate));
+    jobs.push(pollBot(platformToken, handlePlatformUpdate, ["message", "managed_bot"]));
   }
 
   const { data: bots } = await db

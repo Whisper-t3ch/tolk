@@ -1,0 +1,145 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { telegramBotUrl } from "@/lib/messengers/telegramApi";
+import { getTelegramBotInfo } from "@/lib/messengers/client";
+import { platformBotUsername, notifyUserTelegram } from "@/lib/notify/platformTelegram";
+
+// Telegram Managed Bots: платформенный бот (@tolk_supp0rt_bot, can_manage_bots) создаёт ботов психологов.
+// Поток: POST /api/integrations/telegram/managed создаёт запрос и ссылку t.me/newbot/<менеджер>/<username>;
+// психолог подтверждает создание в Telegram; менеджер получает update `managed_bot` (поллер платформенного
+// бота), забирает токен (getManagedBotToken) и подключает бота как обычную интеграцию.
+
+export interface TgUserLite { id: number; username?: string; first_name?: string }
+export interface ManagedBotUpdate { user?: TgUserLite; bot?: TgUserLite; bot_user?: TgUserLite }
+
+const REQUEST_TTL_MS = 2 * 60 * 60 * 1000;
+
+export function buildManagedBotLink(suggestedUsername: string, suggestedName: string): string {
+  return `https://t.me/newbot/${platformBotUsername()}/${suggestedUsername}?name=${encodeURIComponent(suggestedName)}`;
+}
+
+export function randomBotUsername(): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return `tolk_${s}_bot`;
+}
+
+async function managerCall<T>(method: string, body: Record<string, unknown>): Promise<T> {
+  const token = process.env.SUPPORT_TG_BOT_TOKEN;
+  if (!token) throw new Error("SUPPORT_TG_BOT_TOKEN не задан");
+  const res = await fetch(telegramBotUrl(token, method), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const j = (await res.json().catch(() => null)) as { ok?: boolean; result?: T; description?: string } | null;
+  if (!res.ok || !j?.ok) throw new Error(`${method}: ${j?.description ?? res.status}`);
+  return j.result as T;
+}
+
+/** Best-effort оформление бота: описание, которое увидят клиенты. */
+async function brandBot(botToken: string): Promise<void> {
+  const call = (method: string, body: Record<string, unknown>) =>
+    fetch(telegramBotUrl(botToken, method), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+  await call("setMyDescription", {
+    description: "Бот вашего психолога на платформе ТОЛК. Нажмите «Начать», чтобы подключить переписку, и пишите сюда между сессиями — психолог ответит.",
+  });
+  await call("setMyShortDescription", { short_description: "Бот вашего психолога · платформа ТОЛК" });
+}
+
+/** Обработка update.managed_bot от платформенного бота. */
+export async function handleManagedBotUpdate(db: SupabaseClient, mb: ManagedBotUpdate): Promise<void> {
+  const botUser = mb.bot ?? mb.bot_user;
+  const creator = mb.user;
+  if (!botUser?.id) return;
+
+  const token = await managerCall<string>("getManagedBotToken", { user_id: botUser.id });
+  const info = await getTelegramBotInfo(token);
+  const username = info.username;
+
+  // 1) Бот уже подключён — это смена токена/владельца: обновляем токен.
+  const { data: existing } = await db
+    .from("messenger_integrations")
+    .select("id")
+    .eq("platform", "telegram")
+    .ilike("bot_username", username)
+    .maybeSingle();
+  if (existing?.id) {
+    await db.from("messenger_integrations").update({ bot_token: token, status: "connected", last_error: null }).eq("id", existing.id);
+    return;
+  }
+
+  // 2) Ищем запрос: по предложенному username, иначе по привязанному Telegram создателя.
+  const since = new Date(Date.now() - REQUEST_TTL_MS).toISOString();
+  type Req = { id: string; psychologist_id: string };
+  let reqRow = null as Req | null;
+  const { data: byName } = await db
+    .from("managed_bot_requests")
+    .select("id, psychologist_id")
+    .eq("status", "pending")
+    .gte("created_at", since)
+    .ilike("suggested_username", username)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  reqRow = (byName as Req | null) ?? null;
+
+  if (!reqRow && creator?.id) {
+    const { data: ch } = await db
+      .from("notification_channels")
+      .select("user_id")
+      .eq("channel", "telegram")
+      .eq("chat_id", String(creator.id))
+      .maybeSingle();
+    if (ch?.user_id) {
+      const { data: byUser } = await db
+        .from("managed_bot_requests")
+        .select("id, psychologist_id")
+        .eq("status", "pending")
+        .gte("created_at", since)
+        .eq("psychologist_id", ch.user_id as string)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      reqRow = (byUser as Req | null) ?? null;
+    }
+  }
+  // Чужого бота никому не подключаем: без однозначного соответствия запросу — игнорируем.
+  if (!reqRow) {
+    console.warn(`managed_bot: нет запроса для @${username}, пропуск`);
+    return;
+  }
+
+  const { data: current } = await db
+    .from("messenger_integrations")
+    .select("id")
+    .eq("psychologist_id", reqRow.psychologist_id)
+    .eq("platform", "telegram")
+    .maybeSingle();
+  const { error } = await db.from("messenger_integrations").upsert(
+    {
+      id: current?.id,
+      psychologist_id: reqRow.psychologist_id,
+      platform: "telegram",
+      bot_token: token,
+      bot_username: username,
+      status: "connected",
+      connected_at: new Date().toISOString(),
+      last_error: null,
+    },
+    { onConflict: "psychologist_id,platform" }
+  );
+  if (error) {
+    await db.from("managed_bot_requests").update({ status: "error", error: error.message, done_at: new Date().toISOString() }).eq("id", reqRow.id);
+    throw new Error(`save integration: ${error.message}`);
+  }
+  await db.from("managed_bot_requests").update({ status: "done", bot_username: username, done_at: new Date().toISOString() }).eq("id", reqRow.id);
+  void brandBot(token);
+  void notifyUserTelegram(reqRow.psychologist_id, `Готово ✅ Бот @${username} создан и подключён к ТОЛК. Ссылку для клиентов можно получить в разделе «Клиенты».`);
+}

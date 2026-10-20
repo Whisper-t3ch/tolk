@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPlatformTelegram } from "@/lib/notify/platformTelegram";
 import { applySupportReply } from "@/lib/support/reply";
+import { handleManagedBotUpdate, type ManagedBotUpdate } from "@/lib/messengers/managedBots";
 
 // Обработка входящих сообщений платформенного Telegram-бота (@tolk_supp0rt_bot).
 // Используется и вебхуком (/api/webhooks/platform-telegram), и long-polling'ом (/api/jobs/telegram-poll).
@@ -23,9 +24,18 @@ export interface TgMessage {
 export interface TgUpdate {
   update_id?: number;
   message?: TgMessage;
+  managed_bot?: ManagedBotUpdate;
 }
 
 export async function handlePlatformUpdate(update: TgUpdate): Promise<void> {
+  if (update.managed_bot) {
+    try {
+      await handleManagedBotUpdate(createAdminClient(), update.managed_bot);
+    } catch (e) {
+      console.error("managed_bot update error:", e instanceof Error ? e.message : e);
+    }
+    return;
+  }
   const msg = update.message;
   if (!msg || !msg.text || msg.chat.type !== "private") return;
 

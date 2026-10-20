@@ -68,6 +68,9 @@ export default function SettingsPage() {
   const [showTelegramForm, setShowTelegramForm] = useState(false);
   const [showVkForm, setShowVkForm] = useState(false);
   const [telegramTokenInput, setTelegramTokenInput] = useState("");
+  const [showManualTelegram, setShowManualTelegram] = useState(false);
+  const [autoBot, setAutoBot] = useState<{ id: string; link: string; username: string } | null>(null);
+  const [autoBotWaiting, setAutoBotWaiting] = useState(false);
   const [vkTokenInput, setVkTokenInput] = useState("");
   const [vkGroupIdInput, setVkGroupIdInput] = useState("");
   const [vkConfirmationInput, setVkConfirmationInput] = useState("");
@@ -121,6 +124,59 @@ export default function SettingsPage() {
       setIntegrationSubmitting(false);
     }
   };
+
+  const startAutoBot = async () => {
+    setIntegrationSubmitting(true);
+    setIntegrationError(null);
+    try {
+      const res = await fetch("/api/integrations/telegram/managed", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setIntegrationError(data.error ?? "Не удалось создать запрос");
+        return;
+      }
+      setAutoBot({ id: data.id, link: data.link, username: data.username });
+      setAutoBotWaiting(true);
+      window.open(data.link, "_blank", "noopener,noreferrer");
+    } catch {
+      setIntegrationError("Не удалось связаться с сервером");
+    } finally {
+      setIntegrationSubmitting(false);
+    }
+  };
+
+  // Ждём, пока психолог подтвердит создание бота в Telegram: опрашиваем статус запроса.
+  useEffect(() => {
+    if (!autoBot || !autoBotWaiting) return;
+    let stopped = false;
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      if (stopped) return;
+      if (Date.now() - started > 15 * 60 * 1000) {
+        setAutoBotWaiting(false);
+        setIntegrationError("Время ожидания вышло. Если вы создали бота, обновите страницу; иначе попробуйте ещё раз.");
+        return;
+      }
+      try {
+        const res = await fetch(`/api/integrations/telegram/managed?id=${autoBot.id}`);
+        const d = await res.json();
+        if (res.ok && d.status === "done") {
+          stopped = true;
+          setAutoBotWaiting(false);
+          setAutoBot(null);
+          setShowTelegramForm(false);
+          notify(`Telegram-бот @${d.bot_username} создан и подключён`);
+          await loadIntegrations();
+        } else if (res.ok && d.status === "error") {
+          stopped = true;
+          setAutoBotWaiting(false);
+          setIntegrationError(d.error ?? "Не удалось подключить бота");
+        }
+      } catch { /* повторим на следующем тике */ }
+    }, 3000);
+    return () => { stopped = true; clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoBot, autoBotWaiting]);
 
   const connectVk = async () => {
     if (!vkTokenInput.trim() || !vkGroupIdInput.trim() || !vkConfirmationInput.trim()) return;
@@ -349,6 +405,28 @@ export default function SettingsPage() {
 
                           {showTelegramForm && telegramIntegration?.status !== "connected" && (
                             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #E5DFD5" }}>
+                              <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6, marginBottom: 8 }}>
+                                  Самый простой способ: ТОЛК создаст бота за вас. Нажмите кнопку, в Telegram подтвердите создание бота (имя можно оставить как есть) — подключение произойдёт автоматически.
+                                </div>
+                                <Button size="sm" onClick={startAutoBot} disabled={integrationSubmitting || autoBotWaiting}>
+                                  {autoBotWaiting ? "Ждём подтверждения в Telegram…" : "Создать бота автоматически"}
+                                </Button>
+                                {autoBot && autoBotWaiting && (
+                                  <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 8, lineHeight: 1.5 }}>
+                                    Telegram не открылся? <a href={autoBot.link} target="_blank" rel="noopener noreferrer" style={{ color: "#2D6A5C", fontWeight: 600 }}>Откройте ссылку</a> и нажмите «Создать».
+                                  </div>
+                                )}
+                                {integrationError && <div style={{ fontSize: 12, color: "#B91C1C", marginTop: 8 }}>{integrationError}</div>}
+                                <button
+                                  type="button"
+                                  onClick={() => setShowManualTelegram(v => !v)}
+                                  style={{ marginTop: 12, background: "none", border: "none", padding: 0, fontSize: 12.5, color: "#6F5A3F", cursor: "pointer", textDecoration: "underline" }}
+                                >
+                                  {showManualTelegram ? "Скрыть ручное подключение" : "Уже есть бот? Подключить по токену"}
+                                </button>
+                              </div>
+                              {showManualTelegram && (<>
                               <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
                                 <div style={{ display: "flex", gap: 10 }}>
                                   <div style={{
@@ -422,6 +500,7 @@ export default function SettingsPage() {
                               <Button size="sm" onClick={connectTelegram} disabled={integrationSubmitting || !telegramTokenInput.trim()}>
                                 {integrationSubmitting ? "Проверяем…" : "Сохранить и подключить"}
                               </Button>
+                              </>)}
                             </div>
                           )}
                         </div>
