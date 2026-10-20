@@ -101,6 +101,24 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
 
   const scheduledLabel = state.kind === "ready" ? formatScheduledAt(state.scheduledAt) : null;
 
+  // После согласия клиент попадает в звонок на весь экран, а не в компактную карточку.
+  if (state.kind === "consented") {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#0F1530", display: "flex", flexDirection: "column", fontFamily: "var(--font-sans)" }}>
+        <div style={{ flex: "0 0 auto", padding: "8px 14px", color: "#C9D2EE", fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <ShieldCheck size={14} /> Безопасное одноразовое подключение · ТОЛК
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <ClientCallView
+            roomName={buildJitsiRoomName(state.sessionId)}
+            psychologistName={state.psychologistName}
+            fill
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -245,41 +263,6 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
             >
               {submitting ? "Подключаю..." : "Подключиться"}
             </button>
-          </div>
-        )}
-
-        {state.kind === "consented" && (
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 16,
-              border: "1px solid #E5DFD5",
-              padding: 16,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 12px" }}>
-              <div
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "50%",
-                  background: "#E6F7F2",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <Check size={16} style={{ color: "#157347" }} />
-              </div>
-              <p style={{ fontSize: 13, color: "#6F5A3F", margin: 0 }}>
-                Согласие подтверждено — эта ссылка больше не может быть использована повторно
-              </p>
-            </div>
-            <ClientCallView
-              roomName={buildJitsiRoomName(state.sessionId)}
-              psychologistName={state.psychologistName}
-            />
           </div>
         )}
 

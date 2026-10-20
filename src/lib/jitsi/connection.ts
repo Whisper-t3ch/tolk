@@ -249,6 +249,7 @@ export class JitsiCallSession {
     const remoteTrack = track as JitsiRemoteTrack;
     const participantId = remoteTrack.getParticipantId();
     const stream = remoteTrack.getOriginalStream();
+    console.info("[tolk-call] удалённая дорожка добавлена:", remoteTrack.getType(), remoteTrack.videoType ?? "-", participantId);
 
     if (remoteTrack.isAudioTrack()) {
       this.options.onRemoteAudioTrack?.(participantId, stream);
@@ -332,12 +333,15 @@ export class JitsiCallSession {
     try {
       tracks = await this.JitsiMeetJS.createLocalTracks({ devices: ["desktop"] });
     } catch (e) {
-      const text = `${(e as { name?: string })?.name ?? ""} ${(e as { message?: string })?.message ?? ""}`.toLowerCase();
-      if (text.includes("cancel") || text.includes("notallowed") || text.includes("permission") || text.includes("denied")) {
+      const err = e as { name?: string; message?: string };
+      console.error("[tolk-share] createLocalTracks(desktop) failed:", err?.name, err?.message, e);
+      // Закрытие окна выбора экрана — не ошибка. Любой другой отказ показываем с причиной.
+      if (`${err?.name ?? ""}`.toLowerCase().includes("user_canceled") || `${err?.message ?? ""}`.toLowerCase().includes("user cancel")) {
         return "cancelled";
       }
       throw e;
     }
+    console.info("[tolk-share] получены дорожки:", tracks.map(t => `${t.getType()}/${t.videoType ?? "-"}`).join(", "));
     // Если человек поставил «поделиться звуком», лишние аудиодорожки не публикуем.
     const video = tracks.find(t => t.isVideoTrack());
     await Promise.all(tracks.filter(t => t !== video).map(t => t.dispose().catch(() => undefined)));
@@ -350,8 +354,19 @@ export class JitsiCallSession {
       }
     });
 
-    await this.conference.replaceTrack(this.localVideoTrack, video);
+    try {
+      if (this.localVideoTrack) {
+        await this.conference.replaceTrack(this.localVideoTrack, video);
+      } else {
+        await this.conference.addTrack(video);
+      }
+    } catch (e) {
+      console.error("[tolk-share] не удалось опубликовать экран в конференции:", e);
+      await video.dispose().catch(() => undefined);
+      throw e;
+    }
     this.screenTrack = video;
+    console.info("[tolk-share] экран опубликован, камера была:", !!this.localVideoTrack);
     return "started";
   }
 
@@ -361,7 +376,13 @@ export class JitsiCallSession {
     if (!screen) return;
     this.screenTrack = null;
     try {
-      if (this.conference) await this.conference.replaceTrack(screen, this.localVideoTrack);
+      if (this.conference) {
+        if (this.localVideoTrack) await this.conference.replaceTrack(screen, this.localVideoTrack);
+        else await this.conference.removeTrack(screen);
+      }
+      console.info("[tolk-share] показ экрана остановлен");
+    } catch (e) {
+      console.error("[tolk-share] ошибка при остановке показа:", e);
     } finally {
       await screen.dispose().catch(() => undefined);
     }

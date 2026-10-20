@@ -318,6 +318,19 @@ function JitsiCallView(
     ref,
     () => ({
       finishRecording: async () => {
+        try {
+          return await finishRecordingInner();
+        } finally {
+          // Завершение консультации = выход из звонка: клиент сразу увидит «Сессия завершена»,
+          // а не будет ждать психолога. Показ экрана тоже останавливается внутри leave().
+          await sessionRef.current?.leave().catch(() => undefined);
+        }
+      },
+    }),
+    []
+  );
+
+  async function finishRecordingInner(): Promise<{ manifestSent: boolean; status?: string; stopConfirmed: boolean }> {
         if (finishedRef.current) return { manifestSent: false, stopConfirmed: true };
         finishedRef.current = true;
 
@@ -365,10 +378,7 @@ function JitsiCallView(
         await uploader.waitForIdle();
         const result = await uploader.sendManifest(manifest);
         return { manifestSent: result.ok, status: result.status, stopConfirmed };
-      },
-    }),
-    []
-  );
+  }
 
   // Preflight — один раз при монтировании. testRecordingMs короткий (500мс
   // по умолчанию в runPreflight), психолог не должен ждать заметно.
@@ -419,8 +429,9 @@ function JitsiCallView(
       }
       const result = await sessionRef.current?.startScreenShare();
       if (result === "started") setSharing(true);
-    } catch {
-      setShareError("Не удалось начать показ экрана. Проверьте разрешения браузера и попробуйте ещё раз");
+    } catch (e) {
+      const err = e as { name?: string; message?: string };
+      setShareError(`Не удалось начать показ экрана (${[err?.name, err?.message].filter(Boolean).join(": ") || "неизвестная ошибка"})`);
     }
   }
 

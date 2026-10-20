@@ -28,7 +28,7 @@
 // в начале jwt.ts). Подключение здесь — анонимное, как и у психолога.
 // ============================================================
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Video, VideoOff, AlertTriangle, Loader2 } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, AlertTriangle, Loader2, Check } from "lucide-react";
 import { JitsiCallSession, type CallConnectionState } from "@/lib/jitsi/connection";
 import { isUsingPublicTestServer } from "@/lib/jitsi/config";
 import { getFriendlyCallErrorMessage } from "@/lib/jitsi/errors";
@@ -37,11 +37,17 @@ interface ClientCallViewProps {
   roomName: string;
   /** Имя психолога — показываем клиенту, с кем он на связи (своё имя клиент никуда не вводил, он анонимен). */
   psychologistName: string;
+  /** Занять всю высоту контейнера (полноэкранный звонок) вместо компактного окна 420px. */
+  fill?: boolean;
 }
 
-type ViewState = "connecting" | "in_call" | "call_failed";
+type ViewState = "connecting" | "in_call" | "call_failed" | "ended";
 
-export default function ClientCallView({ roomName, psychologistName }: ClientCallViewProps) {
+/** Сколько ждём возвращения психолога после его выхода, прежде чем считать сессию завершённой. */
+const PSYCHOLOGIST_LEFT_GRACE_MS = 12_000;
+
+export default function ClientCallView({ roomName, psychologistName, fill = false }: ClientCallViewProps) {
+  const endTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [viewState, setViewState] = useState<ViewState>("connecting");
   const [callError, setCallError] = useState<string | null>(null);
   const [micMuted, setMicMuted] = useState(false);
@@ -79,6 +85,11 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       },
       onRemoteAudioTrack: (_participantId, stream) => {
+        // Психолог вернулся (кратковременный обрыв связи) — отменяем завершение.
+        if (endTimerRef.current) {
+          clearTimeout(endTimerRef.current);
+          endTimerRef.current = null;
+        }
         setRemoteConnected(true);
         if (remoteAudioRef.current) remoteAudioRef.current.srcObject = stream;
       },
@@ -99,6 +110,15 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
       },
       onParticipantLeft: () => {
         setRemoteConnected(false);
+        // Психолог вышел из комнаты. Если не вернётся за пару секунд — сессия завершена:
+        // закрываем звонок и показываем клиенту понятное сообщение вместо вечного «ожидания».
+        if (endTimerRef.current) clearTimeout(endTimerRef.current);
+        endTimerRef.current = setTimeout(() => {
+          endTimerRef.current = null;
+          if (!mountedRef.current) return;
+          void sessionRef.current?.leave().catch(() => undefined);
+          setViewState("ended");
+        }, PSYCHOLOGIST_LEFT_GRACE_MS);
       },
     });
 
@@ -115,6 +135,7 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
     joinCall();
     return () => {
       mountedRef.current = false;
+      if (endTimerRef.current) clearTimeout(endTimerRef.current);
       sessionRef.current?.leave().catch(() => undefined);
     };
     // joinCall сознательно не в зависимостях — звонок должен начаться
@@ -144,7 +165,7 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
   }
 
   return (
-    <div style={{ position: "relative", width: "100%", height: 420, borderRadius: 16, overflow: "hidden", background: "#1a2240" }}>
+    <div style={{ position: "relative", width: "100%", height: fill ? "100%" : 420, borderRadius: fill ? 0 : 16, overflow: "hidden", background: "#1a2240" }}>
       {isUsingPublicTestServer() && (
         <div
           style={{
@@ -168,6 +189,13 @@ export default function ClientCallView({ roomName, psychologistName }: ClientCal
       <div style={{ position: "absolute", inset: 0 }}>
         {viewState === "connecting" && (
           <CenteredMessage icon={<Loader2 size={32} className="animate-spin" />} text="Подключаюсь к звонку..." />
+        )}
+
+        {viewState === "ended" && (
+          <CenteredMessage
+            icon={<Check size={40} style={{ color: "#6EE7B7" }} />}
+            text="Сессия завершена. Спасибо! Эту страницу можно закрыть."
+          />
         )}
 
         {viewState === "call_failed" && (
