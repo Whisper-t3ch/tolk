@@ -5,18 +5,20 @@
 #   ./monitor_alert.sh external https://tolkplace.ru/api/health   НА другой ВМ (например ASR): внешний взгляд на сайт
 # Cron (каждые 5 минут):  */5 * * * * /home/ubuntu/core/monitor_alert.sh >> /var/log/tolk-monitor.log 2>&1
 # Оповещение: файл ~/core/.alert.env (chmod 600) с TG_BOT_TOKEN и TG_CHAT_ID (Telegram) и/или ALERT_WEBHOOK_URL (POST JSON {"text": ...}).
-# Доступность Telegram из РФ проверьте заранее (`./monitor_alert.sh test`); без канала проблемы только пишутся в лог.
+# Telegram идёт через TELEGRAM_API_BASE (прокси). Доступность проверьте заранее (`./monitor_alert.sh test`); без канала проблемы только пишутся в лог.
 set -uo pipefail
 cd "$(dirname "$0")"
 STATE="${STATE_FILE:-/tmp/tolk-monitor.state}"
 [ -f .alert.env ] && { set -a; . ./.alert.env; set +a; }
 getv() { grep -E "^$1=" .env.core 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r"'; }
 HOST="$(hostname)"
+# С ВМ api.telegram.org недоступен — ходим через прокси-воркер (TELEGRAM_API_BASE в .env.core), как приложение.
+TG_API="$(getv TELEGRAM_API_BASE)"; TG_API="${TG_API:-https://api.telegram.org}"
 
 notify() {   # notify "текст"
   local text="$1" sent=0
   if [ -n "${TG_BOT_TOKEN:-}" ] && [ -n "${TG_CHAT_ID:-}" ]; then
-    curl -s -m 15 -o /dev/null -w '' "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" --data-urlencode "chat_id=${TG_CHAT_ID}" --data-urlencode "text=${text}" && sent=1
+    curl -s -m 15 -o /dev/null -w '' "${TG_API}/bot${TG_BOT_TOKEN}/sendMessage" --data-urlencode "chat_id=${TG_CHAT_ID}" --data-urlencode "text=${text}" && sent=1
   fi
   if [ -n "${ALERT_WEBHOOK_URL:-}" ]; then
     curl -s -m 15 -o /dev/null -H 'Content-Type: application/json' -d "$(python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1]}))' "$text")" "$ALERT_WEBHOOK_URL" && sent=1

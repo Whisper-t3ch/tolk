@@ -51,3 +51,6 @@ tolk_recording_verify_*/
 
 # сырые ответы LLM-тестов
 scripts/llm-ab/out/
+
+# Архив исходников для деплоя собирается локально (git archive) — в репозиторий не коммитим
+/tolk-src.tgz
