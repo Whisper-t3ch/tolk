@@ -202,9 +202,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   }
 
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 120px)", gap: 16, padding: "0 24px 24px" }}>
+    <div className="tolk-session" style={{ display: "flex", height: "calc(100vh - 120px)", gap: 16, padding: "0 24px 24px" }}>
       {/* Видео */}
-      <div style={{ flex: "0 0 60%" }}>
+      <div className="tolk-session-video" style={{ flex: "0 0 60%" }}>
         <Card className="h-full flex flex-col">
           <div style={{
             flex: 1,
@@ -264,7 +264,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       </div>
 
       {/* Заметки */}
-      <div style={{ flex: "0 0 40%" }}>
+      <div className="tolk-session-notes" style={{ flex: "0 0 40%" }}>
         <Card className="h-full flex flex-col">
           <CardContent className="flex-1 pt-6 flex flex-col" style={{ minHeight: 0 }}>
             <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E", marginBottom: 12 }}>

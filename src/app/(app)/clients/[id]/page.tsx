@@ -730,12 +730,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
         </button>
       </Link>
 
-      <div style={{
+      <div className="tolk-client-head" style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 12,
         padding: "20px 24px", marginBottom: 20,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div className="tolk-client-head-info" style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{
             width: 56, height: 56, background: avatarColor, borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -760,7 +760,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             {client.status === "active" ? "Активный" : client.status === "pause" ? "На паузе" : "Завершено"}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="tolk-client-head-actions" style={{ display: "flex", gap: 8 }}>
           <button
             onClick={openEditClient}
             style={{
@@ -780,7 +780,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       </div>
 
       {/* Табы */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid #E5DFD5" }}>
+      <div className="tolk-tabs" style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid #E5DFD5" }}>
         {TABS.map(tab => (
           <button
             key={tab.id}

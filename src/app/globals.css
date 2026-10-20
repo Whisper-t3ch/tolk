@@ -79,6 +79,31 @@ h1, h2, h3, h4, h5, h6 {
   main [style*="grid-template-columns:2fr 1fr 1fr 0.7fr"] { min-width: 640px; }
   main [style*="grid-template-columns"] > * { min-width: 0; }
 
+  /* История оценок в карточке клиента: 5 колонок → 2 */
+  main [style*="grid-template-columns: 80px 1fr 1fr 1fr 1fr"],
+  main [style*="grid-template-columns:80px 1fr 1fr 1fr 1fr"] { grid-template-columns: 1fr 1fr !important; row-gap: 6px !important; }
+
+  /* Карточка клиента: шапка и вкладки */
+  .tolk-client-head { flex-direction: column !important; align-items: stretch !important; gap: 14px; padding: 16px !important; }
+  .tolk-client-head-info { flex-wrap: wrap; gap: 12px !important; min-width: 0; }
+  .tolk-client-head-actions { flex-wrap: wrap; }
+  .tolk-client-head-actions > * { flex: 1 1 auto; justify-content: center; }
+  .tolk-tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .tolk-tabs > button { flex: 0 0 auto; white-space: nowrap; padding: 10px 14px !important; }
+
+  /* Настройки: вкладки лентой сверху */
+  .tolk-settings { flex-direction: column !important; gap: 14px !important; }
+  .tolk-settings-nav { flex: 0 0 auto !important; flex-direction: row !important; overflow-x: auto; gap: 8px !important; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+  .tolk-settings-nav > * { flex: 0 0 auto; white-space: nowrap; }
+  .tolk-settings-nav > * > div { margin-bottom: 0 !important; }
+  .tolk-settings > :not(.tolk-settings-nav) { min-width: 0; width: 100%; }
+
+  /* Экран сессии: видео, ниже заметки */
+  .tolk-session { flex-direction: column !important; height: auto !important; padding: 0 !important; }
+  .tolk-session-video, .tolk-session-notes { flex: 0 0 auto !important; width: 100% !important; }
+  .tolk-session-video { height: 60vh; }
+  .tolk-session-notes { height: 50vh; }
+
   /* Календарь на дашборде: сетка месяца над списком сессий */
   .tolk-cal-row { flex-direction: column !important; gap: 16px !important; }
   .tolk-cal-grid { flex: 0 0 auto !important; width: 100% !important; }

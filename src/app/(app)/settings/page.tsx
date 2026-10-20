@@ -280,9 +280,9 @@ export default function SettingsPage() {
       )}
       <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1C1C1E", marginBottom: 20 }}>Настройки</h1>
 
-      <div style={{ display: "flex", gap: 24 }}>
+      <div className="tolk-settings" style={{ display: "flex", gap: 24 }}>
         {/* Боковая навигация настроек */}
-        <div style={{ flex: "0 0 200px", display: "flex", flexDirection: "column", gap: 4 }}>
+        <div className="tolk-settings-nav" style={{ flex: "0 0 200px", display: "flex", flexDirection: "column", gap: 4 }}>
           <Link href="/profile" style={{ textDecoration: "none" }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",

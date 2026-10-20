@@ -196,6 +196,7 @@ export default function AIAssistant() {
                 top: 0,
                 bottom: 0,
                 width: "380px",
+                maxWidth: "100vw",
                 background: "linear-gradient(180deg, #E8F2EF 0%, #E6F7F2 100%)",
                 boxShadow: "-4px 0 16px rgba(0, 0, 0, 0.1)",
                 display: "flex",
