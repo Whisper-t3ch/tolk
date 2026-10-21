@@ -81,7 +81,8 @@ async function seed(supabase: SupabaseClient, userId: string): Promise<number> {
     ]);
 
     const items: RawItem[] = [];
-    if (!total) {
+    // Своих материалов нет (статьи о платформе не в счёт: их мог залить скрипт, и тогда подход-материалы не сидились никогда).
+    if (!((total ?? 0) - (platform ?? 0))) {
       const approach = ((prof?.approach as Approach | null) ?? "other") as Approach;
       const own = APPROACH_SEED_KNOWLEDGE[approach] ?? [];
       const shared = approach === "other" ? [] : (APPROACH_SEED_KNOWLEDGE.other ?? []);

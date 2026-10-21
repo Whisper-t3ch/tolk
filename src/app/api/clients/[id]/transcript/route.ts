@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildJitsiRoomName } from "@/lib/jitsi";
+import { normalizeTimeZone, todayInTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 import { saveSessionTranscript } from "@/lib/saveSessionTranscript";
 import { AnonymizationError, MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST } from "@/lib/anonymize";
 
@@ -64,21 +65,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   // Дата — только календарный день, без конкретного времени встречи
-  // (психолог обычно не помнит точное время прошлой сессии). Пишем
-  // полдень UTC, чтобы дата не съехала на соседний день из-за смещения
-  // часового пояса при последующем отображении.
+  // (психолог обычно не помнит точное время прошлой сессии). Ставим полдень
+  // по часовому поясу психолога, а если этот момент ещё не наступил (встреча
+  // «сегодня», дата не указана), — два часа назад. Иначе платформа считала
+  // загруженную прошедшую встречу предстоящей: «сейчас» и полдень UTC попадали
+  // в будущее или в 50 минут длительности сессии.
+  const { data: prof } = await supabase.from("psychologists").select("timezone").eq("id", user.id).maybeSingle();
+  const timeZone = normalizeTimeZone(prof?.timezone as string | undefined);
+  const lastSafeMoment = Date.now() - 2 * 3600_000;
   let scheduledAt: string;
   if (body.date) {
-    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? new Date(`${body.date}T12:00:00.000Z`) : null;
-    if (!parsed || Number.isNaN(parsed.getTime())) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
       return NextResponse.json({ error: "Некорректная дата (ожидается YYYY-MM-DD)" }, { status: 400 });
     }
-    if (parsed.getTime() > Date.now()) {
+    if (body.date > todayInTimeZone(timeZone)) {
       return NextResponse.json({ error: "Дата прошедшей встречи не может быть в будущем" }, { status: 400 });
     }
-    scheduledAt = parsed.toISOString();
+    const noon = zonedDateTimeToUtc(body.date, "12:00", timeZone).getTime();
+    scheduledAt = new Date(Math.min(noon, lastSafeMoment)).toISOString();
   } else {
-    scheduledAt = new Date().toISOString();
+    scheduledAt = new Date(lastSafeMoment).toISOString();
   }
 
   const sessionId = crypto.randomUUID();
