@@ -9,6 +9,7 @@ import { formatTimeInTimeZone, formatDateInTimeZone, todayInTimeZone, DEFAULT_TI
 import { createClientRecord } from "@/lib/data/clients";
 import { Card, CardContent, Input } from "@/components/ui";
 import { ClientFace } from "@/components/Avatar";
+import VoiceMessageButton from "@/components/VoiceMessageButton";
 
 const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 
@@ -872,6 +873,16 @@ function ClientsPageInner() {
                   >
                     <Paperclip size={18} />
                   </button>
+                  {selectedClientId && (
+                    <VoiceMessageButton
+                      clientId={selectedClientId}
+                      channel={sendChannel}
+                      size={36}
+                      disabled={sending}
+                      onSent={m => setMessages(prev => [...prev, toChatMessage(m, timeZone)])}
+                      onError={msg => alert(msg)}
+                    />
+                  )}
                   <button
                     onClick={sendMessage}
                     disabled={sending || !chatInput.trim()}

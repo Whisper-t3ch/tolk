@@ -35,6 +35,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     GIT_COMMIT=$GIT_COMMIT
+# ffmpeg: голосовые сообщения клиенту (webm/mp4 из браузера → ogg/opus для Telegram, src/lib/voiceConvert.ts)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 RUN useradd --create-home --uid 10001 app
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static

@@ -157,6 +157,37 @@ export async function getVkGroupInfo(groupAccessToken: string): Promise<{ name: 
   return { name: group.name, id: group.id };
 }
 
+/**
+ * Голосовое сообщение в Telegram: sendVoice принимает только OGG/OPUS (или MP3/M4A) —
+ * из браузера приходит webm/mp4, поэтому перед вызовом аудио переводится в ogg/opus
+ * (см. src/lib/voiceConvert.ts).
+ */
+export async function sendTelegramVoice(
+  botToken: string,
+  chatId: string,
+  audio: Buffer,
+  durationSec: number,
+  fileName = "voice.ogg",
+  mimeType = "audio/ogg"
+): Promise<SendResult> {
+  const form = new FormData();
+  form.append("chat_id", chatId);
+  if (durationSec > 0) form.append("duration", String(Math.round(durationSec)));
+  form.append("voice", new Blob([new Uint8Array(audio)], { type: mimeType }), fileName);
+  const res = await fetch(telegramBotUrl(botToken, "sendVoice"), { method: "POST", body: form });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    const desc = String(data?.description ?? "");
+    throw new MessengerSendError(
+      /VOICE_MESSAGES_FORBIDDEN/i.test(desc)
+        ? "Клиент запретил голосовые сообщения в настройках Telegram"
+        : desc || `Telegram API вернул ошибку (HTTP ${res.status})`,
+      "telegram"
+    );
+  }
+  return { externalMessageId: String(data.result.message_id) };
+}
+
 // ------------------------------------------------------------
 // Единая точка отправки — используется из executor.ts
 // ------------------------------------------------------------

@@ -195,7 +195,6 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
             {psychologist ? `Запись к ${toDativeCase(psychologist.name)}` : "Запись на консультацию"}
           </h1>
           <p style={{ fontSize: 13, color: "#6F5A3F", marginTop: 6 }}>
-            {psychologist?.specialty ? `${psychologist.specialty} · ` : ""}
             {/* Раньше это писалось безусловно, даже когда у психолога не
                 подключён Telegram-бот — клиент бронировал и ждал
                 подтверждение, которое физически некому отправить. */}

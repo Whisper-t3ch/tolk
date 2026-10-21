@@ -19,6 +19,8 @@ import { formatDateInTimeZone, formatTimeInTimeZone, todayInTimeZone, isSessionP
 import { Button, Card, CardContent } from "@/components/ui";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { ClientFace } from "@/components/Avatar";
+import VoiceMessageButton from "@/components/VoiceMessageButton";
+import ClientNotesTab from "@/components/ClientNotesTab";
 
 // Возраст со склонением: «21 год», «34 года», «29 лет». Раньше всегда
 // подставлялось «лет», а у клиента без возраста под именем оставалось
@@ -147,6 +149,7 @@ function toChatMessage(raw: {
 
 const TABS = [
   { id: "sessions", label: "Сессии" },
+  { id: "notes", label: "Заметки" },
   { id: "summary", label: "Сводка" },
   { id: "analytics", label: "Аналитика" },
 ] as const;
@@ -1138,6 +1141,14 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                     >
                       <Paperclip size={16} />
                     </button>
+                    <VoiceMessageButton
+                      clientId={id}
+                      channel={sendChannel}
+                      size={32}
+                      disabled={sending}
+                      onSent={m => setMessages(prev => [...prev, toChatMessage(m, timeZone)])}
+                      onError={msg => alert(msg)}
+                    />
                     <button
                       onClick={sendMessage}
                       disabled={sending || !chatInput.trim()}
@@ -1310,6 +1321,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       </AnimatePresence>
 
       {/* СВОДКА: профиль + ДЗ */}
+      {activeTab === "notes" && <ClientNotesTab clientId={id} timeZone={timeZone} />}
+
       {activeTab === "summary" && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <Card>

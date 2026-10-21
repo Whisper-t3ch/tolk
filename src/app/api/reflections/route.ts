@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 // GET /api/reflections — список записей дневника психолога, новые сверху.
 // POST /api/reflections — создать запись.
 // Body (POST): { title: string, content?: string, tags?: string[], client_id?: string }
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -13,11 +13,14 @@ export async function GET() {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  // ?client_id=... — только записи по этому клиенту (вкладка «Заметки» в карточке клиента).
+  const clientId = request.nextUrl.searchParams.get("client_id");
+  let query = supabase
     .from("reflections")
     .select("id, title, content, tags, client_id, created_at, clients(name)")
-    .eq("psychologist_id", user.id)
-    .order("created_at", { ascending: false });
+    .eq("psychologist_id", user.id);
+  if (clientId) query = query.eq("client_id", clientId);
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
