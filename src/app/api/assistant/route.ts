@@ -839,6 +839,9 @@ export async function POST(request: NextRequest) {
           forceHistoryTool = true;
           // Принудительный вызов функции GigaChat отклоняет (422 при кэшированном контексте), поэтому
           // просим явно отдельной репликой: она последняя в контексте, и модель её выполняет.
+          // Ответ модели кладём между двумя репликами психолога: два user подряд GigaChat отвергает
+          // («Unexpected user message or missing tool result», 400 — видели 21.10 на «Выставь счёт…»).
+          messages.push({ role: "assistant", text: candidateText });
           messages.push({
             role: "user",
             text:
