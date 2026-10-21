@@ -53,6 +53,7 @@ export async function describeAction(
       return `Создать клиентов (${names.length}): ${names.join(", ")}.`;
     }
     case "update_client": {
+      if (!clientName) throw new ActionPreviewError("не нашёл такого клиента среди ваших — назовите его имя");
       const fields = (args.fields ?? {}) as Record<string, unknown>;
       const parts = Object.entries(fields)
         .filter(([k]) => k in FIELD_LABELS)
@@ -61,6 +62,11 @@ export async function describeAction(
       return parts.length ? `${base}: ${parts.join("; ")}.` : `${base}.`;
     }
     case "create_session": {
+      if (!clientName) {
+        throw new ActionPreviewError(
+          "не понял, с каким клиентом поставить сессию — назовите клиента. Личные события (тренировки, обед) в расписание я не добавляю, только сессии с клиентами"
+        );
+      }
       let starts: Date[];
       try {
         starts = expandSessionStarts(args as CreateSessionArgs, timeZone);

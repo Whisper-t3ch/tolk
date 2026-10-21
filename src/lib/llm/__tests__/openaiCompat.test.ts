@@ -267,3 +267,30 @@ describe("sanitizeGigaChatSchema", () => {
     expect(sanitizeGigaChatSchema(src)).toEqual(src);
   });
 });
+
+import { normalizeGigaChatMessages, flattenGigaChatMessages } from "../openaiCompat";
+describe("GigaChat: порядок реплик", () => {
+  it("склеивает подряд идущие реплики одной роли и выкидывает пустые", () => {
+    const out = normalizeGigaChatMessages([
+      { role: "system", content: "s" },
+      { role: "user", content: "a" },
+      { role: "assistant", content: "карточка" },
+      { role: "assistant", content: "готово" },
+      { role: "assistant", content: "  " },
+      { role: "user", content: "b" },
+    ]);
+    expect(out.map(m => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(out[2].content).toBe("карточка\n\nготово");
+  });
+  it("плоский вариант заменяет вызовы инструментов текстом", () => {
+    const out = flattenGigaChatMessages([
+      { role: "user", content: "q" },
+      { role: "assistant", content: "", function_call: { name: "get_clients", arguments: {} } },
+      { role: "function", name: "get_clients", content: "[]" },
+      { role: "user", content: "ещё" },
+    ]);
+    expect(out.every(m => !m.function_call && m.role !== "function")).toBe(true);
+    expect(out).toHaveLength(1);
+    expect(String(out[0].content)).toContain("get_clients");
+  });
+});

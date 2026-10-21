@@ -75,3 +75,38 @@ describe("до конца месяца", () => {
     expect(a.repeat_until).toBe("end_of_month");
   });
 });
+
+describe("разное время по дням", () => {
+  it("вторникам в 12 и пятницам в 17 до конца ноября", () => {
+    const a: Record<string, unknown> = { weekday: "tue", time: "12:00" };
+    inferRecurrence("Создай сессии с Анной по вторникам в 12 и пятницам в 17 до конца ноября", a, { timeZone: TZ, now: NOW });
+    expect(a.schedule).toEqual([{ weekday: "tue", time: "12:00" }, { weekday: "fri", time: "17:00" }]);
+    expect(a.repeat_until).toBe("2026-11-30");
+    const r = expandSessionStarts(a, TZ, NOW);
+    const f = r.map(d => formatSessionStart(d, TZ));
+    expect(f.slice(0, 4)).toEqual(["пт, 23 октября, 17:00", "вт, 27 октября, 12:00", "пт, 30 октября, 17:00", "вт, 3 ноября, 12:00"]);
+    expect(f[f.length - 1]).toBe("пт, 27 ноября, 17:00");
+  });
+  it("одинаковое время у двух дней — обычный список дней", () => {
+    const a: Record<string, unknown> = { weekday: "tue", time: "10:00" };
+    inferRecurrence("по вторникам и пятницам в 11 на месяц", a, { timeZone: TZ, now: NOW });
+    expect(a.weekday).toBe("tue,fri");
+    expect(a.time).toBe("11:00");
+    expect(a.schedule).toBeUndefined();
+    expect(a.repeat_count).toBe(8);
+  });
+  it("«во вторник и пятницу в 11» без повтора — по одной сессии на день", () => {
+    const a: Record<string, unknown> = { weekday: "tue", time: "11:00" };
+    inferRecurrence("Создай мне тренировки во вторник и пятницу в 11", a, { timeZone: TZ, now: NOW });
+    const r = expandSessionStarts(a, TZ, NOW).map(d => formatSessionStart(d, TZ));
+    expect(r).toEqual(["пт, 23 октября, 11:00", "вт, 27 октября, 11:00"]);
+  });
+  it("«до 15 ноября» и «до 30.11»", () => {
+    const a: Record<string, unknown> = { weekday: "mon", time: "10:00" };
+    inferRecurrence("каждый понедельник в 10 до 15 ноября", a, { timeZone: TZ, now: NOW });
+    expect(a.repeat_until).toBe("2026-11-15");
+    const b: Record<string, unknown> = { weekday: "mon", time: "10:00" };
+    inferRecurrence("каждый понедельник в 10 до 30.11", b, { timeZone: TZ, now: NOW });
+    expect(b.repeat_until).toBe("2026-11-30");
+  });
+});

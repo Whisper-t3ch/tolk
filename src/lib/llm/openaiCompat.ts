@@ -226,7 +226,50 @@ export function toGigaChatMessages(messages: YandexGptAnyMessage[]): Array<Recor
     }
   }
   flushPending();
+  return normalizeGigaChatMessages(out);
+}
+
+type GigaMsg = Record<string, unknown>;
+const isPlainMsg = (m: GigaMsg) => (m.role === "user" || m.role === "assistant") && !m.function_call;
+
+/**
+ * GigaChat отвечает 400 «Unexpected user message or missing tool result» на подряд идущие реплики одной роли
+ * и на пустые реплики ассистента. Склеиваем одинаковые подряд и выкидываем пустые.
+ */
+export function normalizeGigaChatMessages(messages: GigaMsg[]): GigaMsg[] {
+  const out: GigaMsg[] = [];
+  for (const m of messages) {
+    if (isPlainMsg(m)) {
+      const text = typeof m.content === "string" ? m.content : "";
+      if (!text.trim()) continue;
+      const prev = out[out.length - 1];
+      if (prev && isPlainMsg(prev) && prev.role === m.role) {
+        prev.content = `${String(prev.content)}\n\n${text}`;
+        continue;
+      }
+      out.push({ ...m, content: text });
+    } else {
+      out.push(m);
+    }
+  }
   return out;
+}
+
+/**
+ * Запасной вариант на случай 400 от GigaChat: переписываем пары «вызов инструмента → результат» обычным текстом
+ * (роль user), так что любая последовательность становится допустимой.
+ */
+export function flattenGigaChatMessages(messages: GigaMsg[]): GigaMsg[] {
+  const out: GigaMsg[] = [];
+  for (const m of messages) {
+    if (m.role === "assistant" && m.function_call) continue;
+    if (m.role === "function") {
+      out.push({ role: "user", content: `[Данные из системы, ${String(m.name ?? "инструмент")}]: ${String(m.content ?? "")}` });
+    } else {
+      out.push(m);
+    }
+  }
+  return normalizeGigaChatMessages(out);
 }
 
 function stripThink(text: string): string {
@@ -267,7 +310,7 @@ export async function openAiCompatCompleteWithTools(
   }
 
   const timeoutMs = Number(process.env.LLM_TIMEOUT_MS || 90000);
-  const send = async (forceRefresh: boolean): Promise<Response> =>
+  const send = async (forceRefresh: boolean, payload: Record<string, unknown> = body): Promise<Response> =>
     fetch(`${baseUrl()}/chat/completions`, {
       method: "POST",
       headers: {
@@ -275,13 +318,22 @@ export async function openAiCompatCompleteWithTools(
         Authorization: await authorizationHeader(forceRefresh),
         ...(gigachat && options.sessionId ? { "X-Session-ID": options.sessionId } : {}),
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(timeoutMs),
     });
   let response: Response;
   try {
     response = await send(false);
     if (response.status === 401 && usesGigaChatOauth()) response = await send(true);
+    if (response.status === 400 && gigachat) {
+      // Не всякий 400 лечится, но «Unexpected user message…» — это порядок реплик: пробуем плоский вариант без инструментов в истории.
+      const peek = await response.clone().text().catch(() => "");
+      if (/unexpected user message|missing tool result/i.test(peek)) {
+        const roles = (body.messages as GigaMsg[]).map(m => (m.function_call ? "fc" : String(m.role)[0])).join("");
+        console.error("LLM_RETRY_FLAT", JSON.stringify({ roles }));
+        response = await send(false, { ...body, messages: flattenGigaChatMessages(body.messages as GigaMsg[]) });
+      }
+    }
   } catch (e) {
     if (e instanceof YandexGptError) throw e;
     throw new YandexGptError(`Не удалось связаться с LLM-провайдером: ${e instanceof Error ? e.message : String(e)}`);
@@ -296,7 +348,8 @@ export async function openAiCompatCompleteWithTools(
     }
     const serialized = typeof details === "string" ? details : JSON.stringify(details ?? "");
     // Тело ошибки провайдера (без пользовательских данных) — для разбора 4xx на стенде.
-    console.error("LLM_ERROR", JSON.stringify({ status: response.status, model: modelName, body: serialized.slice(0, 500) }));
+    const roles = Array.isArray(body.messages) ? (body.messages as GigaMsg[]).map(m => (m.function_call ? "fc" : String(m.role)[0])).join("") : "";
+    console.error("LLM_ERROR", JSON.stringify({ status: response.status, model: modelName, body: serialized.slice(0, 500), roles }));
     const moderation = response.status === 400 && /content[_ -]?filter|moderation|модерац/i.test(serialized);
     throw new YandexGptError(
       `LLM-провайдер вернул ошибку ${response.status}`,

@@ -25,6 +25,8 @@ export interface CreateSessionArgs {
   /** Сколько всего сессий (с первой), если нужно повторение раз в неделю. */
   repeat_count?: number;
   duration_minutes?: number;
+  /** Разное время в разные дни недели: «по вторникам в 12 и пятницам в 17». Заполняет сервер по тексту просьбы. */
+  schedule?: Array<{ weekday: string; time: string }>;
 }
 
 export const MAX_SESSIONS_PER_REQUEST = 26;
@@ -105,6 +107,13 @@ export function expandSessionStarts(args: CreateSessionArgs, timeZone: string, n
     }
   }
 
+  const slots = Array.isArray(args.schedule)
+    ? args.schedule
+        .map(x => ({ wd: parseWeekday(x?.weekday), time: normalizeTime(x?.time) }))
+        .filter((x): x is { wd: number; time: string } => x.wd !== null && x.time !== null)
+    : [];
+  if (slots.length > 1) return expandSlots(slots, args, date, timeZone, now, today);
+
   if (!time) throw new Error("не указано время сессии");
 
   const wds = parseWeekdays(args.weekday);
@@ -157,6 +166,56 @@ export function expandSessionStarts(args: CreateSessionArgs, timeZone: string, n
   return upcoming;
 }
 
+function resolveUntil(args: CreateSessionArgs, from: string): string | null {
+  if (typeof args.repeat_until !== "string") return null;
+  const ru = args.repeat_until.trim().toLowerCase();
+  if (ru === "end_of_month" || ru === "month") return endOfMonth(from);
+  return /^\d{4}-\d{2}-\d{2}$/.test(ru) ? ru : null;
+}
+
+/** Несколько дней недели с разным временем. Срок (until/count) общий: count — сколько всего сессий. */
+function expandSlots(
+  slots: Array<{ wd: number; time: string }>,
+  args: CreateSessionArgs,
+  date: string | null,
+  timeZone: string,
+  now: Date,
+  today: string
+): Date[] {
+  const from = date ?? today;
+  const until = resolveUntil(args, from);
+  const count =
+    typeof args.repeat_count === "number" && args.repeat_count > 1 ? Math.min(Math.floor(args.repeat_count), MAX_SESSIONS_PER_REQUEST) : null;
+  const weekdayOf = (d: string) => weekdayInTimeZone(zonedDateTimeToUtc(d, "12:00", timeZone), timeZone);
+  const all: Date[] = [];
+  const recurring = Boolean(until || count);
+  for (const slot of slots) {
+    let first: string | null = null;
+    for (let i = 0; i < 7; i++) {
+      const probe = addDays(from, i);
+      if (weekdayOf(probe) === slot.wd) {
+        first = probe;
+        break;
+      }
+    }
+    if (!first) continue;
+    if (!recurring) {
+      all.push(zonedDateTimeToUtc(first, slot.time, timeZone));
+      continue;
+    }
+    for (let w = 0; w < MAX_SESSIONS_PER_REQUEST; w++) {
+      const d = addDays(first, 7 * w);
+      if (until && d > until) break;
+      all.push(zonedDateTimeToUtc(d, slot.time, timeZone));
+    }
+  }
+  all.sort((a, b) => a.getTime() - b.getTime());
+  const limited = count && !until ? all.slice(0, count) : all.slice(0, MAX_SESSIONS_PER_REQUEST);
+  const upcoming = limited.filter(s => s.getTime() > now.getTime());
+  if (upcoming.length === 0) throw new Error("все эти даты уже прошли");
+  return upcoming;
+}
+
 const WD_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 
 /** «вт, 27 окт, 15:00» в часовом поясе психолога. */
@@ -182,30 +241,119 @@ export function collectClientNames(args: { name?: unknown; names?: unknown }): s
   return out.slice(0, 30);
 }
 
+const WEEKDAY_MENTIONS: Array<[string, RegExp]> = [
+  ["mon", /(?<![а-яё])понедельник(?:ам|а|у|и)?(?![а-яё])/g],
+  ["tue", /(?<![а-яё])вторник(?:ам|а|у|и)?(?![а-яё])/g],
+  ["wed", /(?<![а-яё])сред(?:ам|а|у|ы)(?![а-яё])/g],
+  ["thu", /(?<![а-яё])четверг(?:ам|а|у|и)?(?![а-яё])/g],
+  ["fri", /(?<![а-яё])пятниц(?:ам|а|у|ы)(?![а-яё])/g],
+  ["sat", /(?<![а-яё])суббот(?:ам|а|у|ы)(?![а-яё])/g],
+  ["sun", /(?<![а-яё])воскресень(?:ям|е|я|ю)(?![а-яё])/g],
+];
+
+const MONTH_STEMS = ["январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"];
+const MONTH_RE = "(январ[ья]|феврал[ья]|марта?|апрел[ья]|ма[яй]|июн[ья]|июл[ья]|августа?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])";
+
+function monthIndex(word: string): number {
+  return MONTH_STEMS.findIndex(stem => word.startsWith(stem) && (stem !== "ма" || /^ма[яй]$/.test(word)));
+}
+
+/** «до конца ноября» / «до 30 ноября» / «до 30.11» → YYYY-MM-DD (ближайшее такое будущее). */
+export function parseUntilFromText(text: string, timeZone: string, now: Date): string | null {
+  const today = todayInTimeZone(timeZone, now);
+  const [ty, tm, td] = today.split("-").map(Number);
+  const pick = (month0: number, day: number | "end"): string => {
+    let year = ty;
+    const dayOf = (y: number) => (day === "end" ? new Date(Date.UTC(y, month0 + 1, 0)).getUTCDate() : day);
+    if (month0 + 1 < tm || (month0 + 1 === tm && dayOf(year) < td)) year += 1;
+    const d = dayOf(year);
+    return `${year}-${String(month0 + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  };
+  const endM = text.match(new RegExp(`до\\s+конца\\s+${MONTH_RE}`));
+  if (endM) {
+    const mi = monthIndex(endM[1]);
+    if (mi >= 0) return pick(mi, "end");
+  }
+  const dayM = text.match(new RegExp(`(?:до|по)\\s+(\\d{1,2})\\s+${MONTH_RE}`));
+  if (dayM) {
+    const mi = monthIndex(dayM[2]);
+    const d = Number(dayM[1]);
+    if (mi >= 0 && d >= 1 && d <= 31) return pick(mi, d);
+  }
+  const dotM = text.match(/(?:до|по)\s+(\d{1,2})\.(\d{2})(?!\d)/);
+  if (dotM) {
+    const d = Number(dotM[1]);
+    const mo = Number(dotM[2]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return pick(mo - 1, d);
+  }
+  return null;
+}
+
+const TIME_IN_SEGMENT = new RegExp(
+  `(?:^|[\\s,(])(?:в|к|около)?\\s*(\\d{1,2})(?:[:.](\\d{2}))(?!\\d)|(?:^|[\\s,(])(?:в|к)\\s+(\\d{1,2})(?![\\d:.])(?!\\s*(?:числ|${MONTH_RE.slice(1, -1)}))`
+);
+
+function timeFromSegment(segment: string): string | null {
+  const m = segment.match(TIME_IN_SEGMENT);
+  if (!m) return null;
+  const h = Number(m[1] ?? m[3]);
+  const min = m[2] ? Number(m[2]) : 0;
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+/** Дни недели в порядке упоминания вместе с временем, которое стоит рядом после названия дня. */
+export function extractWeekdayTimes(text: string): Array<{ weekday: string; time: string | null }> {
+  const hits: Array<{ code: string; start: number; end: number }> = [];
+  for (const [code, re] of WEEKDAY_MENTIONS) {
+    for (const m of text.matchAll(re)) hits.push({ code, start: m.index ?? 0, end: (m.index ?? 0) + m[0].length });
+  }
+  hits.sort((a, b) => a.start - b.start);
+  const out: Array<{ weekday: string; time: string | null }> = [];
+  hits.forEach((h, i) => {
+    if (out.some(o => o.weekday === h.code)) return;
+    const next = hits[i + 1]?.start ?? text.length;
+    out.push({ weekday: h.code, time: timeFromSegment(text.slice(h.end, next)) });
+  });
+  // День без своего времени берёт ближайшее следующее («во вторник и пятницу в 11»), а в конце — предыдущее.
+  for (let i = out.length - 1; i >= 0; i--) if (!out[i].time && out[i + 1]?.time) out[i].time = out[i + 1].time;
+  for (let i = 1; i < out.length; i++) if (!out[i].time && out[i - 1]?.time) out[i].time = out[i - 1].time;
+  return out;
+}
+
 /**
- * Слабая модель часто забывает повторение («по вторникам на месяц» → одна сессия). Достраиваем его по тексту
- * просьбы психолога, если модель сама не задала ни repeat_until, ни repeat_count.
+ * Слабая модель часто забывает повторение («по вторникам на месяц» → одна сессия), теряет дни недели и путает
+ * время у разных дней. Достраиваем всё это по тексту просьбы психолога.
  */
-export function inferRecurrence(message: string, args: CreateSessionArgs): void {
+export function inferRecurrence(message: string, args: CreateSessionArgs, opts: { timeZone?: string; now?: Date } = {}): void {
+  const timeZone = opts.timeZone ?? "Europe/Moscow";
+  const now = opts.now ?? new Date();
   const hasRepeat = Boolean(args.repeat_until) || (typeof args.repeat_count === "number" && args.repeat_count > 1);
   const text = message.toLowerCase();
   const everyWeekday = /по\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)\S*/.test(text);
   const every = /кажд(ый|ую|ое|ые)\s/.test(text) || /еженедельн|раз в неделю/.test(text);
-  if (!everyWeekday && !every) return;
-  // «по понедельникам и средам»: модель часто оставляет только первый день — берём все из текста просьбы.
-  const found: string[] = [];
-  const names: Array<[string, RegExp]> = [
-    ["mon", /(?<![а-яё])понедельник(?:ам|а|у|и)?(?![а-яё])/g],
-    ["tue", /(?<![а-яё])вторник(?:ам|а|у|и)?(?![а-яё])/g],
-    ["wed", /(?<![а-яё])сред(?:ам|а|у|ы)(?![а-яё])/g],
-    ["thu", /(?<![а-яё])четверг(?:ам|а|у|и)?(?![а-яё])/g],
-    ["fri", /(?<![а-яё])пятниц(?:ам|а|у|ы)(?![а-яё])/g],
-    ["sat", /(?<![а-яё])суббот(?:ам|а|у|ы)(?![а-яё])/g],
-    ["sun", /(?<![а-яё])воскресень(?:ям|е|я|ю)(?![а-яё])/g],
-  ];
-  for (const [code, re] of names) if (re.test(text)) found.push(code);
-  if (found.length > 1) args.weekday = found.join(",");
-  else if (found.length === 1 && !args.weekday) args.weekday = found[0];
+  const mentions = extractWeekdayTimes(text);
+  const found = mentions.map(m => m.weekday);
+  const recurring = everyWeekday || every;
+
+  if (!recurring) {
+    // «Во вторник и пятницу в 11» — по одной сессии на каждый названный день.
+    if (found.length > 1 && !args.date && !args.datetime) {
+      applyDays(args, mentions);
+      args.repeat_until = undefined;
+      args.repeat_count = found.length;
+    }
+    return;
+  }
+
+  applyDays(args, mentions);
+
+  const until = parseUntilFromText(text, timeZone, now);
+  if (until) {
+    args.repeat_until = until;
+    args.repeat_count = undefined;
+    return;
+  }
   // «До конца месяца» модель считала сама и ошибалась (написала 4 ноября) — это слово психолога главнее.
   if (/до конца (этого )?месяца/.test(text)) {
     args.repeat_until = "end_of_month";
@@ -213,19 +361,26 @@ export function inferRecurrence(message: string, args: CreateSessionArgs): void 
     return;
   }
   if (hasRepeat) return;
-  if (/до конца месяца/.test(text)) {
-    args.repeat_until = "end_of_month";
-    return;
-  }
+  const days = Math.max(1, found.length);
   const weeks = text.match(/(?:на|в течение)\s+(\d{1,2})\s+недел/);
   if (weeks) {
-    args.repeat_count = Math.min(Number(weeks[1]) * Math.max(1, found.length), MAX_SESSIONS_PER_REQUEST);
+    args.repeat_count = Math.min(Number(weeks[1]) * days, MAX_SESSIONS_PER_REQUEST);
     return;
   }
-  if (/месяц/.test(text)) {
-    args.repeat_count = 4 * Math.max(1, found.length);
-    return;
+  // «по вторникам» без срока и «на месяц» — на ближайшие 4 недели; психолог видит весь список в карточке и может отказаться.
+  args.repeat_count = 4 * days;
+}
+
+function applyDays(args: CreateSessionArgs, mentions: Array<{ weekday: string; time: string | null }>): void {
+  const found = mentions.map(m => m.weekday);
+  if (found.length > 1) args.weekday = found.join(",");
+  else if (found.length === 1 && !args.weekday) args.weekday = found[0];
+  const times = mentions.map(m => m.time).filter((t): t is string => Boolean(t));
+  const distinct = [...new Set(times)];
+  if (distinct.length > 1 && mentions.every(m => m.time)) {
+    args.schedule = mentions.map(m => ({ weekday: m.weekday, time: m.time as string }));
+  } else if (distinct.length === 1) {
+    args.time = distinct[0];
+    args.schedule = undefined;
   }
-  // «по вторникам» без срока — на ближайшие 4 недели; психолог видит весь список в карточке и может отказаться.
-  args.repeat_count = 4 * Math.max(1, found.length);
 }

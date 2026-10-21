@@ -540,7 +540,15 @@ export async function POST(request: NextRequest) {
         }
       }
       if (confirmationCall.functionCall.name === "create_session") {
-        inferRecurrence(userMessage ?? "", confirmArgs as CreateSessionArgs);
+        inferRecurrence(userMessage ?? "", confirmArgs as CreateSessionArgs, { timeZone });
+      }
+      // Модель подставляет в client_id выдуманное слово («тренировки») — если такого клиента нет, берём единственного упомянутого или убираем.
+      if (typeof confirmArgs.client_id === "string") {
+        const { data: ownClient } = await supabase.from("clients").select("id").eq("id", confirmArgs.client_id).eq("psychologist_id", userId).maybeSingle();
+        if (!ownClient) {
+          if (mentionedClients.length === 1) confirmArgs.client_id = mentionedClients[0].id;
+          else delete confirmArgs.client_id;
+        }
       }
       // Модель нередко подставляет в session_id id клиента: если это id клиента психолога — берём его ближайшую будущую сессию.
       const callName = confirmationCall.functionCall.name;
