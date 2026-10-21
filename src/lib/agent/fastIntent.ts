@@ -160,6 +160,11 @@ function parseCreateSession(message: string, ctx: FastIntentContext): FastIntent
     return { tool: "create_session", args };
   }
   if (!time) return null;
+  // Несколько разных дат («завтра в 11 и в пятницу в 12») одной карточкой не покрыть — отдаём модели, чем молча терять вторую.
+  const relCount = (text.match(/(?<![а-яё])(?:послезавтра|завтра|сегодня)(?![а-яё])/g) ?? []).length;
+  const explicitCount = (text.match(new RegExp(`\\d{1,2}\\s+(?:${MONTH_ALT})`, "g")) ?? []).length + (text.match(/(?<![\d:.])\d{1,2}\.\d{1,2}(?:\.\d{2,4})?(?![\d:])/g) ?? []).length;
+  const hasWeekday = WEEKDAY_ONCE.some(([re]) => re.test(text));
+  if (relCount + explicitCount > 1 || (relCount + explicitCount >= 1 && hasWeekday)) return null;
   const date = parseDate(text, ctx.timeZone, ctx.now);
   if (!date) return null;
   args.date = date;
