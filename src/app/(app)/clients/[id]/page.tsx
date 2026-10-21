@@ -156,7 +156,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const { id } = use(params);
   const { clients, loading: clientsLoading, refresh: refreshClients } = useClients();
   const client = clients.find(c => c.id === id);
-  const { sessions, addSession } = useSession();
+  const { sessions, addSession, refresh: refreshSessions } = useSession();
   const { profile } = useProfile();
   const timeZone = profile?.timezone ?? DEFAULT_TIMEZONE;
   const router = useRouter();
@@ -282,6 +282,13 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [exportingSummaries, setExportingSummaries] = useState(false);
   const [exportingSelectedTranscripts, setExportingSelectedTranscripts] = useState(false);
   const [showPeriodSummary, setShowPeriodSummary] = useState(false);
+  // Загрузка транскрипта прошедшей встречи (до подключения платформы): создаёт завершённую сессию с текстом.
+  const [showPastUpload, setShowPastUpload] = useState(false);
+  const [pastText, setPastText] = useState("");
+  const [pastDate, setPastDate] = useState("");
+  const [pastUploading, setPastUploading] = useState(false);
+  const [pastError, setPastError] = useState<string | null>(null);
+  const [pastDone, setPastDone] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [periodSummaryResult, setPeriodSummaryResult] = useState<string | null>(null);
@@ -533,6 +540,52 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     () => Array.from(new Set(attachItems.map(i => i.source_type))),
     [attachItems]
   );
+
+  const handlePastFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".txt")) {
+      setPastError("Поддерживаются только .txt-файлы. Для других форматов вставьте текст вручную.");
+      return;
+    }
+    setPastText(await file.text());
+    setPastError(null);
+  };
+
+  const handleUploadPastSession = async () => {
+    const text = pastText.trim();
+    if (!text) {
+      setPastError("Вставьте текст сессии или загрузите .txt-файл");
+      return;
+    }
+    setPastUploading(true);
+    setPastError(null);
+    try {
+      const res = await fetch(`/api/clients/${id}/transcript`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, date: pastDate || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPastError(data.error ?? "Не удалось загрузить сессию");
+        if (data.sessionId) await refreshSessions();
+        return;
+      }
+      await refreshSessions();
+      setPastDone(true);
+      setPastText("");
+      setPastDate("");
+      setTimeout(() => {
+        setPastDone(false);
+        setShowPastUpload(false);
+      }, 1800);
+    } catch {
+      setPastError("Не удалось связаться с сервером — проверьте соединение");
+    } finally {
+      setPastUploading(false);
+    }
+  };
 
   const loadInviteLink = async () => {
     setInviteError(null);
@@ -841,6 +894,17 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 }}
               >
                 <Sparkles size={13} /> Выбрать сессии...
+              </button>
+              <button
+                onClick={() => { setShowPastUpload(true); setPastError(null); setPastDone(false); }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  padding: "8px 12px", background: "#F5F3EF", border: "1px solid #E5DFD5",
+                  borderRadius: 8, fontSize: 12, fontWeight: 600, color: "#1C1C1E",
+                  cursor: "pointer", fontFamily: "var(--font-sans)",
+                }}
+              >
+                <Paperclip size={13} /> Загрузить прошедшую сессию
               </button>
             </div>
             <div>
@@ -1390,6 +1454,58 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Модалка "Загрузить прошедшую сессию" */}
+      {showPastUpload && (
+        <>
+          <div onClick={() => !pastUploading && setShowPastUpload(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 70 }} />
+          <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 75 }}>
+            <div style={{ background: "#FFFFFF", borderRadius: 16, width: "90%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", boxShadow: "0 25px 80px rgba(0,0,0,0.2)" }}>
+              <div style={{ padding: "18px 22px", borderBottom: "1px solid #E5DFD5", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Загрузить прошедшую сессию</h2>
+                <button onClick={() => !pastUploading && setShowPastUpload(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F" }}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <p style={{ margin: 0, fontSize: 12.5, color: "#6F5A3F" }}>
+                  Для встреч, которые прошли до подключения платформы или вне её видеозвонка. Создастся завершённая сессия с этим текстом: по нему можно сделать протокол, а ассистент будет учитывать его в истории клиента. Только текст (.txt или вставка), аудио и видео не поддерживаются.
+                </p>
+                <label style={{ fontSize: 12.5, fontWeight: 600, color: "#4A3F35" }}>
+                  Дата встречи
+                  <input
+                    type="date"
+                    value={pastDate}
+                    max={todayInTimeZone(timeZone)}
+                    onChange={e => setPastDate(e.target.value)}
+                    style={{ display: "block", marginTop: 6, padding: "6px 8px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13 }}
+                  />
+                  <span style={{ fontWeight: 400, fontSize: 11.5, color: "#6F5A3F" }}>Если не указать, будет сегодняшняя дата.</span>
+                </label>
+                <label style={{ fontSize: 12.5, fontWeight: 600, color: "#4A3F35" }}>
+                  Загрузить .txt-файл
+                  <input type="file" accept=".txt,text/plain" onChange={handlePastFile} style={{ display: "block", marginTop: 6, fontSize: 12.5 }} />
+                </label>
+                <textarea
+                  value={pastText}
+                  onChange={e => { setPastText(e.target.value); setPastError(null); }}
+                  placeholder="…или вставьте текст сессии"
+                  rows={9}
+                  style={{ width: "100%", padding: 10, border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", resize: "vertical" }}
+                />
+                {pastError && <p style={{ margin: 0, fontSize: 12.5, color: "#B3261E" }}>{pastError}</p>}
+                {pastDone && <p style={{ margin: 0, fontSize: 12.5, color: "#2D6A5C" }}>Сессия загружена</p>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <Button variant="secondary" onClick={() => setShowPastUpload(false)} disabled={pastUploading}>Отмена</Button>
+                  <Button onClick={handleUploadPastSession} disabled={pastUploading || !pastText.trim()}>
+                    {pastUploading ? "Загружаю…" : "Загрузить"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Модалка "Срез за период" */}
