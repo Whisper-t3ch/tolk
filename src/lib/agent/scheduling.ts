@@ -1,3 +1,4 @@
+import { toNominativeName } from "../russianNames";
 // ------------------------------------------------------------
 // Разворачивание аргументов create_session в конкретные даты.
 //
@@ -234,7 +235,8 @@ export function collectClientNames(args: { name?: unknown; names?: unknown }): s
     if (typeof v !== "string") return;
     // «Алексей, Юлия и Мария» в одной строке — разбиваем
     for (const part of v.split(/\s*(?:,|;|\n|\s+и\s+)\s*/)) {
-      const t = part.trim().replace(/^[«"']+|[»"']+$/g, "");
+      // «Создай клиентов — Алексея, Марию»: имя в карточку и в базу идёт в именительном падеже.
+      const t = toNominativeName(part.trim().replace(/^[«"']+|[»"']+$/g, ""));
       if (t && !out.some(x => x.toLowerCase() === t.toLowerCase())) out.push(t);
     }
   };
