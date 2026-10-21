@@ -85,11 +85,14 @@ echo "$SHORT" > "$SRC/.git_commit"
 sync_script() {
   local f="$1" src="$SRC/deploy/core/$1"
   [ -f "$src" ] || return 0
-  sed 's/\r$//' "$src" > "$CORE_DIR/$f.new" && bash -n "$CORE_DIR/$f.new" 2>/dev/null || { rm -f "$CORE_DIR/$f.new"; return 0; }
+  sed 's/\r$//' "$src" > "$CORE_DIR/$f.new" || { rm -f "$CORE_DIR/$f.new"; return 0; }
+  case "$f" in *.sh) bash -n "$CORE_DIR/$f.new" 2>/dev/null || { rm -f "$CORE_DIR/$f.new"; return 0; } ;; esac
   if cmp -s "$CORE_DIR/$f.new" "$CORE_DIR/$f"; then rm -f "$CORE_DIR/$f.new"; else chmod +x "$CORE_DIR/$f.new" && mv "$CORE_DIR/$f.new" "$CORE_DIR/$f"; log "обновлён $f"; fi
 }
 sync_script core.sh
 sync_script release_deploy.sh
+sync_script seed_platform_kb.sql
+sync_script reindex_embeddings.sh
 revert_src() {
   if [ -n "$PREV_TIP" ]; then extract "$PREV_TIP" || log "ВНИМАНИЕ: возврат исходников не удался"; fi
   [ -n "$CUR" ] && echo "$CUR" > "$SRC/.git_commit" || true

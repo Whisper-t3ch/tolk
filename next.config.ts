@@ -27,6 +27,9 @@ const nextConfig: NextConfig = {
   // route /api/sessions/[id]/soap/pdf падал с пустым 500 ещё на этапе
   // загрузки модуля. Грузим их нативно средствами Node вместо бандлинга.
   serverExternalPackages: ["pdf-lib", "@pdf-lib/fontkit"],
+  // Загрузка аудио встречи (до 55 МБ) идёт через middleware: по умолчанию Next буферизует тело только до 10 МБ и обрезает остальное.
+  // Выше этого предела Caddy всё равно не пропустит (request_body max_size 60MB в Caddyfile.prod).
+  experimental: { proxyClientMaxBodySize: "60mb" },
   // Самодостаточная сборка для Docker (Dockerfile в корне репозитория задаёт
   // NEXT_OUTPUT=standalone). Без этой переменной (в том числе на Vercel)
   // поведение сборки не меняется.

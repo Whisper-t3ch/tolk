@@ -289,6 +289,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [pastUploading, setPastUploading] = useState(false);
   const [pastError, setPastError] = useState<string | null>(null);
   const [pastDone, setPastDone] = useState(false);
+  const [pastAudio, setPastAudio] = useState<File | null>(null);
+  const [pastAudioStarted, setPastAudioStarted] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [periodSummaryResult, setPeriodSummaryResult] = useState<string | null>(null);
@@ -541,31 +543,54 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     [attachItems]
   );
 
+  const AUDIO_EXT = /\.(mp3|m4a|wav|ogg|oga|opus|webm|aac|flac|mp4|amr)$/i;
+  const MAX_AUDIO_MB = 55;
+
   const handlePastFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".txt")) {
-      setPastError("Поддерживаются только .txt-файлы. Для других форматов вставьте текст вручную.");
+    const name = file.name.toLowerCase();
+    if (AUDIO_EXT.test(name) || file.type.startsWith("audio/")) {
+      if (file.size > MAX_AUDIO_MB * 1024 * 1024) {
+        setPastError(`Файл больше ${MAX_AUDIO_MB} МБ. Сожмите запись (например, в mp3 или m4a) или разделите на части.`);
+        return;
+      }
+      setPastAudio(file);
+      setPastText("");
+      setPastError(null);
       return;
     }
+    if (!name.endsWith(".txt")) {
+      setPastError("Подходят .txt-файлы и аудио (mp3, m4a, wav, ogg, aac). Для других форматов вставьте текст вручную.");
+      return;
+    }
+    setPastAudio(null);
     setPastText(await file.text());
     setPastError(null);
   };
 
   const handleUploadPastSession = async () => {
     const text = pastText.trim();
-    if (!text) {
-      setPastError("Вставьте текст сессии или загрузите .txt-файл");
+    if (!text && !pastAudio) {
+      setPastError("Вставьте текст сессии, загрузите .txt-файл или аудиозапись");
       return;
     }
     setPastUploading(true);
     setPastError(null);
     try {
-      const res = await fetch(`/api/clients/${id}/transcript`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, date: pastDate || undefined }),
-      });
+      let res: Response;
+      if (pastAudio) {
+        const form = new FormData();
+        form.append("file", pastAudio);
+        if (pastDate) form.append("date", pastDate);
+        res = await fetch(`/api/clients/${id}/transcript-audio`, { method: "POST", body: form });
+      } else {
+        res = await fetch(`/api/clients/${id}/transcript`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, date: pastDate || undefined }),
+        });
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setPastError(data.error ?? "Не удалось загрузить сессию");
@@ -574,12 +599,15 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       }
       await refreshSessions();
       setPastDone(true);
+      setPastAudioStarted(Boolean(pastAudio));
       setPastText("");
+      setPastAudio(null);
       setPastDate("");
       setTimeout(() => {
         setPastDone(false);
+        setPastAudioStarted(false);
         setShowPastUpload(false);
-      }, 1800);
+      }, pastAudio ? 5000 : 1800);
     } catch {
       setPastError("Не удалось связаться с сервером — проверьте соединение");
     } finally {
@@ -1470,7 +1498,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               </div>
               <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
                 <p style={{ margin: 0, fontSize: 12.5, color: "#6F5A3F" }}>
-                  Для встреч, которые прошли до подключения платформы или вне её видеозвонка. Создастся завершённая сессия с этим текстом: по нему можно сделать протокол, а ассистент будет учитывать его в истории клиента. Только текст (.txt или вставка), аудио и видео не поддерживаются.
+                  Для встреч, которые прошли до подключения платформы или вне её видеозвонка. Создастся завершённая сессия с этим текстом: по нему можно сделать протокол, а ассистент будет учитывать его в истории клиента. Можно загрузить текст (.txt или вставка) или аудиозапись (mp3, m4a, wav, ogg, до 55 МБ): её расшифрует платформа, на это уйдёт несколько минут. Видео не поддерживается. В аудио голоса не разделяются.
                 </p>
                 <label style={{ fontSize: 12.5, fontWeight: 600, color: "#4A3F35" }}>
                   Дата встречи
@@ -1484,8 +1512,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   <span style={{ fontWeight: 400, fontSize: 11.5, color: "#6F5A3F" }}>Если не указать, будет сегодняшняя дата.</span>
                 </label>
                 <label style={{ fontSize: 12.5, fontWeight: 600, color: "#4A3F35" }}>
-                  Загрузить .txt-файл
-                  <input type="file" accept=".txt,text/plain" onChange={handlePastFile} style={{ display: "block", marginTop: 6, fontSize: 12.5 }} />
+                  Загрузить .txt-файл или аудио
+                  <input type="file" accept=".txt,text/plain,audio/*,.mp3,.m4a,.wav,.ogg,.opus,.aac,.flac,.webm,.amr" onChange={handlePastFile} style={{ display: "block", marginTop: 6, fontSize: 12.5 }} />
                 </label>
                 <textarea
                   value={pastText}
@@ -1494,12 +1522,14 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                   rows={9}
                   style={{ width: "100%", padding: 10, border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", resize: "vertical" }}
                 />
+                {pastAudio && <p style={{ margin: 0, fontSize: 12.5, color: "#4A3F35" }}>Выбрано аудио: {pastAudio.name} ({Math.max(1, Math.round(pastAudio.size / 1024 / 1024))} МБ)</p>}
                 {pastError && <p style={{ margin: 0, fontSize: 12.5, color: "#B3261E" }}>{pastError}</p>}
-                {pastDone && <p style={{ margin: 0, fontSize: 12.5, color: "#2D6A5C" }}>Сессия загружена</p>}
+                {pastDone && pastAudioStarted && <p style={{ margin: 0, fontSize: 12.5, color: "#2D6A5C" }}>Запись принята. Расшифровка займёт несколько минут — сессия появится в списке, текст добавится, когда будет готов.</p>}
+                {pastDone && !pastAudioStarted && <p style={{ margin: 0, fontSize: 12.5, color: "#2D6A5C" }}>Сессия загружена</p>}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                   <Button variant="secondary" onClick={() => setShowPastUpload(false)} disabled={pastUploading}>Отмена</Button>
-                  <Button onClick={handleUploadPastSession} disabled={pastUploading || !pastText.trim()}>
-                    {pastUploading ? "Загружаю…" : "Загрузить"}
+                  <Button onClick={handleUploadPastSession} disabled={pastUploading || (!pastText.trim() && !pastAudio)}>
+                    {pastUploading ? (pastAudio ? "Отправляю файл…" : "Загружаю…") : "Загрузить"}
                   </Button>
                 </div>
               </div>
