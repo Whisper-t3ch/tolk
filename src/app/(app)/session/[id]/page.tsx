@@ -214,9 +214,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             overflow: "hidden",
           }}>
             {/* Таймер */}
-            <div style={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.5)", padding: "8px 12px", borderRadius: 8, zIndex: 4 }}>
-              <Clock size={16} color="#fff" />
-              <span style={{ color: "#fff", fontSize: 14, fontWeight: 600, fontFamily: "monospace" }}>
+            <div style={{ position: "absolute", top: 10, right: 10, display: "flex", alignItems: "center", gap: 5, background: "rgba(0,0,0,0.45)", padding: "3px 8px", borderRadius: 6, zIndex: 4 }}>
+              <Clock size={13} color="#fff" />
+              <span style={{ color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "monospace" }}>
                 {formatTime(seconds)}
               </span>
             </div>

@@ -509,7 +509,7 @@ function JitsiCallView(
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              style={{ width: "100%", height: "100%", objectFit: remoteIsScreen ? "contain" : "cover", background: remoteIsScreen ? "#0F0F10" : undefined, display: remoteConnected ? "block" : "none" }}
+              style={{ width: "100%", height: "100%", objectFit: "contain", background: "#0F0F10", display: remoteConnected ? "block" : "none" }}
             />
             <audio ref={remoteAudioRef} autoPlay />
             {!remoteConnected && viewState === "in_call" && (
@@ -537,7 +537,9 @@ function JitsiCallView(
           </>
         )}
 
-        {viewState === "in_call" && (
+        {/* Плашка записи показывается только при проблеме (прервана дорожка клиента / не выгружены фрагменты):
+            в штатной работе она лишь закрывала картинку собеседника. */}
+        {viewState === "in_call" && (recordingStatus?.tracks.some(tr => tr.state === "track_lost") || chunkStats.failed > 0) && (
           <div
             style={{
               position: "absolute",
@@ -563,8 +565,8 @@ function JitsiCallView(
           </div>
         )}
 
-        <div style={{ position: "absolute", bottom: 16, left: 16, background: "rgba(0,0,0,0.6)", padding: "10px 14px", borderRadius: 8, zIndex: 2 }}>
-          <div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>{clientName}</div>
+        <div style={{ position: "absolute", bottom: 12, left: 12, background: "rgba(0,0,0,0.5)", padding: "4px 10px", borderRadius: 6, zIndex: 2 }}>
+          <div style={{ color: "#fff", fontSize: 12, fontWeight: 600 }}>{clientName}</div>
         </div>
       </div>
 

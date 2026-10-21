@@ -263,9 +263,7 @@ export default function JoinSessionPage({ params }: { params: Promise<{ token: s
                 style={{ marginTop: 2 }}
               />
               <span style={{ fontSize: 13, color: "#4A4A4A", lineHeight: 1.5 }}>
-                Я даю согласие на обработку моих персональных данных, включая сведения о состоянии здоровья,
-                и на запись и расшифровку консультации (запись можно отклонить в любой момент у вашего психолога).
-                Данные хранятся конфиденциально.{" "}
+                Я даю согласие на обработку персональных данных.{" "}
                 <a href="/client-consent" target="_blank" rel="noopener noreferrer" style={{ color: "#1E6B54", textDecoration: "underline" }}>
                   Текст согласия
                 </a>
