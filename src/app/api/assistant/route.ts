@@ -113,9 +113,10 @@ export async function POST(request: NextRequest) {
   // искать его инструментом (слабые модели выдумывают id или вызывают посторонние инструменты).
   // «Создай 5 клиентов — Алексей, Юлия…»: имена здесь НОВЫЕ, говорить модели «такого клиента нет» нельзя.
   // «Заведи Машку» тоже просьба создать клиента, слово «клиент» не обязательно; сессии/встречи/сообщения сюда не относим.
-  const isCreateClientIntent =
-    /(созда|добав|завед|завест|внес)/i.test(userMessage) &&
-    !/(сесси|встреч|запис|заметк|задани|сообщени|напомин|ссылк|рассыл|протокол|шаблон)/i.test(userMessage);
+  const createVerb = /(созда|добав|завед|завест|внес)/i.test(userMessage);
+  const hasSessionWords = /(сесси|встреч|запис|заметк|задани|сообщени|напомин|ссылк|рассыл|протокол|шаблон)/i.test(userMessage);
+  // «Создай клиента Олю и сразу поставь ей сессию»: слово «клиента» делает просьбу созданием клиента, сессию — отдельным шагом.
+  const isCreateClientIntent = createVerb && (!hasSessionWords || /клиент/i.test(userMessage));
   if (!body.client_id && isCreateClientIntent) {
     contextPrefix = "Контекст: психолог просит завести НОВЫХ клиентов. Не ищи их среди существующих — сразу вызови create_client один раз, передав все имена массивом names.\n\n";
   } else if (!body.client_id) {
@@ -541,6 +542,24 @@ export async function POST(request: NextRequest) {
       if (confirmationCall.functionCall.name === "create_session") {
         inferRecurrence(userMessage ?? "", confirmArgs as CreateSessionArgs);
       }
+      // Модель нередко подставляет в session_id id клиента: если это id клиента психолога — берём его ближайшую будущую сессию.
+      const callName = confirmationCall.functionCall.name;
+      if ((callName === "cancel_session" || callName === "reschedule_session" || callName === "send_session_invite") && typeof confirmArgs.session_id === "string") {
+        const { data: realSession } = await supabase.from("sessions").select("id").eq("id", confirmArgs.session_id).eq("psychologist_id", userId).maybeSingle();
+        if (!realSession) {
+          const { data: next } = await supabase
+            .from("sessions")
+            .select("id")
+            .eq("client_id", confirmArgs.session_id)
+            .eq("psychologist_id", userId)
+            .neq("status", "cancelled")
+            .gte("scheduled_at", new Date().toISOString())
+            .order("scheduled_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (next) confirmArgs.session_id = next.id as string;
+        }
+      }
       let description: string;
       try {
         description = await describeAction(
@@ -558,6 +577,9 @@ export async function POST(request: NextRequest) {
         const failId = randomUUID();
         const { agentSessionId: failSid } = await saveAgentSession(supabase, userId, body.agent_session_id, userMessage ?? "", text, failId, userDatePrefix + contextPrefix + userMessage, body.client_id);
         return NextResponse.json({ message: text, actions_taken: false, agent_session_id: failSid, message_id: failId, suggested_web_search_query: null });
+      }
+      if (callName === "create_client" && hasSessionWords && /сесси|встреч/i.test(userMessage ?? "")) {
+        description += "\nСессию с ним поставлю следующим сообщением: напишите, когда клиент будет создан.";
       }
       // Раньше запрос и карточка в историю не попадали вовсе — после перезагрузки чата они пропадали.
       const cardMessageId = randomUUID();
@@ -829,9 +851,13 @@ export async function POST(request: NextRequest) {
         // модель сразу написала связный, но полностью выдуманный рассказ). Если клиент известен из вопроса
         // или диалога, а инструменты в этом запросе не вызывались — один раз повторяем запрос, заставляя
         // модель прочитать историю клиента. Стоит одного лишнего короткого вызова, зато ответ опирается на факты.
+        // Просьбы-действия («выставь счёт», «поставь на 31 февраля», «удали») принуждать к чтению истории бессмысленно:
+        // модель честно отвечает, что не может, а повтор превращал ответ в «уточните тему поиска в истории».
+        const isActionRequest = /(постав|созда|завед|добав|отмен|перенес|передвин|напиш|отправ|разошл|удал|выстав|измен|переведи|обнов|запиши|назнач)/i.test(userMessage ?? "");
         if (
           toolCallsCount === 0 &&
           mentionedClients.length > 0 &&
+          !isActionRequest &&
           !forceHistoryTool &&
           availableTools.some(t => t.function.name === "search_client_history")
         ) {
