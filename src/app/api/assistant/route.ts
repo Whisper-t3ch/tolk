@@ -235,7 +235,12 @@ export async function POST(request: NextRequest) {
         // Потолок на реплику: старые длинные ответы не раздувают каждый следующий запрос.
         // Обрезка детерминированная — начало переписки не меняется и продолжает браться из кэша.
         const t = entry.role === "user" && entry.llm_text ? entry.llm_text : entry.text;
-        history.push({ role: entry.role, text: t.length > 1500 ? t.slice(0, 1500) + "…" : t });
+        const clipped = t.length > 1500 ? t.slice(0, 1500) + "…" : t;
+        // Карточка подтверждения и итог после неё — два ответа ассистента подряд; провайдеры (GigaChat) на
+        // подряд идущие реплики одной роли отвечают 400, поэтому склеиваем их в одну.
+        const prev = history[history.length - 1] as { role: string; text: string } | undefined;
+        if (prev && prev.role === entry.role) prev.text += "\n" + clipped;
+        else history.push({ role: entry.role, text: clipped });
       }
     }
   }

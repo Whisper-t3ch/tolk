@@ -139,7 +139,7 @@ export default function AIAssistant() {
       </AnimatePresence>
 
       {/* Кнопка-круг (скрыта на странице чата с клиентами — там своя точка входа) */}
-      {!hideFloatingButton && (
+      {!hideFloatingButton && !isOpen && (
         <motion.button
           onClick={() => setIsOpen(true)}
           style={{
