@@ -170,7 +170,10 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   const voiceSupported = voice.supported;
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Прокручиваем только саму ленту чата. scrollIntoView крутил и всю страницу: при выборе клиента на
+    // странице «Помощник» экран уезжал вниз.
+    const box = messagesEndRef.current?.parentElement;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }, [messages, pendingAction]);
 
   // isLoading из состояния обновляется только после перерисовки: два Enter подряд (автоповтор клавиши,

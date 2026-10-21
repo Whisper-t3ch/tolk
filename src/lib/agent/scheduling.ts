@@ -50,6 +50,16 @@ export function parseWeekday(raw: unknown): number | null {
   return null;
 }
 
+export function parseWeekdays(raw: unknown): number[] {
+  if (typeof raw !== "string") return [];
+  const out: number[] = [];
+  for (const part of raw.split(/[\s,;/]+|\s+и\s+/)) {
+    const code = parseWeekday(part);
+    if (code !== null && !out.includes(code)) out.push(code);
+  }
+  return out;
+}
+
 function normalizeTime(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const m = raw.trim().match(/^(\d{1,2})[:.\s]?(\d{2})?$/);
@@ -95,18 +105,19 @@ export function expandSessionStarts(args: CreateSessionArgs, timeZone: string, n
     }
   }
 
-  if (!time) throw new Error("Не указано время сессии (формат ЧЧ:ММ, местное время психолога).");
+  if (!time) throw new Error("не указано время сессии");
 
-  const weekday = parseWeekday(args.weekday);
+  const wds = parseWeekdays(args.weekday);
   if (!date) {
-    if (weekday === null) throw new Error("Не указана дата сессии (date) или день недели (weekday).");
+    if (wds.length === 0) throw new Error("не указана дата: на какой день поставить сессию");
     date = today;
   }
-  // Если задан день недели — сдвигаем дату вперёд до ближайшего такого дня (включая саму дату).
-  if (weekday !== null) {
+  const weekdayOf = (d: string) => weekdayInTimeZone(zonedDateTimeToUtc(d, "12:00", timeZone), timeZone);
+  // Если задан день (или несколько) — сдвигаем дату вперёд до ближайшего подходящего дня (включая саму дату).
+  if (wds.length) {
     for (let i = 0; i < 7; i++) {
       const probe = addDays(date, i);
-      if (weekdayInTimeZone(zonedDateTimeToUtc(probe, "12:00", timeZone), timeZone) === weekday) {
+      if (wds.includes(weekdayOf(probe))) {
         date = probe;
         break;
       }
@@ -122,23 +133,26 @@ export function expandSessionStarts(args: CreateSessionArgs, timeZone: string, n
   const count =
     typeof args.repeat_count === "number" && args.repeat_count > 1 ? Math.min(Math.floor(args.repeat_count), MAX_SESSIONS_PER_REQUEST) : null;
 
-  const dates: string[] = [date];
-  if (until || count) {
-    for (let i = 1; i < MAX_SESSIONS_PER_REQUEST; i++) {
-      const next = addDays(date, 7 * i);
+  const dates: string[] = [];
+  if (!until && !count) {
+    dates.push(date);
+  } else {
+    // Идём по дням: с несколькими днями недели («пн и ср») берём каждый подходящий день, иначе — раз в 7 дней.
+    for (let i = 0; i < 7 * MAX_SESSIONS_PER_REQUEST && dates.length < MAX_SESSIONS_PER_REQUEST; i++) {
+      const d = addDays(date, i);
+      if (until && d > until) break;
       if (count && dates.length >= count) break;
-      if (until && next > until) break;
-      if (!until && !count) break;
-      dates.push(next);
+      const matches = wds.length ? wds.includes(weekdayOf(d)) : i % 7 === 0;
+      if (matches) dates.push(d);
     }
   }
 
   const starts = dates.map(d => zonedDateTimeToUtc(d, time as string, timeZone));
   // Прошедшие даты не создаём (например, «весь месяц», когда месяц уже идёт) — но разовую сессию в прошлом молча не режем.
   const upcoming = dates.length > 1 ? starts.filter(s => s.getTime() > now.getTime()) : starts;
-  if (upcoming.length === 0) throw new Error("Все указанные даты уже в прошлом.");
+  if (upcoming.length === 0) throw new Error("все эти даты уже прошли");
   if (upcoming.length === 1 && dates.length === 1 && upcoming[0].getTime() <= now.getTime()) {
-    throw new Error("Это время уже прошло.");
+    throw new Error("это время уже прошло");
   }
   return upcoming;
 }
@@ -173,24 +187,39 @@ export function collectClientNames(args: { name?: unknown; names?: unknown }): s
  * просьбы психолога, если модель сама не задала ни repeat_until, ни repeat_count.
  */
 export function inferRecurrence(message: string, args: CreateSessionArgs): void {
-  if (args.repeat_until || (typeof args.repeat_count === "number" && args.repeat_count > 1)) return;
+  const hasRepeat = Boolean(args.repeat_until) || (typeof args.repeat_count === "number" && args.repeat_count > 1);
   const text = message.toLowerCase();
   const everyWeekday = /по\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)\S*/.test(text);
   const every = /кажд(ый|ую|ое|ые)\s/.test(text) || /еженедельн|раз в неделю/.test(text);
   if (!everyWeekday && !every) return;
+  // «по понедельникам и средам»: модель часто оставляет только первый день — берём все из текста просьбы.
+  const found: string[] = [];
+  const names: Array<[string, RegExp]> = [
+    ["mon", /(?<![а-яё])понедельник(?:ам|а|у|и)?(?![а-яё])/g],
+    ["tue", /(?<![а-яё])вторник(?:ам|а|у|и)?(?![а-яё])/g],
+    ["wed", /(?<![а-яё])сред(?:ам|а|у|ы)(?![а-яё])/g],
+    ["thu", /(?<![а-яё])четверг(?:ам|а|у|и)?(?![а-яё])/g],
+    ["fri", /(?<![а-яё])пятниц(?:ам|а|у|ы)(?![а-яё])/g],
+    ["sat", /(?<![а-яё])суббот(?:ам|а|у|ы)(?![а-яё])/g],
+    ["sun", /(?<![а-яё])воскресень(?:ям|е|я|ю)(?![а-яё])/g],
+  ];
+  for (const [code, re] of names) if (re.test(text)) found.push(code);
+  if (found.length > 1) args.weekday = found.join(",");
+  else if (found.length === 1 && !args.weekday) args.weekday = found[0];
+  if (hasRepeat) return;
   if (/до конца месяца/.test(text)) {
     args.repeat_until = "end_of_month";
     return;
   }
   const weeks = text.match(/(?:на|в течение)\s+(\d{1,2})\s+недел/);
   if (weeks) {
-    args.repeat_count = Math.min(Number(weeks[1]), MAX_SESSIONS_PER_REQUEST);
+    args.repeat_count = Math.min(Number(weeks[1]) * Math.max(1, found.length), MAX_SESSIONS_PER_REQUEST);
     return;
   }
   if (/месяц/.test(text)) {
-    args.repeat_count = 4;
+    args.repeat_count = 4 * Math.max(1, found.length);
     return;
   }
   // «по вторникам» без срока — на ближайшие 4 недели; психолог видит весь список в карточке и может отказаться.
-  args.repeat_count = 4;
+  args.repeat_count = 4 * Math.max(1, found.length);
 }

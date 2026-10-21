@@ -51,3 +51,19 @@ describe("inferRecurrence", () => {
     expect(a.repeat_until).toBe("end_of_month");
   });
 });
+
+describe("несколько дней недели", () => {
+  it("пн и ср до 30 ноября: все пн и ср, по порядку", () => {
+    const a: { weekday?: string; time: string; repeat_until?: string } = { weekday: "mon", time: "18:00", repeat_until: "2026-11-30" };
+    inferRecurrence("Встречи по понедельникам и средам в 18:00 до конца ноября", a);
+    expect(a.weekday).toBe("mon,wed");
+    const r = expandSessionStarts(a, TZ, NOW);
+    expect(r.map(d => formatSessionStart(d, TZ)).slice(0, 4)).toEqual(["ср, 21 октября, 18:00", "пн, 26 октября, 18:00", "ср, 28 октября, 18:00", "пн, 2 ноября, 18:00"]);
+    expect(r.length).toBeGreaterThan(10);
+  });
+  it("«среди недели» не считается средой", () => {
+    const a: { weekday?: string; time: string } = { time: "10:00" };
+    inferRecurrence("Каждый день среди недели в 10", a);
+    expect(a.weekday).toBeUndefined();
+  });
+});

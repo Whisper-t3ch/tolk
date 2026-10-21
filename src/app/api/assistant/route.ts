@@ -24,6 +24,7 @@ import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pse
 import { logLlmUsage } from "@/lib/agent/usageLog";
 import { describeAction, ActionPreviewError } from "@/lib/agent/describeAction";
 import { inferRecurrence, type CreateSessionArgs } from "@/lib/agent/scheduling";
+import { looksLikeGibberish } from "@/lib/agent/gibberish";
 import { findMentionedClients, knowledgeBaseRedirect, unknownNamesInMessage } from "@/lib/agent/mentionedClients";
 import { plainifyMarkdown } from "@/lib/agent/plainText";
 import { looksLikeDiagnosis, DIAGNOSIS_REWRITE_NUDGE } from "@/lib/agent/diagnosisGuard";
@@ -73,6 +74,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Укажите message" }, { status: 400 });
   }
 
+  // Случайный набор букв — не отправляем модели: в контексте клиента она уверенно «отвечала» подготовкой к сессии.
+  if (looksLikeGibberish(userMessage)) {
+    return NextResponse.json({
+      message: "Не понял запрос. Напишите, пожалуйста, что нужно сделать — например, «подготовь к сессии с Мариной» или «поставь Ивана на завтра в 10».",
+      actions_taken: false,
+      agent_session_id: body.agent_session_id ?? null,
+      suggested_web_search_query: null,
+    });
+  }
+
   // Проверяем лимит по минимальной стоимости (normal=1) заранее — точная
   // стоимость (1 или 3) станет известна по факту наличия tool_calls,
   // списываем её после успешного завершения цикла.
@@ -101,7 +112,10 @@ export async function POST(request: NextRequest) {
   // Клиент назван в вопросе по имени: подставляем его id в контекст, чтобы модели не нужно было
   // искать его инструментом (слабые модели выдумывают id или вызывают посторонние инструменты).
   // «Создай 5 клиентов — Алексей, Юлия…»: имена здесь НОВЫЕ, говорить модели «такого клиента нет» нельзя.
-  const isCreateClientIntent = /(созда|добав|завед|завест|внес|нов\S*\s+клиент)/i.test(userMessage) && /клиент/i.test(userMessage);
+  // «Заведи Машку» тоже просьба создать клиента, слово «клиент» не обязательно; сессии/встречи/сообщения сюда не относим.
+  const isCreateClientIntent =
+    /(созда|добав|завед|завест|внес)/i.test(userMessage) &&
+    !/(сесси|встреч|запис|заметк|задани|сообщени|напомин|ссылк|рассыл|протокол|шаблон)/i.test(userMessage);
   if (!body.client_id && isCreateClientIntent) {
     contextPrefix = "Контекст: психолог просит завести НОВЫХ клиентов. Не ищи их среди существующих — сразу вызови create_client один раз, передав все имена массивом names.\n\n";
   } else if (!body.client_id) {
@@ -513,6 +527,17 @@ export async function POST(request: NextRequest) {
         })
       );
       const confirmArgs = confirmationCall.functionCall.arguments as Record<string, unknown>;
+      if (confirmationCall.functionCall.name === "create_client") {
+        // Запрос/подход, которых психолог не называл, модель дописывала сама («Оля — тревожность, КПТ») — убираем.
+        const msg = (userMessage ?? "").toLowerCase();
+        for (const field of ["request", "approach"] as const) {
+          const v = confirmArgs[field];
+          if (typeof v !== "string") continue;
+          const tokens = v.toLowerCase().match(/[а-яёa-z]{3,}/g) ?? [];
+          const grounded = tokens.some(t => (t.length <= 4 ? msg.includes(t) : msg.includes(t.slice(0, 5))));
+          if (!grounded) delete confirmArgs[field];
+        }
+      }
       if (confirmationCall.functionCall.name === "create_session") {
         inferRecurrence(userMessage ?? "", confirmArgs as CreateSessionArgs);
       }
@@ -528,7 +553,7 @@ export async function POST(request: NextRequest) {
         );
       } catch (e) {
         // Аргументы не разобрать (нет времени, дата в прошлом…) — не показываем карточку, которую нельзя выполнить.
-        const reason = e instanceof ActionPreviewError ? e.message : "не удалось разобрать запрос";
+        const reason = (e instanceof ActionPreviewError ? e.message : "не удалось разобрать запрос").replace(/[.\s]+$/, "");
         const text = `Не получилось: ${reason}. Уточните, пожалуйста, и я повторю.`;
         const failId = randomUUID();
         const { agentSessionId: failSid } = await saveAgentSession(supabase, userId, body.agent_session_id, userMessage ?? "", text, failId, userDatePrefix + contextPrefix + userMessage, body.client_id);

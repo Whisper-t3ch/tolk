@@ -863,17 +863,81 @@ async function createSession(ctx: ExecutorContext, args: CreateSessionArgs & { c
   };
 }
 
+/** Сессия психолога для проверок перед отменой/переносом/отправкой ссылки. */
+async function loadOwnSession(ctx: ExecutorContext, sessionId: string, tool: string) {
+  const { data } = await ctx.supabase
+    .from("sessions")
+    .select("id, client_id, scheduled_at, duration_minutes, status")
+    .eq("id", sessionId)
+    .eq("psychologist_id", ctx.psychologistId)
+    .maybeSingle();
+  if (!data) {
+    throw new AgentToolError(
+      "Такой сессии нет. Не придумывай id: возьми его из get_client_info (recent_sessions) или get_schedule; id клиента подставлять нельзя.",
+      tool
+    );
+  }
+  return data as { id: string; client_id: string; scheduled_at: string; duration_minutes: number | null; status: string };
+}
+
 async function cancelSession(ctx: ExecutorContext, args: { session_id: string; reason?: string }) {
+  const session = await loadOwnSession(ctx, args.session_id, "cancel_session");
+  if (session.status === "cancelled") throw new AgentToolError("Эта сессия уже отменена", "cancel_session");
+  if (new Date(session.scheduled_at).getTime() < Date.now()) {
+    throw new AgentToolError("Эта сессия уже прошла — отменять её нельзя", "cancel_session");
+  }
   const patch: Record<string, unknown> = { status: "cancelled" };
   if (args.reason) patch.notes = `Отменена: ${args.reason}`;
   const { data, error } = await ctx.supabase
     .from("sessions")
     .update(patch)
     .eq("id", args.session_id)
+    .eq("psychologist_id", ctx.psychologistId)
     .select("id, status")
     .single();
   if (error) throw new AgentToolError(error.message, "cancel_session");
   return { session: data };
+}
+
+async function rescheduleSession(ctx: ExecutorContext, args: { session_id: string; date?: string; time?: string }) {
+  const timeZone = ctx.timeZone ?? DEFAULT_TIMEZONE;
+  const session = await loadOwnSession(ctx, args.session_id, "reschedule_session");
+  if (session.status === "cancelled") throw new AgentToolError("Эта сессия отменена — переносить нечего", "reschedule_session");
+  if (new Date(session.scheduled_at).getTime() < Date.now()) {
+    throw new AgentToolError("Эта сессия уже прошла — переносить её нельзя", "reschedule_session");
+  }
+  let starts: Date[];
+  try {
+    starts = expandSessionStarts({ date: args.date, time: args.time }, timeZone);
+  } catch (e) {
+    throw new AgentToolError(e instanceof Error ? e.message : "Некорректные дата/время", "reschedule_session");
+  }
+  const start = starts[0];
+  const duration = session.duration_minutes ?? 50;
+  const { data: busy } = await ctx.supabase
+    .from("sessions")
+    .select("id, scheduled_at, duration_minutes")
+    .eq("psychologist_id", ctx.psychologistId)
+    .neq("status", "cancelled")
+    .neq("id", session.id)
+    .gte("scheduled_at", new Date(start.getTime() - 12 * 3600_000).toISOString())
+    .lte("scheduled_at", new Date(start.getTime() + 12 * 3600_000).toISOString());
+  const s0 = start.getTime();
+  const e0 = s0 + duration * 60_000;
+  const clash = (busy ?? []).some(b => {
+    const bs = new Date(b.scheduled_at as string).getTime();
+    return s0 < bs + ((b.duration_minutes as number | null) ?? 50) * 60_000 && e0 > bs;
+  });
+  if (clash) throw new AgentToolError(`Это время занято: ${formatSessionStart(start, timeZone)}`, "reschedule_session");
+  const { data, error } = await ctx.supabase
+    .from("sessions")
+    .update({ scheduled_at: start.toISOString() })
+    .eq("id", session.id)
+    .eq("psychologist_id", ctx.psychologistId)
+    .select("id, client_id, scheduled_at, duration_minutes, status")
+    .single();
+  if (error) throw new AgentToolError(error.message, "reschedule_session");
+  return { session: data, label: formatSessionStart(start, timeZone) };
 }
 
 // ------------------------------------------------------------
@@ -1174,11 +1238,14 @@ export async function executeAgentTool(
       return createSession(ctx, args as unknown as CreateSessionArgs & { client_id: string });
     case "cancel_session":
       return cancelSession(ctx, args as { session_id: string; reason?: string });
+    case "reschedule_session":
+      return rescheduleSession(ctx, args as { session_id: string; date?: string; time?: string });
     case "send_message_to_client":
       return sendMessageToClient(ctx, args as { client_id: string; text: string; channel: "telegram" | "vk" | "max" });
     case "send_homework":
       return sendHomework(ctx, args as { client_id: string; homework_text: string });
     case "send_session_invite":
+      await loadOwnSession(ctx, String((args as { session_id?: string }).session_id ?? ""), "send_session_invite");
       return sendSessionInvite(ctx, args as { session_id: string });
     case "send_broadcast_message":
       return sendBroadcastMessage(ctx, args as { text: string });
