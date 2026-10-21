@@ -10,6 +10,7 @@ import { Agent, fetch as undiciFetch, FormData as UndiciFormData } from "undici"
 import { createHttpAsrAdapter, type AsrAdapter, type AsrSegment } from "./asrAdapter";
 import { saveSessionTranscript } from "@/lib/saveSessionTranscript";
 import { AnonymizationError } from "@/lib/anonymize";
+import { buildTurns, labelSpeakers, SPEAKER_NOTE } from "./speakerLabels";
 
 export const MAX_AUDIO_BYTES = 55 * 1024 * 1024;
 export const ALLOWED_AUDIO_EXTENSIONS = ["mp3", "m4a", "wav", "ogg", "oga", "opus", "webm", "aac", "flac", "mp4", "amr"] as const;
@@ -20,6 +21,19 @@ export function audioExtension(fileName: string, mime?: string): string | null {
   if (ext && (ALLOWED_AUDIO_EXTENSIONS as readonly string[]).includes(ext)) return ext;
   if (mime && /^audio\//.test(mime)) return "webm";
   return null;
+}
+
+/** Сегменты ASR по одному на строку: так их можно разметить по говорящим после обезличивания. */
+export function segmentsToLines(segments: AsrSegment[]): string {
+  return segments.map(s => s.text.trim().replace(/\s+/g, " ")).filter(Boolean).join("\n");
+}
+
+/** Обезличенный текст (по строке на фрагмент) → реплики «Психолог/Клиент»; при неудаче разметки — абзацы без меток. */
+export async function labelAnonymizedText(anonymized: string): Promise<string> {
+  const units = anonymized.split(/\n+/).map(x => x.trim()).filter(Boolean);
+  const labels = await labelSpeakers(units);
+  if (!labels) return units.join("\n\n");
+  return `${SPEAKER_NOTE}\n\n${buildTurns(units, labels)}`;
 }
 
 /** Склеивает сегменты ASR в абзацы: новый абзац после паузы больше 3 секунд или каждые ~600 символов. */
@@ -74,9 +88,9 @@ export async function processUploadedAudio(p: ProcessAudioParams): Promise<{ ok:
   };
   try {
     const result = await p.adapter.transcribeTrack(p.audio, "psychologist");
-    const text = segmentsToText(result.segments);
+    const text = segmentsToLines(result.segments);
     if (!text.trim()) return await fail("В записи не удалось распознать речь. Проверьте, что файл содержит голос, и загрузите заново.");
-    await saveSessionTranscript(p.supabase, p.sessionId, p.clientName, text);
+    await saveSessionTranscript(p.supabase, p.sessionId, p.clientName, text, labelAnonymizedText);
     if (result.durationSeconds) {
       await p.supabase.from("session_transcripts").update({ duration_seconds: Math.round(result.durationSeconds) }).eq("session_id", p.sessionId);
     }

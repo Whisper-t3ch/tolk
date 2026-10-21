@@ -19,9 +19,15 @@ export async function saveSessionTranscript(
   supabase: SupabaseClient,
   sessionId: string,
   clientName: string,
-  text: string
+  text: string,
+  /** Обработка УЖЕ обезличенного текста перед сохранением (например, разметка реплик). Не должна возвращать пустую строку. */
+  postProcess?: (anonymized: string) => Promise<string>
 ): Promise<{ chunksTotal: number; chunksEmbedded: number }> {
-  const anonymizedText = await anonymizeTranscript(text, clientName);
+  let anonymizedText = await anonymizeTranscript(text, clientName);
+  if (postProcess) {
+    const processed = await postProcess(anonymizedText);
+    if (processed.trim()) anonymizedText = processed;
+  }
 
   const { error: insertError } = await supabase.from("session_transcripts").insert({
     session_id: sessionId,
