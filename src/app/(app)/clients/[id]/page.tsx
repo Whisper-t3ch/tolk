@@ -1658,7 +1658,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                     <input
                       value={editName}
                       onChange={e => setEditName(e.target.value)}
-                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, color: "#1C1C1E", background: "#FFFFFF", fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
                     />
                   </div>
 
@@ -1669,7 +1669,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                         type="number"
                         value={editAge}
                         onChange={e => setEditAge(e.target.value)}
-                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, color: "#1C1C1E", background: "#FFFFFF", fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
                       />
                     </div>
                     <div style={{ flex: 1 }}>
@@ -1691,7 +1691,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                       value={editRequest}
                       onChange={e => setEditRequest(e.target.value)}
                       placeholder="Например: тревожность, панические атаки"
-                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, color: "#1C1C1E", background: "#FFFFFF", fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
                     />
                   </div>
 
@@ -1701,7 +1701,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                       value={editApproach}
                       onChange={e => setEditApproach(e.target.value)}
                       placeholder="Например: КПТ"
-                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, color: "#1C1C1E", background: "#FFFFFF", fontFamily: "var(--font-sans)", boxSizing: "border-box" }}
                     />
                   </div>
 
