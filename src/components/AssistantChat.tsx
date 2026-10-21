@@ -289,6 +289,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
         body: JSON.stringify({ action: { tool: action.tool, arguments: action.arguments }, confirmed, agent_session_id: agentSessionId }),
       });
       const data = await res.json();
+      if (confirmed && res.ok) window.dispatchEvent(new Event("tolk:data-changed"));
       setMessages(prev => [
         ...prev,
         { id: `c-${Date.now()}`, role: "assistant", text: data.message ?? data.error ?? "Готово." },

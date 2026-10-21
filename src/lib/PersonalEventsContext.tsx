@@ -1,15 +1,13 @@
 "use client";
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 // ------------------------------------------------------------
-// Личные дела в календаре (не сессии с клиентами) — например "Зал",
-// "Обед", "Врач". Пока не хранятся в Supabase (это отдельная предметная
-// область, ещё не спроектирована как таблица — см. lib/data/sessions.ts
-// для сравнения с тем, как устроены реальные сессии). Чтобы психолог
-// не терял добавленные события при перезагрузке страницы, состояние
-// сохраняется в localStorage браузера — этого достаточно для демо и
-// личного использования одним пользователем с одного устройства.
+// Личные дела в календаре (не сессии с клиентами) — «Зал», «Обед», «Врач».
+// Хранятся в таблице personal_events (миграция 051), поэтому их видит и создаёт
+// ассистент. Если таблицы ещё нет или запрос не удался, работаем как раньше —
+// через localStorage браузера (ключ привязан к id психолога), чтобы календарь
+// не ломался. События из localStorage один раз переносятся в базу.
 // ------------------------------------------------------------
 export interface PersonalEvent {
   id: string;
@@ -25,166 +23,179 @@ interface PersonalEventsContextType {
   updateEventTime: (id: string, time: string) => void;
 }
 
-// Ключ хранения привязан к id психолога. Раньше он был общий на весь
-// домен ("tolk_personal_events_v4"), поэтому личные дела не принадлежали
-// никому конкретно: психолог, вошедший следующим на том же компьютере,
-// видел в своём календаре чужие «Йогу» и «Врача» — включая полностью
-// пустой кабинет нового пользователя.
 const STORAGE_PREFIX = "tolk_personal_events_v5";
+const LEGACY_KEYS = ["tolk_personal_events_v4", "tolk_personal_events_seeded_v4"];
 
 function storageKeyFor(psychologistId: string | null): string {
   return psychologistId ? `${STORAGE_PREFIX}:${psychologistId}` : STORAGE_PREFIX;
 }
 
-// Старые общие ключи подчищаем, чтобы события прошлых версий не всплывали
-// у следующего вошедшего пользователя.
-const LEGACY_KEYS = ["tolk_personal_events_v4", "tolk_personal_events_seeded_v4"];
-
 const PersonalEventsContext = createContext<PersonalEventsContextType | undefined>(undefined);
 
-function toDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-// Плотное демо-расписание для показа на созвоне — генерируется один раз
-// при первом заходе (если в localStorage ещё ничего нет), дальше психолог
-// может добавлять/удалять/двигать события сам и они не будут перезатираться.
-const DAILY_TEMPLATES: Array<Array<{ time: string; title: string }>> = [
-  [
-    { time: "07:00", title: "Йога" },
-    { time: "08:00", title: "Завтрак" },
-    { time: "13:00", title: "Обед" },
-    { time: "18:30", title: "Прогулка в парке" },
-  ],
-  [
-    { time: "07:30", title: "Зал" },
-    { time: "08:30", title: "Завтрак" },
-    { time: "13:00", title: "Обед" },
-    { time: "19:00", title: "Ужин с семьёй" },
-  ],
-  [
-    { time: "07:00", title: "Медитация" },
-    { time: "08:00", title: "Завтрак" },
-    { time: "12:30", title: "Обед" },
-    { time: "17:00", title: "Супервизия" },
-  ],
-  [
-    { time: "07:30", title: "Пробежка" },
-    { time: "08:30", title: "Завтрак" },
-    { time: "13:00", title: "Обед" },
-    { time: "18:00", title: "Прогулка с ребёнком" },
-  ],
-  [
-    { time: "07:00", title: "Йога" },
-    { time: "08:00", title: "Завтрак" },
-    { time: "13:00", title: "Обед" },
-    { time: "20:00", title: "Кино с женой" },
-  ],
-  [
-    { time: "09:00", title: "Врач" },
-    { time: "10:00", title: "Завтрак поздний" },
-    { time: "14:00", title: "Обед" },
-  ],
-  [
-    { time: "10:00", title: "Завтрак" },
-    { time: "12:00", title: "Время с семьёй" },
-    { time: "19:00", title: "Настольные игры" },
-  ],
-];
-// Бытовые события теперь на каждый день без исключений — чтобы дни с
-// сессиями клиентов не оставались "голыми" (раньше некоторые дни недели
-// пропускались, из-за чего в дне с сессиями иногда не было ни одного
-// бытового события и календарь выглядел неровно).
-// Диапазон генерации — с 1 числа текущего месяца (а не "-3 дня от сегодня")
-// до конца следующего месяца, чтобы весь текущий месяц был заполнен
-// целиком при пролистывании назад, а не обрывался на дне запуска сида.
-// ПРИМЕЧАНИЕ: сид генерируется независимо от реальных сессий из Supabase
-// (они подгружаются асинхронно в SessionContext), поэтому теоретическое
-// наложение бытового события и сессии клиента на одно время здесь не
-// проверяется — это не страшно для демо-данных. Автосдвиг на свободный
-// слот (см. lib/calendarSlots.ts) работает только при добавлении/
-// редактировании события через интерфейс.
-function buildSeedEvents(): PersonalEvent[] {
-  const today = new Date();
-  const rangeStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const rangeEnd = new Date(today.getFullYear(), today.getMonth() + 2, 0); // конец следующего месяца
-  const totalDays = Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000);
-
-  const events: PersonalEvent[] = [];
-  for (let offset = 0; offset <= totalDays; offset++) {
-    const template = DAILY_TEMPLATES[offset % DAILY_TEMPLATES.length];
-    const d = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate() + offset);
-    template.forEach((evt, i) => {
-      events.push({ id: `seed-${offset}-${i}`, date: toDateStr(d), time: evt.time, title: evt.title });
-    });
+function newId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch {
+    // ниже запасной вариант
   }
-  return events;
+  const hex = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  return `${hex()}${hex()}-${hex()}-4${hex().slice(1)}-a${hex().slice(1)}-${hex()}${hex()}${hex()}`;
 }
 
 function loadFromStorage(psychologistId: string | null): PersonalEvent[] {
   if (typeof window === "undefined") return [];
   try {
-    // Календарь не засеивается демо-распорядком (Йога / Завтрак / Обед /
-    // Врач): для психолога это чужие выдуманные события, которые он не
-    // создавал. Начинаем с пустого календаря — события добавляет он сам.
-    // buildSeedEvents() оставлена для демонстрационных показов.
     for (const legacy of LEGACY_KEYS) window.localStorage.removeItem(legacy);
-
     const raw = window.localStorage.getItem(storageKeyFor(psychologistId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.filter(e => e && typeof e.date === "string" && typeof e.time === "string" && typeof e.title === "string") : [];
   } catch {
     return [];
   }
 }
 
+interface Row {
+  id: string;
+  event_date: string;
+  start_time: string;
+  title: string;
+}
+
+const fromRow = (r: Row): PersonalEvent => ({ id: r.id, date: r.event_date, time: String(r.start_time).slice(0, 5), title: r.title });
+
 export function PersonalEventsProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<PersonalEvent[]>([]);
-  const [hydrated, setHydrated] = useState(false);
   const [psychologistId, setPsychologistId] = useState<string | null>(null);
+  // db — работаем с таблицей; local — таблицы нет, храним в localStorage.
+  const [mode, setMode] = useState<"loading" | "db" | "local">("loading");
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
-  // Узнаём, чей это кабинет: события хранятся отдельно для каждого
-  // психолога, иначе следующий вошедший на том же компьютере увидит
-  // чужой календарь.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      let id: string | null = null;
-      try {
-        const supabase = createClient();
-        const { data } = await supabase.auth.getUser();
-        id = data.user?.id ?? null;
-      } catch {
-        id = null;
-      }
-      if (cancelled) return;
-      setPsychologistId(id);
-      setEvents(loadFromStorage(id));
-      setHydrated(true);
-    })();
-    return () => { cancelled = true; };
+  const loadFromDb = useCallback(async (uid: string): Promise<PersonalEvent[] | null> => {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("personal_events")
+        .select("id, event_date, start_time, title")
+        .eq("psychologist_id", uid)
+        .order("event_date", { ascending: true })
+        .limit(5000);
+      if (error || !data) return null;
+      return (data as Row[]).map(fromRow);
+    } catch {
+      return null;
+    }
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return; // не перезаписываем storage пустым массивом до первой загрузки
+    let cancelled = false;
+    (async () => {
+      let uid: string | null = null;
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        uid = data.user?.id ?? null;
+      } catch {
+        uid = null;
+      }
+      if (cancelled) return;
+      setPsychologistId(uid);
+      if (!uid) {
+        setEvents(loadFromStorage(null));
+        setMode("local");
+        return;
+      }
+      let loaded = await loadFromDb(uid);
+      if (cancelled) return;
+      if (loaded === null) {
+        setEvents(loadFromStorage(uid));
+        setMode("local");
+        return;
+      }
+      // Однократный перенос событий из localStorage в базу.
+      const legacy = loadFromStorage(uid);
+      if (legacy.length > 0) {
+        const have = new Set(loaded.map(e => `${e.date}|${e.time}|${e.title.toLowerCase()}`));
+        const rows = legacy
+          .filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e.date) && /^([01]\d|2[0-3]):[0-5]\d$/.test(e.time) && e.title.trim() && !have.has(`${e.date}|${e.time}|${e.title.toLowerCase()}`))
+          .map(e => ({ id: newId(), psychologist_id: uid, event_date: e.date, start_time: e.time, title: e.title.trim().slice(0, 200) }));
+        try {
+          const supabase = createClient();
+          let ok = true;
+          for (let i = 0; i < rows.length && ok; i += 200) {
+            const { error } = await supabase.from("personal_events").insert(rows.slice(i, i + 200));
+            if (error) ok = false;
+          }
+          if (ok) {
+            window.localStorage.removeItem(storageKeyFor(uid));
+            const again = await loadFromDb(uid);
+            if (again) loaded = again;
+          }
+        } catch {
+          // перенесём при следующем заходе
+        }
+      }
+      if (cancelled) return;
+      setEvents(loaded);
+      setMode("db");
+    })();
+    return () => { cancelled = true; };
+  }, [loadFromDb]);
+
+  // Ассистент создал событие — перечитываем из базы.
+  useEffect(() => {
+    const onChanged = () => {
+      if (modeRef.current !== "db" || !psychologistId) return;
+      loadFromDb(psychologistId).then(list => { if (list) setEvents(list); });
+    };
+    window.addEventListener("tolk:data-changed", onChanged);
+    return () => window.removeEventListener("tolk:data-changed", onChanged);
+  }, [psychologistId, loadFromDb]);
+
+  // Запасной режим: сохраняем в localStorage.
+  useEffect(() => {
+    if (mode !== "local") return;
     try {
       window.localStorage.setItem(storageKeyFor(psychologistId), JSON.stringify(events));
     } catch {
       // localStorage может быть недоступен (приватный режим и т.п.) — не критично.
     }
-  }, [events, hydrated, psychologistId]);
+  }, [events, mode, psychologistId]);
 
   const addEvent = useCallback((event: Omit<PersonalEvent, "id">) => {
-    setEvents(prev => [...prev, { ...event, id: `pe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }]);
-  }, []);
+    const id = newId();
+    setEvents(prev => [...prev, { ...event, id }]);
+    if (modeRef.current === "db" && psychologistId) {
+      createClient()
+        .from("personal_events")
+        .insert({ id, psychologist_id: psychologistId, event_date: event.date, start_time: event.time, title: event.title.trim().slice(0, 200) })
+        .then(({ error }) => { if (error) setEvents(prev => prev.filter(e => e.id !== id)); });
+    }
+  }, [psychologistId]);
 
   const removeEvent = useCallback((id: string) => {
-    setEvents(prev => prev.filter(e => e.id !== id));
+    let removed: PersonalEvent | undefined;
+    setEvents(prev => { removed = prev.find(e => e.id === id); return prev.filter(e => e.id !== id); });
+    if (modeRef.current === "db") {
+      createClient()
+        .from("personal_events")
+        .delete()
+        .eq("id", id)
+        .then(({ error }) => { if (error && removed) setEvents(prev => [...prev, removed as PersonalEvent]); });
+    }
   }, []);
 
   const updateEventTime = useCallback((id: string, time: string) => {
-    setEvents(prev => prev.map(e => (e.id === id ? { ...e, time } : e)));
+    let previous: string | undefined;
+    setEvents(prev => prev.map(e => { if (e.id === id) previous = e.time; return e.id === id ? { ...e, time } : e; }));
+    if (modeRef.current === "db" && /^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      createClient()
+        .from("personal_events")
+        .update({ start_time: time })
+        .eq("id", id)
+        .then(({ error }) => { if (error && previous) setEvents(prev => prev.map(e => (e.id === id ? { ...e, time: previous as string } : e))); });
+    }
   }, []);
 
   return (

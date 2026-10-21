@@ -327,7 +327,7 @@ export function extractWeekdayTimes(text: string): Array<{ weekday: string; time
  * Слабая модель часто забывает повторение («по вторникам на месяц» → одна сессия), теряет дни недели и путает
  * время у разных дней. Достраиваем всё это по тексту просьбы психолога.
  */
-export function inferRecurrence(message: string, args: CreateSessionArgs, opts: { timeZone?: string; now?: Date } = {}): void {
+export function inferRecurrence(message: string, args: CreateSessionArgs, opts: { timeZone?: string; now?: Date; recurring?: boolean } = {}): void {
   const timeZone = opts.timeZone ?? "Europe/Moscow";
   const now = opts.now ?? new Date();
   const hasRepeat = Boolean(args.repeat_until) || (typeof args.repeat_count === "number" && args.repeat_count > 1);
@@ -336,7 +336,7 @@ export function inferRecurrence(message: string, args: CreateSessionArgs, opts: 
   const every = /кажд(ый|ую|ое|ые)\s/.test(text) || /еженедельн|раз в неделю/.test(text);
   const mentions = extractWeekdayTimes(text);
   const found = mentions.map(m => m.weekday);
-  const recurring = everyWeekday || every;
+  const recurring = everyWeekday || every || (Boolean(opts.recurring) && found.length > 0);
 
   if (!recurring) {
     // «Во вторник и пятницу в 11» — по одной сессии на каждый названный день.

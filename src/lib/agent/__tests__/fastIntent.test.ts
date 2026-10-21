@@ -110,3 +110,46 @@ describe("несколько разных дат", () => {
     expect(parseFastIntent("Поставь Анну на 25 октября в 10", ctx())).not.toBeNull();
   });
 });
+
+describe("личные события", () => {
+  const days = (r: ReturnType<typeof parseFastIntent>) => {
+    if (!r || r.tool !== "create_personal_event") throw new Error("не личное событие");
+    return expandSessionStarts(r.args, TZ, NOW).map(d => formatSessionStart(d, TZ));
+  };
+  it("одно событие на завтра", () => {
+    const r = parseFastIntent("Поставь мне тренировку завтра в 19:00", ctx());
+    expect(r).toMatchObject({ tool: "create_personal_event", args: { title: "Тренировка", date: "2026-10-22", time: "19:00" } });
+  });
+  it("с открытой карточкой клиента всё равно личное событие", () => {
+    expect(parseFastIntent("Добавь обед завтра в 13", ctx())?.tool).toBe("create_personal_event");
+  });
+  it("диапазон времени задаёт длительность", () => {
+    const r = parseFastIntent("Добавь в календарь тренировку в пятницу с 18 до 19:30", ctx());
+    expect(r).toMatchObject({ tool: "create_personal_event", args: { time: "18:00", duration_minutes: 90 } });
+  });
+  it("«на 2 часа»", () => {
+    expect(parseFastIntent("Запиши зал завтра в 8 на 2 часа", ctx())).toMatchObject({ args: { time: "08:00", duration_minutes: 120 } });
+  });
+  it("заполни расписание: серия на месяц", () => {
+    const r = parseFastIntent("Заполни моё расписание тренировками во вторник и пятницу в 11 на месяц", ctx());
+    expect(r?.tool).toBe("create_personal_event");
+    expect(days(r)).toHaveLength(8);
+  });
+  it("по вторникам в 19 до конца месяца", () => {
+    const r = parseFastIntent("Поставь тренировки по вторникам в 19:00 до конца октября", ctx());
+    expect(days(r)).toEqual(expect.arrayContaining([expect.stringContaining("27 октября")]));
+  });
+  it("в кавычках — своё название", () => {
+    expect(parseFastIntent("Добавь событие «Встреча с подругой» в субботу в 15:00", ctx())).toMatchObject({ args: { title: "Встреча с подругой" } });
+  });
+  it("клиент или сессия — не личное событие", () => {
+    expect(parseFastIntent("Поставь Анне сессию завтра в 11", ctx())?.tool).toBe("create_session");
+    expect(parseFastIntent("Запиши Анну на тренировку завтра в 11", ctx())).toBeNull();
+  });
+  it("без времени — модели", () => {
+    expect(parseFastIntent("Добавь тренировку завтра", ctx())).toBeNull();
+  });
+  it("две разные даты — модели", () => {
+    expect(parseFastIntent("Добавь тренировку завтра в 19 и в пятницу в 20", ctx())).toBeNull();
+  });
+});

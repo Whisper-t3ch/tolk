@@ -25,6 +25,7 @@ import { logLlmUsage } from "@/lib/agent/usageLog";
 import { describeAction, ActionPreviewError } from "@/lib/agent/describeAction";
 import { inferRecurrence, type CreateSessionArgs } from "@/lib/agent/scheduling";
 import { explicitDate, messageHasTime, parseFastIntent } from "@/lib/agent/fastIntent";
+import { extractPersonalTitle, parseDurationMinutes, PERSONAL_EVENT_RE, rangeOf, wantsSeries } from "@/lib/agent/personalEvents";
 import { formatDateInTimeZone } from "@/lib/timezone";
 import { looksLikeGibberish } from "@/lib/agent/gibberish";
 import { findMentionedClients, knowledgeBaseRedirect, unknownNamesInMessage } from "@/lib/agent/mentionedClients";
@@ -46,7 +47,6 @@ import { waitUntil } from "@vercel/functions";
 //
 // Списание лимита: агентская задача (любая цепочка с хотя бы одним
 // вызовом инструмента) = 3. Простой вопрос без вызова инструментов = 1.
-const PERSONAL_EVENT_RE = /тренировк|спортзал|фитнес|(?<![а-яё])йог|(?<![а-яё])обед(?![а-яё])|обеден|перерыв|отпуск|личн\S*\s+(?:дел|событ|встреч|время)|маникюр|стоматолог|парикмахер/i;
 
 export async function POST(request: NextRequest) {
   const envStatus = checkYandexGptEnv();
@@ -559,6 +559,26 @@ export async function POST(request: NextRequest) {
         })
       );
       const confirmArgs = confirmationCall.functionCall.arguments as Record<string, unknown>;
+      // Модель путает «тренировка» с сессией клиента: если в просьбе нет клиента и слов про сессию, это личное событие.
+      if (
+        confirmationCall.functionCall.name === "create_session" &&
+        PERSONAL_EVENT_RE.test(userMessage ?? "") &&
+        !/сесси|клиент|консультаци|пациент/i.test(userMessage ?? "") &&
+        findMentionedClients(userMessage ?? "", mentionedClients).length === 0
+      ) {
+        confirmationCall.functionCall.name = "create_personal_event";
+        delete confirmArgs.client_id;
+      }
+      if (confirmationCall.functionCall.name === "create_personal_event") {
+        const rawTitle = typeof confirmArgs.title === "string" ? confirmArgs.title.trim() : "";
+        const wantedTitle = extractPersonalTitle(userMessage ?? "");
+        if (wantedTitle && (!rawTitle || /^(?:сесси|встреч|клиент)/i.test(rawTitle))) confirmArgs.title = wantedTitle;
+        const range = rangeOf((userMessage ?? "").toLowerCase());
+        if (range) confirmArgs.time = range.start;
+        const wantedDuration = parseDurationMinutes(userMessage ?? "");
+        if (wantedDuration) confirmArgs.duration_minutes = wantedDuration;
+        inferRecurrence(userMessage ?? "", confirmArgs as CreateSessionArgs, { timeZone, recurring: wantsSeries(userMessage ?? "") });
+      }
       if (confirmationCall.functionCall.name === "create_client") {
         // Запрос/подход, которых психолог не называл, модель дописывала сама («Оля — тревожность, КПТ») — убираем.
         const msg = (userMessage ?? "").toLowerCase();
@@ -603,11 +623,8 @@ export async function POST(request: NextRequest) {
       try {
         // Слабая модель подставляет в сессию текущее время, если психолог его не назвал, — просим уточнить.
         // Личные события (тренировки, обед, отпуск) — не сессии с клиентами: с открытой карточкой ассистент молча брал её клиента.
-        if (callName === "create_session" && PERSONAL_EVENT_RE.test(userMessage ?? "")) {
-          throw new ActionPreviewError("личные события (тренировки, обед, отпуск) я в расписание не добавляю, только сессии с клиентами — скажите, с каким клиентом и когда поставить сессию");
-        }
-        if (callName === "create_session" && !messageHasTime(userMessage ?? "")) {
-          throw new ActionPreviewError("не указано время сессии — напишите, на какое время поставить");
+        if ((callName === "create_session" || callName === "create_personal_event") && !messageHasTime(userMessage ?? "") && !rangeOf((userMessage ?? "").toLowerCase())) {
+          throw new ActionPreviewError(callName === "create_personal_event" ? "не указано время события — напишите, на какое время поставить" : "не указано время сессии — напишите, на какое время поставить");
         }
         // «Отмени сессию 1 января» — модель брала ближайшую сессию клиента вместо названной даты.
         if (callName === "cancel_session" && typeof confirmArgs.session_id === "string") {

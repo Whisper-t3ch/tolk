@@ -10,11 +10,13 @@
 
 import { addDaysIso, inferRecurrence, type CreateSessionArgs } from "./scheduling";
 import { todayInTimeZone, weekdayInTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
-import type { ClientRef } from "./mentionedClients";
+import { findMentionedClients, type ClientRef } from "./mentionedClients";
+import { extractPersonalTitle, parseDurationMinutes, PERSONAL_EVENT_RE, rangeOf, wantsSeries, type CreatePersonalEventArgs } from "./personalEvents";
 
 export type FastIntent =
   | { tool: "create_client"; args: { names: string[]; then_session?: CreateSessionArgs } }
-  | { tool: "create_session"; args: CreateSessionArgs & { client_id: string } };
+  | { tool: "create_session"; args: CreateSessionArgs & { client_id: string } }
+  | { tool: "create_personal_event"; args: CreatePersonalEventArgs & { title: string } };
 
 export interface FastIntentContext {
   /** Клиенты, названные в сообщении (или открытая карточка). Для create_session нужен ровно один. */
@@ -178,6 +180,57 @@ function parseCreateSession(message: string, ctx: FastIntentContext): FastIntent
   return { tool: "create_session", args };
 }
 
+const PERSONAL_VERB = /(?:^|[\s,.])(?:поставь|поставить|создай|создать|запиши|записать|запланируй|запланировать|добавь|добавить|внеси|внести|заполни|заполнить|назначь|занеси)(?![а-яё])/i;
+
+/** Несколько разных дат в одной просьбе одной карточкой не покрыть — отдаём модели. */
+function hasMultipleDates(text: string): boolean {
+  const relCount = (text.match(/(?<![а-яё])(?:послезавтра|завтра|сегодня)(?![а-яё])/g) ?? []).length;
+  const explicitCount = (text.match(new RegExp(`\\d{1,2}\\s+(?:${MONTH_ALT})`, "g")) ?? []).length + (text.match(/(?<![\d:.])\d{1,2}\.\d{1,2}(?:\.\d{2,4})?(?![\d:])/g) ?? []).length;
+  const hasWeekday = WEEKDAY_ONCE.some(([re]) => re.test(text));
+  return relCount + explicitCount > 1 || (relCount + explicitCount >= 1 && hasWeekday);
+}
+
+/** «Поставь мне тренировку во вторник в 19:00», «обед завтра с 13 до 14», «заполни расписание тренировками по вт и пт в 11 на месяц». */
+function parsePersonalEvent(message: string, ctx: FastIntentContext): FastIntent | null {
+  const text = message.toLowerCase().replace(/ё/g, "е");
+  if (!PERSONAL_VERB.test(text) || NOT_A_CREATE.test(text)) return null;
+  // Сессия клиента, а не личное дело.
+  if (/сесси|клиент|консультаци|приём|прием|пациент/.test(text)) return null;
+  if (!PERSONAL_EVENT_RE.test(text) && !/[«"“][^»"”]{2,80}[»"”]/.test(message)) return null;
+  // Названа конкретная клиентка — разбирает модель.
+  if (findMentionedClients(message, ctx.clients).length > 0) return null;
+  const title = extractPersonalTitle(message);
+  if (!title) return null;
+
+  const range = rangeOf(text);
+  const time = range?.start ?? parseTime(text);
+  if (!time) return null;
+  const args: CreatePersonalEventArgs & { title: string } = { title, time };
+  const duration = parseDurationMinutes(message);
+  if (duration) args.duration_minutes = duration;
+
+  const series = /по\s+(?:понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)\S*|кажд(?:ый|ую|ое|ые)\s|еженедельн|раз в неделю/.test(text) || wantsSeries(text);
+  const probe: CreateSessionArgs = { time };
+  inferRecurrence(message, probe, { timeZone: ctx.timeZone, now: ctx.now, recurring: wantsSeries(text) });
+  if (series && probe.weekday) {
+    // Дату старта не задаём: «по вторникам» — ближайшие вторники.
+    args.weekday = probe.weekday;
+    args.time = probe.time ?? time;
+    args.schedule = probe.schedule;
+    args.repeat_until = probe.repeat_until;
+    args.repeat_count = probe.repeat_count;
+    return { tool: "create_personal_event", args };
+  }
+  if (hasMultipleDates(text)) return null;
+  const date = parseDate(text, ctx.timeZone, ctx.now);
+  if (!date) return null;
+  if (probe.weekday && probe.weekday.includes(",") && probe.repeat_count) {
+    return { tool: "create_personal_event", args: { ...args, weekday: probe.weekday, repeat_count: probe.repeat_count, schedule: probe.schedule } };
+  }
+  args.date = date;
+  return { tool: "create_personal_event", args };
+}
+
 /** «Создай клиента Олю и сразу поставь ей сессию в пятницу в 11» — одна карточка: клиент, затем его сессия. */
 function parseCreateClientAndSession(message: string, ctx: FastIntentContext): FastIntent | null {
   const m = message.match(/^(.+?)[,\s]+(?:и\s+)?(?:сразу\s+)?(?:же\s+)?((?:поставь|запиши|назначь|запланируй)(?![а-яё]).*)$/i);
@@ -194,7 +247,7 @@ function parseCreateClientAndSession(message: string, ctx: FastIntentContext): F
 export function parseFastIntent(message: string, ctx: FastIntentContext): FastIntent | null {
   const text = message.trim();
   if (!text || text.length > 400) return null;
-  return parseCreateClientAndSession(text, ctx) ?? parseCreateClients(text) ?? parseCreateSession(text, ctx);
+  return parseCreateClientAndSession(text, ctx) ?? parseCreateClients(text) ?? parsePersonalEvent(text, ctx) ?? parseCreateSession(text, ctx);
 }
 
 const WORD_HOURS = "один|одиннадцать|два|двенадцать|три|четыре|пять|шесть|семь|восемь|девять|десять|час";

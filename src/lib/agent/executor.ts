@@ -19,6 +19,7 @@ import { expandSessionStarts, formatSessionStart, collectClientNames, type Creat
 import type { AgentToolName } from "./tools";
 import { keywordSearchTranscripts } from "./keywordHistorySearch";
 import { buildSessionPrep } from "./sessionPrep";
+import { cleanTitle, DEFAULT_PERSONAL_EVENT_MINUTES, loadPersonalBusy, type CreatePersonalEventArgs } from "./personalEvents";
 
 export class AgentToolError extends Error {
   constructor(message: string, public toolName: string) {
@@ -658,12 +659,36 @@ async function getSchedule(ctx: ExecutorContext, args: { date_from: string; date
   if (error) throw new AgentToolError(error.message, "get_schedule");
   // Время отдаём уже в поясе психолога: из UTC-строки модель называла 14:00 вместо 17:00 по Москве.
   const tz = ctx.timeZone || DEFAULT_TIMEZONE;
+  // Личные события (тренировка, обед…) — те же дни, что и сессии; если таблицы ещё нет, список просто пуст.
+  let personalEvents: Array<{ local_date: string; local_time: string; duration_minutes: number; title: string }> = [];
+  try {
+    const { data: pe, error: peError } = await ctx.supabase
+      .from("personal_events")
+      .select("event_date, start_time, duration_minutes, title")
+      .eq("psychologist_id", ctx.psychologistId)
+      .gte("event_date", args.date_from)
+      .lte("event_date", args.date_to)
+      .order("event_date", { ascending: true })
+      .order("start_time", { ascending: true })
+      .limit(200);
+    if (!peError && pe) {
+      personalEvents = pe.map(r => ({
+        local_date: r.event_date as string,
+        local_time: String(r.start_time).slice(0, 5),
+        duration_minutes: (r.duration_minutes as number | null) ?? DEFAULT_PERSONAL_EVENT_MINUTES,
+        title: String(r.title),
+      }));
+    }
+  } catch {
+    personalEvents = [];
+  }
   return {
     time_zone: tz,
     sessions: (data ?? []).map(s => {
       const at = new Date(s.scheduled_at as string);
       return { ...s, local_date: formatDateInTimeZone(at, tz), local_time: formatTimeInTimeZone(at, tz) };
     }),
+    personal_events: personalEvents,
   };
 }
 
@@ -746,6 +771,13 @@ async function findAvailableSlots(
         end: new Date(start.getTime() + durationMin * 60_000).toISOString(),
       };
     });
+    // Личные события тоже занимают время: на тренировку сессию не предлагаем.
+    const personalBusy = await loadPersonalBusy(
+      ctx.supabase, ctx.psychologistId, timeZone,
+      zonedDateTimeToUtc(dateFrom, "00:00", timeZone).getTime(),
+      zonedDateTimeToUtc(dateTo, "23:59", timeZone).getTime()
+    );
+    for (const b of personalBusy) occupied.push({ start: new Date(b.start).toISOString(), end: new Date(b.end).toISOString() });
 
     const generated = generateAvailableSlots({
       fromDate: dateFrom,
@@ -796,6 +828,12 @@ async function findAvailableSlots(
     const end = start + durationMin * 60_000;
     return { start: start - restMinutes * 60_000, end: end + restMinutes * 60_000 };
   });
+  const personalBusyLegacy = await loadPersonalBusy(
+    ctx.supabase, ctx.psychologistId, timeZone,
+    zonedDateTimeToUtc(dateFrom, "00:00", timeZone).getTime(),
+    zonedDateTimeToUtc(dateTo, "23:59", timeZone).getTime()
+  );
+  for (const b of personalBusyLegacy) busyIntervals.push({ start: b.start, end: b.end });
 
   const slots: Slot[] = [];
   const stepMinutes = 30;
@@ -869,6 +907,9 @@ async function createSession(ctx: ExecutorContext, args: CreateSessionArgs & { c
     const st = new Date(b.scheduled_at as string).getTime();
     return { start: st, end: st + ((b.duration_minutes as number | null) ?? 50) * 60_000 };
   });
+  for (const p of await loadPersonalBusy(ctx.supabase, ctx.psychologistId, timeZone, new Date(rangeFrom).getTime(), new Date(rangeTo).getTime())) {
+    busyIntervals.push({ start: p.start, end: p.end });
+  }
 
   const createdSessions: Array<{ id: string; client_id: string; scheduled_at: string; duration_minutes: number; status: string; label: string; video_room_url: string | null }> = [];
   const skipped: string[] = [];
@@ -919,6 +960,78 @@ async function createSession(ctx: ExecutorContext, args: CreateSessionArgs & { c
     note: jitsiReady
       ? "Сессия создана, ссылка на видеокомнату готова."
       : "Сессия создана. Ссылка на видеокомнату станет рабочей после развёртывания видеосервера (ВМ ещё не подключена).",
+  };
+}
+
+/** Личное событие (или серия) в календаре психолога. Пересечение с сессией не блокирует, но возвращается предупреждением. */
+async function createPersonalEvent(ctx: ExecutorContext, args: CreatePersonalEventArgs) {
+  const timeZone = ctx.timeZone ?? DEFAULT_TIMEZONE;
+  const title = cleanTitle(args.title);
+  if (!title) throw new AgentToolError("не указано название события", "create_personal_event");
+  let starts: Date[];
+  try {
+    starts = expandSessionStarts(args, timeZone);
+  } catch (e) {
+    throw new AgentToolError(e instanceof Error ? e.message : "Некорректные дата/время", "create_personal_event");
+  }
+  const duration = Math.min(1440, Math.max(5, Math.round(args.duration_minutes ?? DEFAULT_PERSONAL_EVENT_MINUTES)));
+
+  const rows = starts.map(d => ({
+    psychologist_id: ctx.psychologistId,
+    event_date: formatDateInTimeZone(d, timeZone),
+    start_time: formatTimeInTimeZone(d, timeZone),
+    duration_minutes: duration,
+    title,
+  }));
+
+  // Не дублируем уже существующие события с тем же названием в то же время (повторное подтверждение, повторный запрос).
+  const { data: existing } = await ctx.supabase
+    .from("personal_events")
+    .select("event_date, start_time, title")
+    .eq("psychologist_id", ctx.psychologistId)
+    .gte("event_date", rows[0].event_date)
+    .lte("event_date", rows[rows.length - 1].event_date);
+  const have = new Set((existing ?? []).map(r => `${r.event_date}|${String(r.start_time).slice(0, 5)}|${String(r.title).toLowerCase()}`));
+  const fresh = rows.filter(r => !have.has(`${r.event_date}|${r.start_time}|${r.title.toLowerCase()}`));
+  if (fresh.length === 0) throw new AgentToolError("Такие события уже есть в календаре.", "create_personal_event");
+
+  const { data, error } = await ctx.supabase
+    .from("personal_events")
+    .insert(fresh)
+    .select("id, event_date, start_time, duration_minutes, title");
+  if (error) throw new AgentToolError(error.message, "create_personal_event");
+
+  // Предупреждение о пересечении с сессиями клиентов.
+  const from = starts[0].getTime();
+  const to = starts[starts.length - 1].getTime() + duration * 60_000;
+  const { data: sess } = await ctx.supabase
+    .from("sessions")
+    .select("scheduled_at, duration_minutes")
+    .eq("psychologist_id", ctx.psychologistId)
+    .neq("status", "cancelled")
+    .gte("scheduled_at", new Date(from - 12 * 3600_000).toISOString())
+    .lte("scheduled_at", new Date(to).toISOString());
+  const overlaps: string[] = [];
+  for (const d of starts) {
+    const s0 = d.getTime();
+    const e0 = s0 + duration * 60_000;
+    const clash = (sess ?? []).some(x => {
+      const st = new Date(x.scheduled_at as string).getTime();
+      return s0 < st + ((x.duration_minutes as number | null) ?? 50) * 60_000 && e0 > st;
+    });
+    if (clash) overlaps.push(formatSessionStart(d, timeZone));
+  }
+
+  return {
+    events: (data ?? []).map(r => ({
+      id: r.id as string,
+      date: r.event_date as string,
+      time: String(r.start_time).slice(0, 5),
+      duration_minutes: r.duration_minutes as number,
+      title: r.title as string,
+    })),
+    skipped_existing: rows.length - fresh.length || undefined,
+    overlaps_sessions: overlaps.length ? overlaps : undefined,
   };
 }
 
@@ -1295,6 +1408,8 @@ export async function executeAgentTool(
       return findAvailableSlots(ctx, args as { duration_minutes: number; date_from?: string; date_to?: string });
     case "create_session":
       return createSession(ctx, args as unknown as CreateSessionArgs & { client_id: string });
+    case "create_personal_event":
+      return createPersonalEvent(ctx, args as unknown as CreatePersonalEventArgs);
     case "cancel_session":
       return cancelSession(ctx, args as { session_id: string; reason?: string });
     case "reschedule_session":

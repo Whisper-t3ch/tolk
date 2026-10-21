@@ -1,5 +1,6 @@
 // Человекочитаемое описание действий ассистента — для карточки подтверждения и итога после неё.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cleanTitle, DEFAULT_PERSONAL_EVENT_MINUTES, loadPersonalBusy } from "./personalEvents";
 import { collectClientNames, expandSessionStarts, formatSessionStart, type CreateSessionArgs } from "./scheduling";
 
 async function clientNameById(supabase: SupabaseClient, psychologistId: string, id: unknown): Promise<string | null> {
@@ -74,7 +75,7 @@ export async function describeAction(
     case "create_session": {
       if (!clientName) {
         throw new ActionPreviewError(
-          "не понял, с каким клиентом поставить сессию — назовите клиента. Личные события (тренировки, обед) в расписание я не добавляю, только сессии с клиентами"
+          "не понял, с каким клиентом поставить сессию — назовите клиента. Если это личное событие (тренировка, обед), так и напишите: «поставь тренировку во вторник в 19:00»"
         );
       }
       let starts: Date[];
@@ -97,10 +98,48 @@ export async function describeAction(
         const st = new Date(b.scheduled_at as string).getTime();
         return { start: st, end: st + ((b.duration_minutes as number | null) ?? 50) * 60_000 };
       });
+      for (const p of await loadPersonalBusy(supabase, psychologistId, timeZone, starts[0].getTime() - 12 * 3600_000, starts[starts.length - 1].getTime() + 12 * 3600_000)) {
+        busy.push({ start: p.start, end: p.end });
+      }
       const isBusy = (d: Date) => busy.some(b => d.getTime() < b.end && d.getTime() + duration * 60_000 > b.start);
       const mark = (d: Date) => `${formatSessionStart(d, timeZone)}${isBusy(d) ? " — занято, будет пропущено" : ""}`;
       if (starts.length === 1) return `Создать сессию${withWho}: ${mark(starts[0])} (${duration} мин).`;
       return `Создать сессии${withWho} (${starts.length}, по ${duration} мин):\n` + starts.map(s => `— ${mark(s)}`).join("\n");
+    }
+    case "create_personal_event": {
+      const title = cleanTitle(args.title);
+      if (!title) throw new ActionPreviewError("не понял, как назвать событие — напишите, например, «тренировка»");
+      let starts: Date[];
+      try {
+        starts = expandSessionStarts(args as CreateSessionArgs, timeZone);
+      } catch (e) {
+        throw new ActionPreviewError(e instanceof Error ? e.message : "некорректные дата или время");
+      }
+      const duration = typeof args.duration_minutes === "number" ? Math.min(1440, Math.max(5, args.duration_minutes)) : DEFAULT_PERSONAL_EVENT_MINUTES;
+      const from = starts[0].getTime();
+      const to = starts[starts.length - 1].getTime() + duration * 60_000;
+      const { data: sess } = await supabase
+        .from("sessions")
+        .select("scheduled_at, duration_minutes")
+        .eq("psychologist_id", psychologistId)
+        .neq("status", "cancelled")
+        .gte("scheduled_at", new Date(from - 12 * 3600_000).toISOString())
+        .lte("scheduled_at", new Date(to).toISOString());
+      const sessBusy = (sess ?? []).map(b => {
+        const st = new Date(b.scheduled_at as string).getTime();
+        return { start: st, end: st + ((b.duration_minutes as number | null) ?? 50) * 60_000 };
+      });
+      const personalBusy = await loadPersonalBusy(supabase, psychologistId, timeZone, from, to);
+      const mark = (d: Date) => {
+        const s0 = d.getTime();
+        const e0 = s0 + duration * 60_000;
+        const withSession = sessBusy.some(b => s0 < b.end && e0 > b.start);
+        const same = personalBusy.some(b => b.start === s0 && b.title.toLowerCase() === title.toLowerCase());
+        return `${formatSessionStart(d, timeZone)}${same ? " — уже есть, будет пропущено" : withSession ? " — пересекается с сессией клиента" : ""}`;
+      };
+      const dur = duration === 60 ? "" : ` (${duration} мин)`;
+      if (starts.length === 1) return `Добавить в календарь личное событие «${title}»: ${mark(starts[0])}${dur}.`;
+      return `Добавить в календарь личное событие «${title}»${dur} — ${starts.length} раз:\n` + starts.map(s => `— ${mark(s)}`).join("\n");
     }
     case "cancel_session": {
       const ses = await loadSession(supabase, psychologistId, args.session_id);
@@ -175,6 +214,12 @@ export function describeSuccess(tool: string, output: unknown, timeZone: string)
             ? `Сессия создана: ${formatSessionStart(new Date(sessions[0].scheduled_at), timeZone)}.`
             : "Сессия создана.";
       return skipped.length ? `${base} Пропущено, время занято: ${skipped.join("; ")}.` : base;
+    }
+    case "create_personal_event": {
+      const events = Array.isArray(o.events) ? (o.events as Array<{ title: string; date: string; time: string }>) : [];
+      const overlaps = Array.isArray(o.overlaps_sessions) ? (o.overlaps_sessions as string[]) : [];
+      const base = events.length > 1 ? `Добавлено событий «${events[0].title}»: ${events.length}.` : events.length === 1 ? `Событие «${events[0].title}» добавлено: ${events[0].date.split("-").reverse().join(".")} в ${events[0].time}.` : "Событие добавлено.";
+      return overlaps.length ? `${base} Внимание, пересекается с сессией клиента: ${overlaps.join("; ")}.` : base;
     }
     case "cancel_session":
       return "Сессия отменена.";

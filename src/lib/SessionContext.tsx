@@ -56,6 +56,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
+  // Ассистент создал/перенёс/отменил сессию — календарь обновляется без перезагрузки страницы.
+  useEffect(() => {
+    const onChanged = () => { refresh(); };
+    window.addEventListener("tolk:data-changed", onChanged);
+    return () => window.removeEventListener("tolk:data-changed", onChanged);
+  }, [refresh]);
+
   const addSession = useCallback(async (session: Omit<PlannedSession, "id" | "status" | "bookedVia" | "videoRoomUrl">) => {
     const input: NewSessionInput = {
       clientId: session.clientId,

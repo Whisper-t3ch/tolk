@@ -47,7 +47,7 @@ const DOMAIN_TOOLS: Record<ToolDomain, AgentToolName[]> = {
   clients: ["get_clients", "find_client_by_name", "get_client_info", "create_client", "update_client"],
   history: ["search_client_history", "get_test_results", "get_period_summary", "search_knowledge_base"],
   schedule: ["get_schedule", "get_preferences", "find_available_slots"],
-  sessions: ["create_session", "cancel_session"],
+  sessions: ["create_session", "create_personal_event", "cancel_session"],
   communication: ["send_message_to_client", "send_homework", "send_session_invite", "send_broadcast_message"],
 };
 
@@ -80,7 +80,7 @@ const DOMAIN_KEYWORDS: Record<ToolDomain, string[]> = {
   ],
   sessions: [
     "создай сессию", "запланируй", "назначь встречу", "отмени сессию",
-    "отмени встречу", "перенеси",
+    "отмени встречу", "перенеси", "тренировк", "личн", "событи", "в календарь",
   ],
   communication: [
     "напиши", "отправь", "сообщени", "домашн", "\\bдз\\b", "ссылк на запись",
