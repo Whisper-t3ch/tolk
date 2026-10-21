@@ -31,9 +31,6 @@ export GIT_COMMIT="$(tr -d "\r\n" < ../tolk-src/.git_commit 2>/dev/null || echo 
 
 case "${1:-}" in
   build)
-    echo "== preflight: next/font/google тянет шрифты при сборке =="
-    curl -s -o /dev/null -m 15 -w "fonts.googleapis.com: %{http_code}\n" "https://fonts.googleapis.com/css2?family=Inter&display=swap" | grep -q 200 \
-      || { echo "fonts.googleapis.com недоступен с ВМ — сборка упадёт (см. deploy/frontend/README.md, «Шрифты при сборке»)." >&2; exit 1; }
     sudo docker image inspect tolk-web:current >/dev/null 2>&1 && sudo docker tag tolk-web:current tolk-web:previous && echo "предыдущий образ: tolk-web:previous"
     nice -n 10 $DC build web
     sudo docker tag tolk-web:current "tolk-web:$(date +%Y%m%d-%H%M%S)" ;;

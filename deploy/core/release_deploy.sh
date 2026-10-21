@@ -81,6 +81,15 @@ extract() { G archive "$1" | tar -x -C "$SRC"; }
 log "сборка ${SHORT}: $SUBJ"
 extract "$TIP" || reject "не удалось распаковать исходники"
 echo "$SHORT" > "$SRC/.git_commit"
+# Скрипты деплоя обновляются из выкатываемого коммита ДО сборки (mv — безопасно для уже запущенного bash).
+sync_script() {
+  local f="$1" src="$SRC/deploy/core/$1"
+  [ -f "$src" ] || return 0
+  sed 's/\r$//' "$src" > "$CORE_DIR/$f.new" && bash -n "$CORE_DIR/$f.new" 2>/dev/null || { rm -f "$CORE_DIR/$f.new"; return 0; }
+  if cmp -s "$CORE_DIR/$f.new" "$CORE_DIR/$f"; then rm -f "$CORE_DIR/$f.new"; else chmod +x "$CORE_DIR/$f.new" && mv "$CORE_DIR/$f.new" "$CORE_DIR/$f"; log "обновлён $f"; fi
+}
+sync_script core.sh
+sync_script release_deploy.sh
 revert_src() {
   if [ -n "$PREV_TIP" ]; then extract "$PREV_TIP" || log "ВНИМАНИЕ: возврат исходников не удался"; fi
   [ -n "$CUR" ] && echo "$CUR" > "$SRC/.git_commit" || true
@@ -104,8 +113,4 @@ if [ "$ok" != 1 ]; then
 fi
 G update-ref refs/rd/prev "$TIP"
 rm -f "$RD/rejected" "$RD/gate_notified"
-# Сам скрипт обновляется из выкаченных исходников (mv — безопасно для уже запущенного bash).
-if [ -f "$SRC/deploy/core/release_deploy.sh" ] && ! cmp -s "$SRC/deploy/core/release_deploy.sh" "$CORE_DIR/release_deploy.sh"; then
-  sed 's/\r$//' "$SRC/deploy/core/release_deploy.sh" > "$CORE_DIR/release_deploy.sh.new" && chmod +x "$CORE_DIR/release_deploy.sh.new" && mv "$CORE_DIR/release_deploy.sh.new" "$CORE_DIR/release_deploy.sh"
-fi
 notify "выкачено ${SHORT}: $SUBJ"

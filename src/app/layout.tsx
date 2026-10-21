@@ -1,22 +1,9 @@
 import type { Metadata } from "next";
-import { Manrope, Inter } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/lib/SessionContext";
 import { ClientsProvider } from "@/lib/ClientsContext";
 import { PersonalEventsProvider } from "@/lib/PersonalEventsContext";
 import { ProfileProvider } from "@/lib/ProfileContext";
-
-const manrope = Manrope({
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-heading",
-  display: "swap",
-});
-
-const inter = Inter({
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-body",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "ТОЛК — Ассистент психолога",
@@ -29,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru" className={`${manrope.variable} ${inter.variable}`}>
+    <html lang="ru">
       <body>
         <ProfileProvider>
           <ClientsProvider>
