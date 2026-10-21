@@ -186,6 +186,36 @@ interface SearchClientHistoryArgs {
 // кандидатов по структуре, затем искать по смыслу внутри них) — но
 // НЕ обязательна, в отличие от прежней версии, где query был required.
 // ------------------------------------------------------------
+// Нумерация сессий клиента, по которым есть транскрипт: «Сессия N из M, дата». Без неё в результатах смыслового поиска
+// не было номера сессии, и ассистент приписывал события не той встрече («Костя на 5-й»).
+async function sessionIndexForClient(ctx: ExecutorContext, clientId: string): Promise<Map<string, { session: string; session_number: number }>> {
+  const out = new Map<string, { session: string; session_number: number }>();
+  const { data: sess } = await ctx.supabase
+    .from("sessions")
+    .select("id, scheduled_at")
+    .eq("client_id", clientId)
+    .eq("psychologist_id", ctx.psychologistId)
+    .order("scheduled_at", { ascending: true });
+  const list = (sess ?? []) as Array<{ id: string; scheduled_at: string }>;
+  if (list.length === 0) return out;
+  const { data: tr } = await ctx.supabase.from("session_transcripts").select("session_id").in("session_id", list.map(x => x.id));
+  const have = new Set((tr ?? []).map(r => r.session_id as string));
+  const withText = list.filter(x => have.has(x.id));
+  withText.forEach((x, i) => {
+    out.set(x.id, {
+      session: `Сессия ${i + 1} из ${withText.length}, ${formatDateInTimeZone(new Date(x.scheduled_at), ctx.timeZone || DEFAULT_TIMEZONE)}`,
+      session_number: i + 1,
+    });
+  });
+  return out;
+}
+
+const HISTORY_NOTE =
+  "Имена людей в записях заменены ролями (муж, жена, мама, сын, подруга, коллега…), даты и адреса обезличены. " +
+  "Если ищешь человека по имени и не нашёл, повтори поиск по роли и скажи психологу, что имена в записях обезличены. " +
+  "Номер сессии называй только из поля session. Цитируй дословно и только когда контекст совпадает с вопросом. " +
+  "Не утверждай, что чего-то не было: можно сказать только, что в найденных фрагментах этого нет.";
+
 async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHistoryArgs) {
   const hasStructuralFilter = !!(args.session_position || args.date_from || args.date_to);
 
@@ -268,10 +298,12 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
       if (!latestBySession.has(sid) && t.raw_text) latestBySession.set(sid, t.raw_text as string);
     }
 
+    const labels = await sessionIndexForClient(ctx, args.client_id);
     const results = candidateSessionIds!
       .filter(id => latestBySession.has(id))
       .map(id => ({
         session_id: id,
+        ...(labels.get(id) ?? {}),
         raw_text: latestBySession.get(id)!,
         similarity: 1,
         scheduled_at: sessionsById!.get(id)!.scheduled_at,
@@ -280,7 +312,7 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
     if (results.length === 0) {
       return { results: [], note: "Для выбранных сессий транскрипт ещё не готов." };
     }
-    return { results };
+    return { results, note: HISTORY_NOTE };
   }
 
   // Есть query (с фильтром или без) — семантический поиск, как раньше,
@@ -324,7 +356,7 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
     return {
       mode: "keyword",
       total_sessions_with_transcript: latest.size,
-      note: "Это дословные фрагменты сессий. Отвечай только тем, что в них сказано; чего в них нет — не додумывай. Порядок событий — по номерам сессий.",
+      note: "Это дословные фрагменты сессий. Отвечай только тем, что в них сказано; чего в них нет — не додумывай. Порядок событий — по номерам сессий. " + HISTORY_NOTE,
       results: found,
     };
   };
@@ -404,7 +436,34 @@ async function searchClientHistory(ctx: ExecutorContext, args: SearchClientHisto
     .slice(0, 5);
 
   if (results.length === 0) return keywordFallback();
-  return { results };
+
+  // Смысловой поиск отдаёт лишь несколько лучших фрагментов, и на «упоминалось ли / что говорила про X» нужные сессии
+  // выпадали. Дополняем прямым поиском по словам по ВСЕМ сессиям клиента (сессии, которых нет в смысловой выдаче).
+  const labels = await sessionIndexForClient(ctx, args.client_id);
+  let alsoByKeyword: Array<{ session: string; session_number: number; excerpts: string[] }> = [];
+  try {
+    const kw = (await keywordFallback()) as { mode?: string; results?: Array<{ session_id: string; session: string; session_number: number; excerpts: string[] }> };
+    if (kw.mode === "keyword" && kw.results) {
+      const seen = new Set(results.map(r => r.session_id));
+      let used = 0;
+      for (const k of kw.results) {
+        if (seen.has(k.session_id)) continue;
+        const ex = k.excerpts.slice(0, 2);
+        const size = ex.reduce((a, e) => a + e.length, 0);
+        if (used + size > 8000) break;
+        used += size;
+        alsoByKeyword.push({ session: k.session, session_number: k.session_number, excerpts: ex });
+      }
+    }
+  } catch {
+    alsoByKeyword = [];
+  }
+  return {
+    total_sessions_with_transcript: labels.size || undefined,
+    note: HISTORY_NOTE,
+    results: results.map(r => ({ ...r, ...(labels.get(r.session_id) ?? {}) })),
+    ...(alsoByKeyword.length ? { also_found_by_keyword_in_other_sessions: alsoByKeyword } : {}),
+  };
 }
 
 // Использует общую buildPeriodSummary (см. lib/prompts/periodSummary.ts)
