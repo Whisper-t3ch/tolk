@@ -79,3 +79,10 @@ describe("время и дата в просьбе", () => {
     expect(explicitDate("Отмени сессию с Егором", TZ, NOW)).toBeNull();
   });
 });
+
+describe("личные события", () => {
+  it("тренировки не становятся сессией", () => {
+    expect(parseFastIntent("Поставь Анну на тренировку завтра в 10", ctx())).toBeNull();
+    expect(parseFastIntent("Заполни расписание обедом во вторник в 13", ctx())).toBeNull();
+  });
+});

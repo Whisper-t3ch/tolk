@@ -138,11 +138,12 @@ export function parseDate(text: string, timeZone: string, now: Date): string | n
 
 const SESSION_VERB = /(?:^|[\s,.])(?:поставь|поставить|создай|создать|запиши|записать|запланируй|запланировать|назначь|назначить|добавь|добавить|организуй)(?![а-яё])/i;
 const SESSION_NOUN = /сесси|встреч|приём|прием|консультаци|занят/i;
+const PERSONAL = /тренировк|спортзал|фитнес|(?<![а-яё])обед(?![а-яё])|перерыв|отпуск|маникюр|стоматолог|парикмахер/;
 const NOT_A_CREATE = /(отмен|перенес|сдвин|удал|измени|покажи|что\s|когда|свободн|окошк|окно|слот|напомни|отправ|напиши|\?)/i;
 
 function parseCreateSession(message: string, ctx: FastIntentContext): FastIntent | null {
   const text = message.toLowerCase().replace(/ё/g, "е");
-  if (!SESSION_VERB.test(text) || NOT_A_CREATE.test(text)) return null;
+  if (!SESSION_VERB.test(text) || NOT_A_CREATE.test(text) || PERSONAL.test(text)) return null;
   // Либо названо слово «сессия/встреча», либо просьба в форме «поставь Ивана на завтра в 10».
   if (!SESSION_NOUN.test(text) && !/(?:поставь|запиши|назначь)\s/.test(text)) return null;
   if (ctx.clients.length !== 1) return null;

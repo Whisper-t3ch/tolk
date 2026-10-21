@@ -46,6 +46,8 @@ import { waitUntil } from "@vercel/functions";
 //
 // Списание лимита: агентская задача (любая цепочка с хотя бы одним
 // вызовом инструмента) = 3. Простой вопрос без вызова инструментов = 1.
+const PERSONAL_EVENT_RE = /тренировк|спортзал|фитнес|(?<![а-яё])йог|(?<![а-яё])обед(?![а-яё])|обеден|перерыв|отпуск|личн\S*\s+(?:дел|событ|встреч|время)|маникюр|стоматолог|парикмахер/i;
+
 export async function POST(request: NextRequest) {
   const envStatus = checkYandexGptEnv();
   if (!envStatus.configured) {
@@ -600,6 +602,10 @@ export async function POST(request: NextRequest) {
       let description: string;
       try {
         // Слабая модель подставляет в сессию текущее время, если психолог его не назвал, — просим уточнить.
+        // Личные события (тренировки, обед, отпуск) — не сессии с клиентами: с открытой карточкой ассистент молча брал её клиента.
+        if (callName === "create_session" && PERSONAL_EVENT_RE.test(userMessage ?? "")) {
+          throw new ActionPreviewError("личные события (тренировки, обед, отпуск) я в расписание не добавляю, только сессии с клиентами — скажите, с каким клиентом и когда поставить сессию");
+        }
         if (callName === "create_session" && !messageHasTime(userMessage ?? "")) {
           throw new ActionPreviewError("не указано время сессии — напишите, на какое время поставить");
         }
