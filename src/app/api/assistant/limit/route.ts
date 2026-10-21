@@ -7,6 +7,9 @@ const PLAN_LABELS: Record<string, string> = {
   practice: "Практика",
   professional: "Профессионал",
   expert: "Эксперт",
+  beta_paid: "Бета · платный",
+  beta_free: "Бета · пробный",
+  unlimited: "Без ограничений",
 };
 
 // GET /api/assistant/limit
@@ -26,6 +29,8 @@ export async function GET() {
     remaining: status.remaining,
     extra: status.extra,
     planName: status.planName,
+    expiresAt: status.expiresAt,
+    expired: status.expired,
     planLabel: PLAN_LABELS[status.planName] ?? status.planName,
     allPlans: PLAN_LIMITS,
   });

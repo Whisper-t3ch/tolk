@@ -41,6 +41,8 @@ export default function SettingsPage() {
     extra?: number;
     planName: string;
     planLabel: string;
+    expiresAt?: string | null;
+    expired?: boolean;
   }
   const [limitInfo, setLimitInfo] = useState<AssistantLimitInfo | null>(null);
   const [limitLoading, setLimitLoading] = useState(true);
@@ -227,6 +229,10 @@ export default function SettingsPage() {
   const creditPct = totalRequests > 0 ? Math.round((requestsUsed / totalRequests) * 100) : 0;
   const requestsRemaining = Math.max(0, totalRequests - requestsUsed);
   const planLabel = limitInfo?.planLabel ?? profile?.plan.name ?? "—";
+  const planKey = limitInfo?.planName ?? profile?.plan.key ?? "";
+  const isUnlimited = planKey === "unlimited";
+  const isInviteTier = ["beta_paid", "beta_free", "unlimited"].includes(planKey);
+  const accessExpiresAt = limitInfo?.expiresAt ? new Date(limitInfo.expiresAt) : null;
 
   const notify = (msg: string) => {
     setNotification(msg);
@@ -646,7 +652,7 @@ export default function SettingsPage() {
                         <div style={{ padding: 12, background: "#F5F3EF", borderRadius: 8, marginBottom: 8 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12 }}>
                             <span style={{ color: "#6B6058" }}>
-                              Запросы к ассистенту: {requestsUsed} / {totalRequests}
+                              Запросы к ассистенту: {requestsUsed}{isUnlimited ? " · без ограничений" : ` / ${totalRequests}`}
                               {extraCredits > 0 && <span style={{ color: "#157347" }}> (+{extraCredits})</span>}
                             </span>
                             <span style={{ color: requestsRemaining === 0 ? "#B91C1C" : "#2D6A5C", fontWeight: 600 }}>{creditPct}%</span>
@@ -660,6 +666,12 @@ export default function SettingsPage() {
                           </div>
                         </div>
 
+                        {accessExpiresAt && (
+                          <p style={{ fontSize: 12.5, color: limitInfo?.expired ? "#B91C1C" : "#6B6058", marginBottom: 12 }}>
+                            {limitInfo?.expired ? "Пробный доступ закончился" : "Пробный доступ до"} {accessExpiresAt.toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                            {limitInfo?.expired ? ". Напишите в «Помощь» — продлим." : ""}
+                          </p>
+                        )}
                         {requestsRemaining === 0 && (
                           <div style={{ padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 12, fontSize: 12.5, color: "#B91C1C" }}>
                             Лимит запросов исчерпан — ассистент не будет отвечать до докупки или сброса в начале месяца.
@@ -667,12 +679,17 @@ export default function SettingsPage() {
                         )}
                         {requestsRemaining > 0 && requestsRemaining <= 10 && (
                           <div style={{ padding: "10px 12px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, marginBottom: 12, fontSize: 12.5, color: "#92400E" }}>
-                            Осталось всего {requestsRemaining} {requestsRemaining === 1 ? "запрос" : requestsRemaining < 5 ? "запроса" : "запросов"} до конца месяца.
+                            Осталось всего {requestsRemaining} {requestsRemaining === 1 ? "запрос" : requestsRemaining < 5 ? "запроса" : "запросов"} {planKey === "beta_free" ? "в пробном периоде." : "до конца месяца."}
                           </div>
                         )}
                       </>
                     )}
 
+                    {isInviteTier ? (
+                      <p style={{ fontSize: 12.5, color: "#6B6058" }}>
+                        {isUnlimited ? "" : "Нужно больше запросов или продлить доступ — напишите в «Помощь»."}
+                      </p>
+                    ) : (
                     <div style={{ display: "flex", gap: 8 }}>
                       <Button onClick={buyCredits} variant={requestsRemaining === 0 ? "primary" : "secondary"} className="w-full">
                         Докупить +100 за 99 ₽
@@ -681,6 +698,7 @@ export default function SettingsPage() {
                         Сменить тариф
                       </Button>
                     </div>
+                    )}
                   </CardContent>
                 </Card>
               )}

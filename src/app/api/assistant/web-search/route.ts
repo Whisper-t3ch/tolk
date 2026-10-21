@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   // не сложнее, просто источник внешний. См. assistantLimits.ts.
   const limitCheck = await checkAssistantLimit(supabase, user.id, "rag");
   if (!limitCheck.allowed) {
-    return NextResponse.json(limitExceededResponse(limitCheck.limit), { status: 429 });
+    return NextResponse.json(limitExceededResponse(limitCheck.limit, limitCheck), { status: 429 });
   }
 
   try {

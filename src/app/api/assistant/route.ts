@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
   // списываем её после успешного завершения цикла.
   const limitCheck = await checkAssistantLimit(supabase, user.id, "normal");
   if (!limitCheck.allowed) {
-    return NextResponse.json(limitExceededResponse(limitCheck.limit), { status: 429 });
+    return NextResponse.json(limitExceededResponse(limitCheck.limit, limitCheck), { status: 429 });
   }
 
   // Контекст: если открыт из карточки клиента — подмешиваем его данные.

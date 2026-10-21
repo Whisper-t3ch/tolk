@@ -36,12 +36,22 @@ export const PLAN_LIMITS = {
   practice: 60,
   professional: 200,
   expert: 600,
+  // Тарифы закрытой беты — выдаются инвайт-кодом (migration 052), сами менять нельзя.
+  beta_paid: 400, // «платники»: 400 запросов в месяц
+  beta_free: 50, // бесплатный пробный: 50 запросов на весь срок доступа (access_expires_at), без месячного сброса
+  unlimited: 1_000_000, // владелец / команда: фактически без ограничений
 } as const;
 
 export type PlanName = keyof typeof PLAN_LIMITS;
 
 /** Размер одного докупаемого пакета запросов (пока без оплаты — mock). */
 export const EXTRA_PACK_SIZE = 100;
+
+/** Тарифы, которые задаются инвайт-кодом: докупка и самостоятельная смена тарифа для них закрыта. */
+export const INVITE_PLANS = ["beta_paid", "beta_free", "unlimited"] as const;
+export function isInvitePlan(planName: string | null | undefined): boolean {
+  return !!planName && (INVITE_PLANS as readonly string[]).includes(planName);
+}
 
 /** Тарифы, на которые психолог может переключиться сам (beta — только стартовый). */
 export const SWITCHABLE_PLANS = ["practice", "professional", "expert"] as const;
@@ -58,6 +68,9 @@ export interface LimitCheckResult {
   used: number;
   limit: number;
   remaining: number;
+  /** Срок пробного доступа истёк (psychologists.access_expires_at в прошлом). */
+  expired: boolean;
+  planName: string;
 }
 
 /**
@@ -72,13 +85,15 @@ export async function checkAssistantLimit(
   psychologistId: string,
   cost: AssistantRequestCostKey = "normal"
 ): Promise<LimitCheckResult> {
-  const { used, limit } = await resetIfDue(supabase, psychologistId);
+  const { used, limit, expired, planName } = await resetIfDue(supabase, psychologistId);
   const costValue = ASSISTANT_REQUEST_COST[cost];
   return {
-    allowed: used + costValue <= limit,
+    allowed: !expired && used + costValue <= limit,
     used,
     limit,
-    remaining: Math.max(0, limit - used),
+    remaining: expired ? 0 : Math.max(0, limit - used),
+    expired,
+    planName,
   };
 }
 
@@ -124,7 +139,7 @@ export async function consumeAssistantLimit(
 async function resetIfDue(
   supabase: SupabaseClient,
   psychologistId: string
-): Promise<{ used: number; limit: number; extra: number }> {
+): Promise<{ used: number; limit: number; extra: number; expired: boolean; expiresAt: string | null; planName: string }> {
   // select("*"): колонка assistant_extra_requests (migration 044) может
   // отсутствовать, пока миграцию не применили — тогда extra = 0.
   const { data, error } = await supabase
@@ -136,11 +151,17 @@ async function resetIfDue(
 
   const used = (data?.assistant_requests_used as number | null) ?? 0;
   const extra = Math.max(0, (data?.assistant_extra_requests as number | null) ?? 0);
-  const limit = resolvePlanLimit(data?.plan_name as string | null) + extra;
+  const planName = (data?.plan_name as string | null) ?? "beta";
+  const limit = resolvePlanLimit(planName) + extra;
   const resetAt = data?.assistant_requests_reset_at as string | null;
+  // Колонка access_expires_at (migration 052) может отсутствовать — тогда срока нет.
+  const expiresAt = (data?.access_expires_at as string | null | undefined) ?? null;
+  const expired = !!expiresAt && new Date(expiresAt) <= new Date();
 
-  if (!resetAt || new Date(resetAt) > new Date()) {
-    return { used, limit, extra };
+  // Бесплатный пробный тариф: 50 запросов на весь срок доступа, месячного сброса нет
+  // (продление — вручную: SQL в OPS.md «Инвайт-коды»).
+  if (planName === "beta_free" || !resetAt || new Date(resetAt) > new Date()) {
+    return { used, limit, extra, expired, expiresAt, planName };
   }
 
   const nextReset = new Date();
@@ -154,7 +175,7 @@ async function resetIfDue(
   if (resetError) throw resetError;
 
   // Докупленные запросы не сгорают при ежемесячном сбросе.
-  return { used: 0, limit, extra };
+  return { used: 0, limit, extra, expired, expiresAt, planName };
 }
 
 /** Докупка пакета запросов (mock-оплата: просто увеличивает лимит). */
@@ -177,7 +198,13 @@ export async function addExtraRequests(
   if (upErr) throw upErr;
 }
 
-export function limitExceededResponse(limit: number) {
+export function limitExceededResponse(limit: number, check?: { expired?: boolean; planName?: string }) {
+  if (check?.expired) {
+    return { error: "Пробный доступ закончился. Напишите в «Помощь» — продлим.", limit, expired: true };
+  }
+  if (isInvitePlan(check?.planName)) {
+    return { error: "Лимит запросов исчерпан. Напишите в «Помощь» — добавим ещё.", limit };
+  }
   return {
     error: "Лимит запросов исчерпан. Докупить: +100 за 99 ₽",
     limit,
@@ -188,6 +215,8 @@ export interface AssistantLimitStatus extends LimitCheckResult {
   planName: PlanName;
   /** Докупленные запросы (уже включены в limit). */
   extra: number;
+  /** Когда заканчивается пробный доступ (ISO) или null, если срока нет. */
+  expiresAt: string | null;
 }
 
 /**
@@ -208,13 +237,15 @@ export async function getAssistantLimitStatus(
     .single();
   const planName = (data?.plan_name as PlanName | null) ?? "beta";
 
-  const { used, limit, extra } = await resetIfDue(supabase, psychologistId);
+  const { used, limit, extra, expired, expiresAt } = await resetIfDue(supabase, psychologistId);
   return {
-    allowed: used < limit,
+    allowed: !expired && used < limit,
     used,
     limit,
-    remaining: Math.max(0, limit - used),
+    remaining: expired ? 0 : Math.max(0, limit - used),
     planName,
     extra,
+    expired,
+    expiresAt,
   };
 }

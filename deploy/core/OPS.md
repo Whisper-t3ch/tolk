@@ -75,3 +75,17 @@ cd ~/core && ./switch_domain.sh prod      # правит .env.core и Supabase S
 cron: `* * * * * /home/ubuntu/core/release_deploy.sh >> /home/ubuntu/tolk-release-deploy.log 2>&1`.
 Управление: `touch ~/release-deploy/DISABLED` — выключить; `rm ~/release-deploy/rejected` — снять блокировку после отказа; лог — `~/tolk-release-deploy.log`.
 Безопасность: кто может писать в `release/prod`, тот выкатывает код на прод — включите защиту ветки (запрет force-push, пуши только владельца и Claude).
+
+## Инвайт-коды и тарифы беты
+
+Регистрация только по коду (`invite_codes`). Тариф и срок доступа привязаны к коду (migration 052):
+`beta_paid` — 400 запросов/мес; `beta_free` — 50 запросов на весь срок, доступ `access_days` (14) дней, без месячного сброса; `unlimited` — владелец/команда.
+Выдать: `outputs/backend/issue_beta_invite_codes.sql` (14 платных + 10 пробных + 1 безлимит, в конце — список кодов).
+Список/статус: `select code, note, plan_name, uses, max_uses from invite_codes order by plan_name, note;`
+
+Продлить пробного на 2 недели и обнулить запросы:
+`update psychologists set access_expires_at = now() + interval '14 days', assistant_requests_used = 0 where email = 'x@y.ru';`
+Перевести на другой тариф: `update psychologists set plan_name = 'beta_paid', access_expires_at = null where email = '...';`
+Добавить запросов: `update psychologists set assistant_extra_requests = assistant_extra_requests + 50 where email = '...';`
+Безлимит себе: `update psychologists set plan_name = 'unlimited' where email = '...';`
+Докупка и самостоятельная смена тарифа для этих трёх тарифов закрыта (403, «напишите в Помощь»).

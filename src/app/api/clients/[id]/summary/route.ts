@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // Проверяем лимит ДО дорогого вызова к LLM.
   const limitCheck = await checkAssistantLimit(supabase, user.id, "periodSummary");
   if (!limitCheck.allowed) {
-    return NextResponse.json(limitExceededResponse(limitCheck.limit), { status: 429 });
+    return NextResponse.json(limitExceededResponse(limitCheck.limit, limitCheck), { status: 429 });
   }
 
   const { data: client, error: clientError } = await supabase

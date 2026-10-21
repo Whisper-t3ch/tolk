@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
 
   const limitCheck = await checkAssistantLimit(supabase, user.id, "normal");
   if (!limitCheck.allowed) {
-    return NextResponse.json(limitExceededResponse(limitCheck.limit), { status: 429 });
+    return NextResponse.json(limitExceededResponse(limitCheck.limit, limitCheck), { status: 429 });
   }
 
   // Источник темы: либо SOAP-протокол выбранной сессии (обезличенно —

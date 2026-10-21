@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { SWITCHABLE_PLANS, getAssistantLimitStatus } from "@/lib/assistantLimits";
+import { SWITCHABLE_PLANS, getAssistantLimitStatus, isInvitePlan } from "@/lib/assistantLimits";
 
 // POST /api/profile/plan { plan: "practice" | "professional" | "expert" }
 // Смена тарифа без оплаты (бета; оплату подключим позже). Использованные
@@ -19,6 +19,12 @@ export async function POST(request: NextRequest) {
   const plan = body.plan;
   if (!plan || !(SWITCHABLE_PLANS as readonly string[]).includes(plan)) {
     return NextResponse.json({ error: `plan должен быть одним из: ${SWITCHABLE_PLANS.join(", ")}` }, { status: 400 });
+  }
+
+  // Тариф беты задан инвайт-кодом — сменить его самому нельзя (иначе пробный/платный обойдёт лимиты).
+  const { data: cur } = await supabase.from("psychologists").select("plan_name").eq("id", user.id).single();
+  if (isInvitePlan(cur?.plan_name as string | null)) {
+    return NextResponse.json({ error: "В бете тариф задаётся инвайт-кодом. Нужно больше запросов — напишите в «Помощь»." }, { status: 403 });
   }
 
   const { error } = await supabase.from("psychologists").update({ plan_name: plan }).eq("id", user.id);

@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
   if (codeErr) return NextResponse.json({ error: "Не удалось проверить код. Попробуйте позже." }, { status: 500 });
   if (!ok) return NextResponse.json({ error: "Инвайт-код неверный, закончился или истёк" }, { status: 403 });
 
-  const { error: createErr } = await db.auth.admin.createUser({
+  const { data: created, error: createErr } = await db.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
@@ -45,6 +45,29 @@ export async function POST(request: NextRequest) {
       { error: exists ? "Этот email уже зарегистрирован — попробуйте войти" : "Не удалось создать аккаунт. Попробуйте ещё раз." },
       { status: exists ? 409 : 500 }
     );
+  }
+
+  // Тариф и срок доступа привязаны к коду (migration 052): платный / пробный / безлимит.
+  // Если миграция ещё не применена, select вернёт ошибку — аккаунт остаётся на стандартной «beta».
+  const userId = created?.user?.id;
+  if (userId) {
+    const { data: invite } = await db
+      .from("invite_codes")
+      .select("plan_name, access_days")
+      .eq("code", code.toLowerCase())
+      .maybeSingle();
+    const plan = (invite?.plan_name as string | null | undefined) ?? null;
+    if (plan && plan !== "beta") {
+      const days = (invite?.access_days as number | null) ?? null;
+      const { error: planErr } = await db
+        .from("psychologists")
+        .update({
+          plan_name: plan,
+          access_expires_at: days ? new Date(Date.now() + days * 86_400_000).toISOString() : null,
+        })
+        .eq("id", userId);
+      if (planErr) console.error("[register] не удалось применить тариф кода", planErr.message);
+    }
   }
   return NextResponse.json({ ok: true });
 }

@@ -8,6 +8,9 @@ const PLAN_LABELS: Record<string, string> = {
   practice: "Практика",
   professional: "Профессионал",
   expert: "Эксперт",
+  beta_paid: "Бета · платный",
+  beta_free: "Бета · пробный",
+  unlimited: "Без ограничений",
 };
 
 function initialsFromName(name: string): string {
