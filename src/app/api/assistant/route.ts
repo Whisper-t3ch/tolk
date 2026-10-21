@@ -22,6 +22,7 @@ import { findCachedReferenceAnswer, saveReferenceAnswerToCache } from "@/lib/age
 import { guardResponseText } from "@/lib/agent/responseGuard";
 import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pseudoToolCallParser";
 import { logLlmUsage } from "@/lib/agent/usageLog";
+import { describeAction, ActionPreviewError } from "@/lib/agent/describeAction";
 import { findMentionedClients, knowledgeBaseRedirect, unknownNamesInMessage } from "@/lib/agent/mentionedClients";
 import { plainifyMarkdown } from "@/lib/agent/plainText";
 import { looksLikeDiagnosis, DIAGNOSIS_REWRITE_NUDGE } from "@/lib/agent/diagnosisGuard";
@@ -98,7 +99,11 @@ export async function POST(request: NextRequest) {
 
   // Клиент назван в вопросе по имени: подставляем его id в контекст, чтобы модели не нужно было
   // искать его инструментом (слабые модели выдумывают id или вызывают посторонние инструменты).
-  if (!body.client_id) {
+  // «Создай 5 клиентов — Алексей, Юлия…»: имена здесь НОВЫЕ, говорить модели «такого клиента нет» нельзя.
+  const isCreateClientIntent = /(созда|добав|завед|завест|внес|нов\S*\s+клиент)/i.test(userMessage) && /клиент/i.test(userMessage);
+  if (!body.client_id && isCreateClientIntent) {
+    contextPrefix = "Контекст: психолог просит завести НОВЫХ клиентов. Не ищи их среди существующих — сразу вызови create_client один раз, передав все имена массивом names.\n\n";
+  } else if (!body.client_id) {
     const { data: allClients } = await supabase
       .from("clients")
       .select("id, name")
@@ -359,7 +364,9 @@ export async function POST(request: NextRequest) {
         body.agent_session_id,
         userMessage,
         cached.answer,
-        assistantMessageId
+        assistantMessageId,
+        undefined,
+        body.client_id
       );
       await consumeAssistantLimit(supabase, user.id, "normal");
       await recordAssistantFeedback(supabase, {
@@ -499,17 +506,45 @@ export async function POST(request: NextRequest) {
           workflowSuccess: true,
         })
       );
+      const confirmArgs = confirmationCall.functionCall.arguments as Record<string, unknown>;
+      let description: string;
+      try {
+        description = await describeAction(
+          supabase,
+          userId,
+          timeZone,
+          confirmationCall.functionCall.name,
+          confirmArgs,
+          mentionedClients.find(c => c.id === confirmArgs?.client_id)?.name
+        );
+      } catch (e) {
+        // Аргументы не разобрать (нет времени, дата в прошлом…) — не показываем карточку, которую нельзя выполнить.
+        const reason = e instanceof ActionPreviewError ? e.message : "не удалось разобрать запрос";
+        const text = `Не получилось: ${reason}. Уточните, пожалуйста, и я повторю.`;
+        const failId = randomUUID();
+        const { agentSessionId: failSid } = await saveAgentSession(supabase, userId, body.agent_session_id, userMessage ?? "", text, failId, userDatePrefix + contextPrefix + userMessage, body.client_id);
+        return NextResponse.json({ message: text, actions_taken: false, agent_session_id: failSid, message_id: failId, suggested_web_search_query: null });
+      }
+      // Раньше запрос и карточка в историю не попадали вовсе — после перезагрузки чата они пропадали.
+      const cardMessageId = randomUUID();
+      const { agentSessionId: cardSessionId } = await saveAgentSession(
+        supabase,
+        userId,
+        body.agent_session_id,
+        userMessage ?? "",
+        description,
+        cardMessageId,
+        userDatePrefix + contextPrefix + userMessage,
+        body.client_id
+      );
       return NextResponse.json({
         type: "confirmation_required",
         action: {
           tool: confirmationCall.functionCall.name,
           arguments: confirmationCall.functionCall.arguments,
         },
-        description: describeAction(
-          confirmationCall.functionCall.name,
-          confirmationCall.functionCall.arguments,
-          mentionedClients.find(c => c.id === (confirmationCall.functionCall.arguments as { client_id?: unknown })?.client_id)?.name
-        ),
+        description,
+        agent_session_id: cardSessionId,
       });
     }
 
@@ -878,7 +913,8 @@ export async function POST(request: NextRequest) {
     userMessage,
     responseText,
     assistantMessageId,
-    userDatePrefix + contextPrefix + userMessage
+    userDatePrefix + contextPrefix + userMessage,
+    body.client_id
   );
 
   // Списываем лимит по фактической стоимости.
@@ -960,31 +996,6 @@ export async function POST(request: NextRequest) {
   });
 }
 
-function describeAction(tool: string, args: Record<string, unknown>, clientName?: string): string {
-  // Психолог подтверждает действие по этой карточке — в ней должно быть видно, кому и что уйдёт.
-  const who = clientName ? `клиенту ${clientName}` : "клиенту";
-  switch (tool) {
-    case "create_client":
-      return `Создать клиента «${args.name ?? "?"}».`;
-    case "update_client":
-      return `Изменить данные клиента.`;
-    case "create_session":
-      return `Создать сессию на ${args.datetime ?? "?"}.`;
-    case "cancel_session":
-      return `Отменить сессию.`;
-    case "send_message_to_client":
-      return `Отправить ${who} сообщение: «${String(args.text ?? "").slice(0, 120)}».`;
-    case "send_homework":
-      return `Отправить ${who} домашнее задание: «${String(args.homework_text ?? "").slice(0, 160)}».`;
-    case "send_session_invite":
-      return `Отправить ${who} ссылку на сессию.`;
-    case "send_broadcast_message":
-      return `Разослать сообщение всем активным клиентам: «${String(args.text ?? "").slice(0, 120)}».`;
-    default:
-      return `Выполнить действие: ${tool}.`;
-  }
-}
-
 async function saveAgentSession(
   supabase: Awaited<ReturnType<typeof createClient>>,
   psychologistId: string,
@@ -992,7 +1003,8 @@ async function saveAgentSession(
   userMessage: string,
   assistantMessage: string,
   assistantMessageId: string,
-  llmUserText?: string
+  llmUserText?: string,
+  clientId?: string | null
 ): Promise<{ agentSessionId: string | null }> {
   // id у user-реплики тоже нужен (хоть пока и не используется как FK
   // нигде явно) — для единообразия формата записей в jsonb и на случай
@@ -1025,6 +1037,8 @@ async function saveAgentSession(
     .from("agent_sessions")
     .insert({
       psychologist_id: psychologistId,
+      // История привязана к карточке клиента: у каждого клиента свой чат с ассистентом, общий — у null.
+      client_id: clientId ?? null,
       messages: newEntries,
     })
     .select("id")

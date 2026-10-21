@@ -15,6 +15,7 @@ import { sendViaMessenger, MessengerSendError } from "@/lib/messengers/client";
 import { buildJitsiRoomName, buildJitsiUrl, checkJitsiEnv } from "@/lib/jitsi";
 import { zonedDateTimeToUtc, formatTimeInTimeZone, weekdayInTimeZone, todayInTimeZone, formatDateInTimeZone, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { generateAvailableSlots, type WorkingHours } from "@/lib/booking";
+import { expandSessionStarts, formatSessionStart, collectClientNames, type CreateSessionArgs } from "./scheduling";
 import type { AgentToolName } from "./tools";
 import { keywordSearchTranscripts } from "./keywordHistorySearch";
 import { buildSessionPrep } from "./sessionPrep";
@@ -98,22 +99,38 @@ async function getClientInfo(ctx: ExecutorContext, args: { client_id: string }) 
 
 async function createClient(
   ctx: ExecutorContext,
-  args: { name: string; request?: string; approach?: string; telegram?: string; phone?: string }
+  args: { name?: string; names?: string[]; request?: string; approach?: string; telegram?: string; phone?: string }
 ) {
-  const { data, error } = await ctx.supabase
-    .from("clients")
-    .insert({
-      psychologist_id: ctx.psychologistId,
-      name: args.name,
-      request: args.request ?? null,
-      approach: args.approach ?? null,
-      status: "active",
-    })
-    .select("id, name, status, request, approach")
-    .single();
-  if (error) throw new AgentToolError(error.message, "create_client");
+  const names = collectClientNames(args);
+  if (names.length === 0) throw new AgentToolError("Не указано имя клиента", "create_client");
+
+  const created: Array<{ id: string; name: string; status: string; request: string | null; approach: string | null }> = [];
+  for (const name of names) {
+    const { data, error } = await ctx.supabase
+      .from("clients")
+      .insert({
+        psychologist_id: ctx.psychologistId,
+        name,
+        // Запрос/подход относятся к одному клиенту; при создании нескольких сразу не размазываем их на всех.
+        request: names.length === 1 ? args.request ?? null : null,
+        approach: names.length === 1 ? args.approach ?? null : null,
+        status: "active",
+      })
+      .select("id, name, status, request, approach")
+      .single();
+    if (error) {
+      if (created.length === 0) throw new AgentToolError(error.message, "create_client");
+      // Часть уже создана — сообщаем, что получилось, а не теряем результат.
+      return { clients: created, client: created[0], failed: names.slice(created.length), note: `Создано ${created.length} из ${names.length}, остановились на «${name}»: ${error.message}` };
+    }
+    created.push(data as (typeof created)[number]);
+  }
   // telegram/phone пока негде хранить в схеме clients — учтено в описании ответа психологу.
-  return { client: data, note: args.telegram || args.phone ? "Telegram/телефон приняты, но пока не сохраняются — в схеме клиента нет таких полей." : undefined };
+  return {
+    clients: created,
+    client: created[0],
+    note: args.telegram || args.phone ? "Telegram/телефон приняты, но пока не сохраняются — в схеме клиента нет таких полей." : undefined,
+  };
 }
 
 async function updateClient(ctx: ExecutorContext, args: { client_id: string; fields: Record<string, unknown> }) {
@@ -607,7 +624,6 @@ async function getPreferences(ctx: ExecutorContext) {
 interface Slot {
   date: string;
   time: string;
-  datetime: string;
 }
 
 // БЫЛО: вся функция работала на серверном Date (Vercel, UTC) без единого
@@ -689,7 +705,6 @@ async function findAvailableSlots(
     const slots: Slot[] = generated.slice(0, 20).map(s => ({
       date: s.date,
       time: s.time,
-      datetime: zonedDateTimeToUtc(s.date, s.time, timeZone).toISOString(),
     }));
 
     return { slots };
@@ -751,7 +766,6 @@ async function findAvailableSlots(
           slots.push({
             date: cursorDate,
             time: formatTimeInTimeZone(d, timeZone),
-            datetime: d.toISOString(),
           });
           if (slots.length >= 20) break;
         }
@@ -772,31 +786,77 @@ async function findAvailableSlots(
 // СЕССИИ
 // ------------------------------------------------------------
 
-async function createSession(ctx: ExecutorContext, args: { client_id: string; datetime: string; duration_minutes?: number }) {
-  // id генерируется заранее (crypto.randomUUID), чтобы имя Jitsi-комнаты
-  // было известно до insert — так jitsi_room_name попадает в БД одним
-  // запросом, без отдельного UPDATE после создания.
-  const sessionId = crypto.randomUUID();
-  const roomName = buildJitsiRoomName(sessionId);
+async function createSession(ctx: ExecutorContext, args: CreateSessionArgs & { client_id: string }) {
+  const timeZone = ctx.timeZone ?? DEFAULT_TIMEZONE;
+  let starts: Date[];
+  try {
+    starts = expandSessionStarts(args, timeZone);
+  } catch (e) {
+    throw new AgentToolError(e instanceof Error ? e.message : "Некорректные дата/время", "create_session");
+  }
+  const duration = args.duration_minutes ?? 50;
 
-  const { data, error } = await ctx.supabase
+  // Не создаём сессии поверх уже назначенных.
+  const rangeFrom = new Date(starts[0].getTime() - 12 * 3600_000).toISOString();
+  const rangeTo = new Date(starts[starts.length - 1].getTime() + 12 * 3600_000).toISOString();
+  const { data: busy } = await ctx.supabase
     .from("sessions")
-    .insert({
-      id: sessionId,
-      psychologist_id: ctx.psychologistId,
-      client_id: args.client_id,
-      scheduled_at: args.datetime,
-      duration_minutes: args.duration_minutes ?? 50,
-      status: "scheduled",
-      jitsi_room_name: roomName,
-    })
-    .select("id, client_id, scheduled_at, duration_minutes, status")
-    .single();
-  if (error) throw new AgentToolError(error.message, "create_session");
+    .select("scheduled_at, duration_minutes")
+    .eq("psychologist_id", ctx.psychologistId)
+    .neq("status", "cancelled")
+    .gte("scheduled_at", rangeFrom)
+    .lte("scheduled_at", rangeTo);
+  const busyIntervals = (busy ?? []).map(b => {
+    const st = new Date(b.scheduled_at as string).getTime();
+    return { start: st, end: st + ((b.duration_minutes as number | null) ?? 50) * 60_000 };
+  });
 
+  const createdSessions: Array<{ id: string; client_id: string; scheduled_at: string; duration_minutes: number; status: string; label: string; video_room_url: string | null }> = [];
+  const skipped: string[] = [];
   const jitsiReady = checkJitsiEnv().configured;
+
+  for (const start of starts) {
+    const s0 = start.getTime();
+    const e0 = s0 + duration * 60_000;
+    if (busyIntervals.some(b => s0 < b.end && e0 > b.start)) {
+      skipped.push(formatSessionStart(start, timeZone));
+      continue;
+    }
+    // id генерируется заранее (crypto.randomUUID), чтобы имя Jitsi-комнаты
+    // было известно до insert — так jitsi_room_name попадает в БД одним
+    // запросом, без отдельного UPDATE после создания.
+    const sessionId = crypto.randomUUID();
+    const roomName = buildJitsiRoomName(sessionId);
+    const { data, error } = await ctx.supabase
+      .from("sessions")
+      .insert({
+        id: sessionId,
+        psychologist_id: ctx.psychologistId,
+        client_id: args.client_id,
+        scheduled_at: start.toISOString(),
+        duration_minutes: duration,
+        status: "scheduled",
+        jitsi_room_name: roomName,
+      })
+      .select("id, client_id, scheduled_at, duration_minutes, status")
+      .single();
+    if (error) {
+      if (createdSessions.length === 0) throw new AgentToolError(error.message, "create_session");
+      skipped.push(formatSessionStart(start, timeZone));
+      continue;
+    }
+    busyIntervals.push({ start: s0, end: e0 });
+    createdSessions.push({ ...(data as { id: string; client_id: string; scheduled_at: string; duration_minutes: number; status: string }), label: formatSessionStart(start, timeZone), video_room_url: buildJitsiUrl(roomName) || null });
+  }
+
+  if (createdSessions.length === 0) {
+    throw new AgentToolError(`Это время занято: ${skipped.join("; ")}.`, "create_session");
+  }
+
   return {
-    session: { ...data, video_room_url: buildJitsiUrl(roomName) || null },
+    sessions: createdSessions,
+    session: createdSessions[0],
+    skipped_busy: skipped.length ? skipped : undefined,
     note: jitsiReady
       ? "Сессия создана, ссылка на видеокомнату готова."
       : "Сессия создана. Ссылка на видеокомнату станет рабочей после развёртывания видеосервера (ВМ ещё не подключена).",
@@ -1091,7 +1151,7 @@ export async function executeAgentTool(
     case "get_client_info":
       return getClientInfo(ctx, args as { client_id: string });
     case "create_client":
-      return createClient(ctx, args as { name: string; request?: string; approach?: string; telegram?: string; phone?: string });
+      return createClient(ctx, args as { name?: string; names?: string[]; request?: string; approach?: string; telegram?: string; phone?: string });
     case "update_client":
       return updateClient(ctx, args as { client_id: string; fields: Record<string, unknown> });
     case "search_client_history":
@@ -1111,7 +1171,7 @@ export async function executeAgentTool(
     case "find_available_slots":
       return findAvailableSlots(ctx, args as { duration_minutes: number; date_from?: string; date_to?: string });
     case "create_session":
-      return createSession(ctx, args as { client_id: string; datetime: string; duration_minutes?: number });
+      return createSession(ctx, args as unknown as CreateSessionArgs & { client_id: string });
     case "cancel_session":
       return cancelSession(ctx, args as { session_id: string; reason?: string });
     case "send_message_to_client":

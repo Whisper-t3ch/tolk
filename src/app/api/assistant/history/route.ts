@@ -18,10 +18,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
-    .from("agent_sessions")
-    .select("id, messages")
-    .eq("psychologist_id", user.id)
+  const clientId = request.nextUrl.searchParams.get("client_id");
+  const base = supabase.from("agent_sessions").select("id, messages").eq("psychologist_id", user.id);
+  const { data, error } = await (clientId ? base.eq("client_id", clientId) : base.is("client_id", null))
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -51,7 +50,7 @@ export async function GET(request: NextRequest) {
 // Историю не удаляем, а очищаем messages у текущей сессии: сама строка
 // agent_sessions остаётся (на неё могут ссылаться записи обратной связи
 // об ответах ассистента).
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -60,10 +59,9 @@ export async function DELETE() {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  const { data: current, error: findError } = await supabase
-    .from("agent_sessions")
-    .select("id")
-    .eq("psychologist_id", user.id)
+  const clientId = request.nextUrl.searchParams.get("client_id");
+  const baseFind = supabase.from("agent_sessions").select("id").eq("psychologist_id", user.id);
+  const { data: current, error: findError } = await (clientId ? baseFind.eq("client_id", clientId) : baseFind.is("client_id", null))
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

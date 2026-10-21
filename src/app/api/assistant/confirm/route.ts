@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { executeAgentTool, AgentToolError } from "@/lib/agent/executor";
 import { toolNeedsConfirmation } from "@/lib/agent/tools";
 import { normalizeTimeZone } from "@/lib/timezone";
+import { describeSuccess } from "@/lib/agent/describeAction";
+import { randomUUID } from "crypto";
 
 // POST /api/assistant/confirm
 // Body: { action: { tool: string, arguments: Record<string, unknown> }, confirmed: boolean }
@@ -20,7 +22,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  let body: { action?: { tool?: string; arguments?: Record<string, unknown> }; confirmed?: boolean };
+  let body: { action?: { tool?: string; arguments?: Record<string, unknown> }; confirmed?: boolean; agent_session_id?: string };
   try {
     body = await request.json();
   } catch {
@@ -33,7 +35,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Укажите action.tool" }, { status: 400 });
   }
 
+  // Результат подтверждения дописываем в историю чата, чтобы после перезагрузки диалог читался целиком.
+  const appendToHistory = async (text: string) => {
+    if (!body.agent_session_id) return;
+    try {
+      const { data: row } = await supabase
+        .from("agent_sessions")
+        .select("messages")
+        .eq("id", body.agent_session_id)
+        .eq("psychologist_id", user.id)
+        .maybeSingle();
+      if (!row) return;
+      const prev = Array.isArray(row.messages) ? row.messages : [];
+      await supabase
+        .from("agent_sessions")
+        .update({ messages: [...prev, { id: randomUUID(), role: "assistant", text, at: new Date().toISOString() }] })
+        .eq("id", body.agent_session_id)
+        .eq("psychologist_id", user.id);
+    } catch {
+      // история — вспомогательная, на результат действия не влияет
+    }
+  };
+
   if (body.confirmed !== true) {
+    await appendToHistory("Хорошо, отменяю.");
     return NextResponse.json({ message: "Хорошо, отменяю." });
   }
 
@@ -54,32 +79,12 @@ export async function POST(request: NextRequest) {
     const timeZone = normalizeTimeZone(psychologist?.timezone as string | undefined);
 
     const output = await executeAgentTool({ supabase, psychologistId: user.id, timeZone }, tool, args);
-    return NextResponse.json({ message: describeSuccess(tool), result: output });
+    const message = describeSuccess(tool, output, timeZone);
+    await appendToHistory(message);
+    return NextResponse.json({ message, result: output });
   } catch (e) {
     const message = e instanceof AgentToolError ? e.message : "Не удалось выполнить действие";
+    await appendToHistory(`Не получилось: ${message}`);
     return NextResponse.json({ error: message }, { status: 502 });
-  }
-}
-
-function describeSuccess(tool: string): string {
-  switch (tool) {
-    case "create_client":
-      return "Клиент создан.";
-    case "update_client":
-      return "Данные клиента обновлены.";
-    case "create_session":
-      return "Сессия создана.";
-    case "cancel_session":
-      return "Сессия отменена.";
-    case "send_message_to_client":
-      return "Сообщение подготовлено и сохранено. Отправка в мессенджер будет доступна после подключения каналов.";
-    case "send_homework":
-      return "Домашнее задание подготовлено и сохранено. Отправка в мессенджер будет доступна после подключения каналов.";
-    case "send_session_invite":
-      return "Приглашение подготовлено и сохранено. Отправка будет доступна после подключения каналов и видеосвязи.";
-    case "send_broadcast_message":
-      return "Рассылка подготовлена и сохранена для всех активных клиентов. Реальная отправка будет доступна после подключения каналов.";
-    default:
-      return "Готово.";
   }
 }

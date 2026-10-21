@@ -118,6 +118,13 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
   // а не только приветствие.
   useEffect(() => {
     let cancelled = false;
+    // Смена клиента: чат другого клиента не должен показывать чужую переписку, пока грузится своя.
+    setMessages([WELCOME_MESSAGE]);
+    setAgentSessionId(undefined);
+    setPendingAction(null);
+    setWebSearchState(null);
+    setHistoryLoading(true);
+    lastExchangeRef.current = null;
     (async () => {
       try {
         const res = await fetch(`/api/assistant/history${clientId ? `?client_id=${clientId}` : ""}`);
@@ -276,7 +283,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
       const res = await fetch("/api/assistant/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: { tool: action.tool, arguments: action.arguments }, confirmed }),
+        body: JSON.stringify({ action: { tool: action.tool, arguments: action.arguments }, confirmed, agent_session_id: agentSessionId }),
       });
       const data = await res.json();
       setMessages(prev => [
@@ -346,7 +353,7 @@ export default function AssistantChat({ clientId, placeholder = "Спроси м
     setResetting(true);
     setError(null);
     try {
-      const res = await fetch("/api/assistant/history", { method: "DELETE" });
+      const res = await fetch(`/api/assistant/history${clientId ? `?client_id=${clientId}` : ""}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? "Не удалось начать новый диалог");
