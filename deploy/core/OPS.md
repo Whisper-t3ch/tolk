@@ -57,3 +57,21 @@ cd ~/core && ./switch_domain.sh prod      # правит .env.core и Supabase S
 
 Управление: `touch ~/auto-deploy/DISABLED` — выключить; `rm ~/auto-deploy/rejected` — снять блокировку после разбора отказа.
 После слияния `auto/support-fixes` в рабочую ветку и обычного деплоя снапшотом ничего делать не нужно: уже применённые изменения скрипт пропускает.
+
+## Выкатка по pull: ветка release/prod (release_deploy.sh)
+
+Я (Claude) после зелёных tsc и тестов пушу в `release/prod`; cron на core каждую минуту сверяет `git ls-remote` с `~/tolk-src/.git_commit`
+и, если коммит новый, делает `git archive` поверх `~/tolk-src`, `./core.sh build && up`, проверку `/api/health` и `/login`, при сбое — `rollback`.
+Итог — в Telegram. Ручной деплой снапшотом работает как раньше (скрипт видит, что `.git_commit` уже равен HEAD ветки, и молчит).
+Замок общий с `auto_deploy.sh`, одновременно они не идут. Скрипт сам обновляет свою копию в `~/core` после успешной выкатки.
+
+Миграции БД НЕ применяются автоматически. Если в коммите есть `outputs/backend/migration_NNN_*.sql` с NNN больше числа в `~/release-deploy/migrations_upto`,
+выкатка ждёт и один раз пишет в Telegram. Применить SQL (`sudo docker exec -i supabase-db psql -U supabase_admin -d postgres < файл.sql`),
+затем `echo NNN > ~/release-deploy/migrations_upto` — следующая минута выкатит сама.
+
+Установка (один раз): ключ — тот же read-only deploy key (`~/auto-deploy/deploy_key`) или свой в `~/release-deploy/deploy_key`.
+`mkdir -p ~/release-deploy && echo <последняя применённая миграция> > ~/release-deploy/migrations_upto`;
+`cp ~/tolk-src/deploy/core/release_deploy.sh ~/core/ && chmod +x ~/core/release_deploy.sh && sed -i 's/\r$//' ~/core/release_deploy.sh`;
+cron: `* * * * * /home/ubuntu/core/release_deploy.sh >> /home/ubuntu/tolk-release-deploy.log 2>&1`.
+Управление: `touch ~/release-deploy/DISABLED` — выключить; `rm ~/release-deploy/rejected` — снять блокировку после отказа; лог — `~/tolk-release-deploy.log`.
+Безопасность: кто может писать в `release/prod`, тот выкатывает код на прод — включите защиту ветки (запрет force-push, пуши только владельца и Claude).
