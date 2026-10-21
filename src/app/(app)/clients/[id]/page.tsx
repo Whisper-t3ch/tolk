@@ -71,6 +71,7 @@ interface KnowledgeAttachItem {
   title: string | null;
   content: string;
   source_type: string;
+  questionnaire_key?: string | null;
 }
 
 // Короткие ярлыки типов материала для пикера вложений — те же подписи,
@@ -522,7 +523,32 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   // отредактировать перед отправкой, а не отправляется напрямую, в
   // отличие от готовых ДЗ во вкладке "Шаблоны ДЗ" (там текст уже
   // адресован клиенту как есть, здесь материалы разного назначения).
-  const attachMaterial = (item: KnowledgeAttachItem) => {
+  const attachMaterial = async (item: KnowledgeAttachItem) => {
+    // Тест с интерактивным опросником уходит клиенту ССЫЛКОЙ на форму /test/[token]
+    // (создаётся test_results, балл считается сам), а не текстом методики.
+    if (item.source_type === "test" && item.questionnaire_key && id) {
+      setShowAttachPicker(false);
+      setSending(true);
+      try {
+        const res = await fetch(`/api/clients/${id}/tests/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questionnaire_key: item.questionnaire_key, title: item.title ?? undefined, channel: sendChannel }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data?.error ?? "Не удалось отправить тест");
+          return;
+        }
+        const list = await fetch(`/api/messages?client_id=${id}`).then(r => r.json()).catch(() => null);
+        if (list?.messages) setMessages((list.messages as Parameters<typeof toChatMessage>[0][]).map(m => toChatMessage(m, timeZone)));
+      } catch {
+        alert("Не удалось связаться с сервером");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
     setChatInput(prev => (prev ? `${prev}\n\n${item.content}` : item.content));
     setShowAttachPicker(false);
   };
@@ -1260,6 +1286,11 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                       }}>
                         {ATTACH_SOURCE_TYPE_LABELS[item.source_type] ?? item.source_type}
                       </span>
+                      {item.source_type === "test" && item.questionnaire_key && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#157347", background: "#E7F5EC", padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>
+                          ссылка на тест
+                        </span>
+                      )}
                       <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
                         {item.title ?? "Без названия"}
                       </span>
