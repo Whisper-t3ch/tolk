@@ -24,6 +24,7 @@ import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pse
 import { logLlmUsage } from "@/lib/agent/usageLog";
 import { describeAction, ActionPreviewError } from "@/lib/agent/describeAction";
 import { inferRecurrence, type CreateSessionArgs } from "@/lib/agent/scheduling";
+import { parseFastIntent } from "@/lib/agent/fastIntent";
 import { looksLikeGibberish } from "@/lib/agent/gibberish";
 import { findMentionedClients, knowledgeBaseRedirect, unknownNamesInMessage } from "@/lib/agent/mentionedClients";
 import { plainifyMarkdown } from "@/lib/agent/plainText";
@@ -422,6 +423,33 @@ export async function POST(request: NextRequest) {
         message_id: assistantMessageId,
       });
     }
+  }
+
+  // Частые однозначные команды («создай клиентов…», «поставь Анну на завтра в 10», «по вторникам в 12 и пятницам в 17»)
+  // разбираем кодом, без модели: так надёжнее. Если что-то неясно — parseFastIntent вернёт null и вопрос уйдёт модели.
+  const fast = parseFastIntent(userMessage, { clients: mentionedClients, timeZone, now });
+  if (fast) {
+    const fastArgs = fast.args as Record<string, unknown>;
+    const fastLlmText = userDatePrefix + contextPrefix + userMessage;
+    let fastDescription: string;
+    try {
+      fastDescription = await describeAction(supabase, userId, timeZone, fast.tool, fastArgs, mentionedClients.find(c => c.id === fastArgs.client_id)?.name);
+    } catch (e) {
+      const reason = (e instanceof ActionPreviewError ? e.message : "не удалось разобрать запрос").replace(/[.\s]+$/, "");
+      const text = `Не получилось: ${reason}. Уточните, пожалуйста, и я повторю.`;
+      const failId = randomUUID();
+      const { agentSessionId: failSid } = await saveAgentSession(supabase, userId, body.agent_session_id, userMessage, text, failId, fastLlmText, body.client_id);
+      return NextResponse.json({ message: text, actions_taken: false, agent_session_id: failSid, message_id: failId, suggested_web_search_query: null });
+    }
+    await consumeAssistantLimit(supabase, userId, "agentTask");
+    console.log("FAST_INTENT", fast.tool);
+    const { agentSessionId: fastSid } = await saveAgentSession(supabase, userId, body.agent_session_id, userMessage, fastDescription, randomUUID(), fastLlmText, body.client_id);
+    return NextResponse.json({
+      type: "confirmation_required",
+      action: { tool: fast.tool, arguments: fastArgs },
+      description: fastDescription,
+      agent_session_id: fastSid,
+    });
   }
 
   const messages: YandexGptAnyMessage[] = [

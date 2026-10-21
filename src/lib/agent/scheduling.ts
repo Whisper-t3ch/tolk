@@ -77,6 +77,8 @@ function addDays(dateStr: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+export const addDaysIso = (dateStr: string, days: number): string => addDays(dateStr, days);
+
 function endOfMonth(dateStr: string): string {
   const [y, m] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
