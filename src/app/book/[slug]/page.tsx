@@ -136,7 +136,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
       return;
     }
     if (!telegram.trim()) {
-      setSubmitError("Укажите Telegram");
+      setSubmitError("Укажите контакт для связи: Telegram или номер телефона");
       return;
     }
     setSubmitting(true);
@@ -149,7 +149,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
           date: selectedDate,
           time: selectedTime,
           client_name: name.trim(),
-          client_telegram: telegram.trim(),
+          client_contact: telegram.trim(),
         }),
       });
       const data = await res.json();
@@ -195,12 +195,7 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
             {psychologist ? `Запись к ${toDativeCase(psychologist.name)}` : "Запись на консультацию"}
           </h1>
           <p style={{ fontSize: 13, color: "#6F5A3F", marginTop: 6 }}>
-            {/* Раньше это писалось безусловно, даже когда у психолога не
-                подключён Telegram-бот — клиент бронировал и ждал
-                подтверждение, которое физически некому отправить. */}
-            {telegramConnected
-              ? "Выберите удобное время — подтверждение придёт в Telegram"
-              : "Выберите удобное время — психолог свяжется с вами для подтверждения"}
+            Выберите удобное время — психолог свяжется с вами для подтверждения
           </p>
         </div>
 
@@ -386,11 +381,11 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
                           />
                         </div>
                         <div style={{ marginBottom: 14 }}>
-                          <label style={{ fontSize: 11.5, fontWeight: 600, color: "#6B6058" }}>Telegram</label>
+                          <label style={{ fontSize: 11.5, fontWeight: 600, color: "#6B6058" }}>Контакт для связи</label>
                           <input
                             value={telegram}
                             onChange={e => setTelegram(e.target.value)}
-                            placeholder="@username"
+                            placeholder="@username в Telegram или номер телефона"
                             style={inputStyle}
                           />
                         </div>

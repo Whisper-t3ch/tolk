@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSlotAvailable, type WorkingHours } from "@/lib/booking";
 import { notifyUserTelegram } from "@/lib/notify/platformTelegram";
+import { parseClientContact } from "@/lib/bookingContact";
 import { normalizeTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 
 // POST /api/public/booking/[slug]/create
-// Body: { date: "YYYY-MM-DD", time: "HH:MM", client_name: string, client_telegram: string }
+// Body: { date: "YYYY-MM-DD", time: "HH:MM", client_name: string, client_contact: string }
+// client_contact — «Контакт для связи»: Telegram (@username) или номер телефона.
+// (client_telegram принимается как прежнее имя поля.)
 //
 // Публичный роут — БЕЗ авторизации психолога (см. подробный комментарий
 // в соседнем slots/route.ts про createAdminClient и ручное ограничение
@@ -16,7 +19,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { slug } = await params;
   const supabase = createAdminClient();
 
-  let body: { date?: string; time?: string; client_name?: string; client_telegram?: string };
+  let body: { date?: string; time?: string; client_name?: string; client_contact?: string; client_telegram?: string };
   try {
     body = await request.json();
   } catch {
@@ -26,7 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const date = body.date?.trim();
   const time = body.time?.trim();
   const clientName = body.client_name?.trim();
-  const clientTelegram = body.client_telegram?.trim().replace(/^@/, "");
+  const contact = parseClientContact(body.client_contact ?? body.client_telegram);
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "Некорректная дата" }, { status: 400 });
@@ -37,9 +40,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!clientName) {
     return NextResponse.json({ error: "Укажите имя" }, { status: 400 });
   }
-  if (!clientTelegram) {
-    return NextResponse.json({ error: "Укажите Telegram" }, { status: 400 });
+  if (!contact) {
+    return NextResponse.json({ error: "Укажите контакт для связи: Telegram (@username) или номер телефона" }, { status: 400 });
   }
+  // В sessions.client_contact_telegram лежит контакт как есть (тег без @ или телефон) — отдельной колонки не заводили.
+  const clientTelegram = contact.value;
 
   const { data: settings, error: settingsError } = await supabase
     .from("booking_settings")
@@ -139,13 +144,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // Ищем существующего клиента психолога по уже привязанному Telegram
   // (client_messenger_links) — если клиент уже писал через бота или
   // бронировал раньше, не плодим дубликат карточки.
-  const { data: existingLink } = await supabase
-    .from("client_messenger_links")
-    .select("client_id")
-    .eq("psychologist_id", psychologistId)
-    .eq("platform", "telegram")
-    .eq("external_username", clientTelegram)
-    .maybeSingle();
+  const { data: existingLink } = contact.kind === "telegram"
+    ? await supabase
+        .from("client_messenger_links")
+        .select("client_id")
+        .eq("psychologist_id", psychologistId)
+        .eq("platform", "telegram")
+        .eq("external_username", clientTelegram)
+        .maybeSingle()
+    : { data: null };
 
   let clientId = existingLink?.client_id as string | undefined;
 
@@ -196,7 +203,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .format(new Date(scheduledAt));
     await notifyUserTelegram(
       psychologistId,
-      `Новая запись: ${clientName}, ${when} (${timeZone}).\nTelegram клиента: @${clientTelegram}\nСтатус: ожидает подтверждения — свяжитесь с клиентом.`
+      `Новая запись: ${clientName}, ${when} (${timeZone}).\n${contact.kind === "telegram" ? `Telegram клиента: @${contact.value}` : `Телефон клиента: ${contact.value}`}\nСтатус: ожидает подтверждения — свяжитесь с клиентом.`
     );
   } catch {
     /* уведомление не критично */
@@ -212,8 +219,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // (пояс психолога Europe/Moscow), клиент из Asia/Omsk на экране
     // подтверждения видел «19:00» — притом что в БД слот записан верно.
     timezone: timeZone,
-    payment_instructions: telegramConnected
+    payment_instructions: telegramConnected && contact.kind === "telegram"
       ? "Бронь создана. Психолог свяжется с вами в Telegram для подтверждения и оплаты сессии."
-      : "Бронь создана. Психолог свяжется с вами для подтверждения и оплаты сессии.",
+      : "Бронь создана. Психолог свяжется с вами по указанному контакту для подтверждения и оплаты сессии.",
   });
 }
