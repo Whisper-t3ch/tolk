@@ -67,3 +67,11 @@ describe("несколько дней недели", () => {
     expect(a.weekday).toBeUndefined();
   });
 });
+
+describe("до конца месяца", () => {
+  it("перекрывает дату, посчитанную моделью", () => {
+    const a: { weekday: string; time: string; repeat_until?: string } = { weekday: "wed", time: "10:00", repeat_until: "2026-11-04" };
+    inferRecurrence("Каждую среду в 10 до конца месяца встречи", a);
+    expect(a.repeat_until).toBe("end_of_month");
+  });
+});

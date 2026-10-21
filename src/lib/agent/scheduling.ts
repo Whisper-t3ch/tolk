@@ -206,6 +206,12 @@ export function inferRecurrence(message: string, args: CreateSessionArgs): void 
   for (const [code, re] of names) if (re.test(text)) found.push(code);
   if (found.length > 1) args.weekday = found.join(",");
   else if (found.length === 1 && !args.weekday) args.weekday = found[0];
+  // «До конца месяца» модель считала сама и ошибалась (написала 4 ноября) — это слово психолога главнее.
+  if (/до конца (этого )?месяца/.test(text)) {
+    args.repeat_until = "end_of_month";
+    args.repeat_count = undefined;
+    return;
+  }
   if (hasRepeat) return;
   if (/до конца месяца/.test(text)) {
     args.repeat_until = "end_of_month";
