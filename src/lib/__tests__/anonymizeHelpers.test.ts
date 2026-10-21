@@ -118,3 +118,26 @@ describe("scrubDates", () => {
     expect(out).toBe("Тяжело. Недавно поругался с отцом.");
   });
 });
+
+describe("режим «имена оставляем»", () => {
+  it("dropPatronymics оставляет только имя", async () => {
+    const { dropPatronymics } = await import("../anonymize");
+    expect(dropPatronymics("Ко мне пришёл Игорь Петрович и Мария Сергеевна.")).toBe("Ко мне пришёл Игорь и Мария.");
+    expect(dropPatronymics("Позвонила Мише, потом Анне Ивановне.")).toBe("Позвонила Мише, потом Анне.");
+    expect(dropPatronymics("Миша пошёл гулять.")).toBe("Миша пошёл гулять.");
+  });
+  it("по умолчанию имена заменяются, с флагом — нет", async () => {
+    mocked.mockResolvedValue({ replacements: [] });
+    delete process.env.ANON_KEEP_FIRST_NAMES;
+    await anonymizeTranscript("Клиент: пришёл муж.", "Катя", FAST);
+    expect(JSON.stringify(mocked.mock.calls[0][0])).not.toContain("имена оставляем");
+    mocked.mockClear();
+    process.env.ANON_KEEP_FIRST_NAMES = "1";
+    try {
+      await anonymizeTranscript("Клиент: пришёл муж.", "Катя", FAST);
+      expect(JSON.stringify(mocked.mock.calls[0][0])).toContain("имена оставляем");
+    } finally {
+      delete process.env.ANON_KEEP_FIRST_NAMES;
+    }
+  });
+});
