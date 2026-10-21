@@ -78,8 +78,22 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     const timeZone = normalizeTimeZone(psychologist?.timezone as string | undefined);
 
-    const output = await executeAgentTool({ supabase, psychologistId: user.id, timeZone }, tool, args);
-    const message = describeSuccess(tool, output, timeZone);
+    const ctx = { supabase, psychologistId: user.id, timeZone };
+    const { then_session: thenSession, ...mainArgs } = args as Record<string, unknown>;
+    const output = await executeAgentTool(ctx, tool, tool === "create_client" ? mainArgs : args);
+    let message = describeSuccess(tool, output, timeZone);
+    // «Создай клиента и сразу поставь сессию»: вторым шагом — сессия уже созданного клиента.
+    if (tool === "create_client" && thenSession && typeof thenSession === "object") {
+      const created = (output as { clients?: Array<{ id?: string }> })?.clients?.[0]?.id;
+      if (created) {
+        try {
+          const sessionOutput = await executeAgentTool(ctx, "create_session", { ...(thenSession as Record<string, unknown>), client_id: created });
+          message += `\n${describeSuccess("create_session", sessionOutput, timeZone)}`;
+        } catch (e) {
+          message += `\nНо сессию поставить не получилось: ${e instanceof AgentToolError ? e.message : "ошибка"}. Напишите, когда поставить, и я повторю.`;
+        }
+      }
+    }
     await appendToHistory(message);
     return NextResponse.json({ message, result: output });
   } catch (e) {

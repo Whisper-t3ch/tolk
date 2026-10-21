@@ -13,7 +13,7 @@ import { todayInTimeZone, weekdayInTimeZone, zonedDateTimeToUtc } from "@/lib/ti
 import type { ClientRef } from "./mentionedClients";
 
 export type FastIntent =
-  | { tool: "create_client"; args: { names: string[] } }
+  | { tool: "create_client"; args: { names: string[]; then_session?: CreateSessionArgs } }
   | { tool: "create_session"; args: CreateSessionArgs & { client_id: string } };
 
 export interface FastIntentContext {
@@ -173,10 +173,23 @@ function parseCreateSession(message: string, ctx: FastIntentContext): FastIntent
   return { tool: "create_session", args };
 }
 
+/** «Создай клиента Олю и сразу поставь ей сессию в пятницу в 11» — одна карточка: клиент, затем его сессия. */
+function parseCreateClientAndSession(message: string, ctx: FastIntentContext): FastIntent | null {
+  const m = message.match(/^(.+?)[,\s]+(?:и\s+)?(?:сразу\s+)?(?:же\s+)?((?:поставь|запиши|назначь|запланируй)(?![а-яё]).*)$/i);
+  if (!m) return null;
+  const left = parseCreateClients(m[1]);
+  if (!left || left.tool !== "create_client" || left.args.names.length !== 1) return null;
+  const right = parseCreateSession(m[2], { ...ctx, clients: [{ id: "__new__", name: left.args.names[0] }] });
+  if (!right || right.tool !== "create_session") return null;
+  const { client_id: _ignored, ...session } = right.args;
+  void _ignored;
+  return { tool: "create_client", args: { names: left.args.names, then_session: session } };
+}
+
 export function parseFastIntent(message: string, ctx: FastIntentContext): FastIntent | null {
   const text = message.trim();
   if (!text || text.length > 400) return null;
-  return parseCreateClients(text) ?? parseCreateSession(text, ctx);
+  return parseCreateClientAndSession(text, ctx) ?? parseCreateClients(text) ?? parseCreateSession(text, ctx);
 }
 
 const WORD_HOURS = "один|одиннадцать|два|двенадцать|три|четыре|пять|шесть|семь|восемь|девять|десять|час";

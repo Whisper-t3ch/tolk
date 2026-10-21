@@ -86,3 +86,17 @@ describe("личные события", () => {
     expect(parseFastIntent("Заполни расписание обедом во вторник в 13", ctx())).toBeNull();
   });
 });
+
+describe("клиент и сразу сессия", () => {
+  it("создай клиента Олю и сразу поставь ей сессию в пятницу в 11", () => {
+    const r = parseFastIntent("Создай клиента Олю и сразу поставь ей сессию в пятницу в 11", ctx([]));
+    expect(r).not.toBeNull();
+    if (!r || r.tool !== "create_client") throw new Error("ждали create_client");
+    expect(r.args.names).toEqual(["Олю"]);
+    const starts = expandSessionStarts({ ...r.args.then_session!, client_id: undefined }, TZ, NOW).map(d => formatSessionStart(d, TZ));
+    expect(starts).toEqual(["пт, 23 октября, 11:00"]);
+  });
+  it("без времени — модели, как раньше", () => {
+    expect(parseFastIntent("Создай клиента Олю и сразу поставь ей сессию в пятницу", ctx([]))).toBeNull();
+  });
+});

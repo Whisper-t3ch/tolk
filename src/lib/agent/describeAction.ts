@@ -49,6 +49,16 @@ export async function describeAction(
     case "create_client": {
       const names = collectClientNames(args as { name?: unknown; names?: unknown });
       if (names.length === 0) throw new ActionPreviewError("не понял, как зовут клиента");
+      if (names.length === 1 && args.then_session && typeof args.then_session === "object") {
+        let starts: Date[];
+        try {
+          starts = expandSessionStarts(args.then_session as CreateSessionArgs, timeZone);
+        } catch (e) {
+          throw new ActionPreviewError(e instanceof Error ? e.message : "некорректные дата или время");
+        }
+        const list = starts.length === 1 ? formatSessionStart(starts[0], timeZone) : `\n${starts.map(d => `— ${formatSessionStart(d, timeZone)}`).join("\n")}`;
+        return `Создать клиента «${names[0]}» и сразу поставить ему сессию${starts.length > 1 ? ` (${starts.length})` : ""}: ${list} (50 мин).`;
+      }
       if (names.length === 1) return `Создать клиента «${names[0]}».`;
       return `Создать клиентов (${names.length}): ${names.join(", ")}.`;
     }
