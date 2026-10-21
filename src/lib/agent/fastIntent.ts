@@ -183,7 +183,7 @@ function parseCreateSession(message: string, ctx: FastIntentContext): FastIntent
 const PERSONAL_VERB = /(?:^|[\s,.])(?:поставь|поставить|создай|создать|запиши|записать|запланируй|запланировать|добавь|добавить|внеси|внести|заполни|заполнить|назначь|занеси)(?![а-яё])/i;
 
 /** Несколько разных дат в одной просьбе одной карточкой не покрыть — отдаём модели. */
-function hasMultipleDates(text: string): boolean {
+export function hasMultipleDates(text: string): boolean {
   const relCount = (text.match(/(?<![а-яё])(?:послезавтра|завтра|сегодня)(?![а-яё])/g) ?? []).length;
   const explicitCount = (text.match(new RegExp(`\\d{1,2}\\s+(?:${MONTH_ALT})`, "g")) ?? []).length + (text.match(/(?<![\d:.])\d{1,2}\.\d{1,2}(?:\.\d{2,4})?(?![\d:])/g) ?? []).length;
   const hasWeekday = WEEKDAY_ONCE.some(([re]) => re.test(text));

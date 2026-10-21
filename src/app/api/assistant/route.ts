@@ -24,7 +24,7 @@ import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pse
 import { logLlmUsage } from "@/lib/agent/usageLog";
 import { describeAction, ActionPreviewError } from "@/lib/agent/describeAction";
 import { inferRecurrence, type CreateSessionArgs } from "@/lib/agent/scheduling";
-import { explicitDate, messageHasTime, parseFastIntent } from "@/lib/agent/fastIntent";
+import { explicitDate, hasMultipleDates, messageHasTime, parseFastIntent } from "@/lib/agent/fastIntent";
 import { extractPersonalTitle, parseDurationMinutes, PERSONAL_EVENT_RE, rangeOf, wantsSeries } from "@/lib/agent/personalEvents";
 import { formatDateInTimeZone } from "@/lib/timezone";
 import { looksLikeGibberish } from "@/lib/agent/gibberish";
@@ -651,6 +651,10 @@ export async function POST(request: NextRequest) {
         const failId = randomUUID();
         const { agentSessionId: failSid } = await saveAgentSession(supabase, userId, body.agent_session_id, userMessage ?? "", text, failId, userDatePrefix + contextPrefix + userMessage, body.client_id);
         return NextResponse.json({ message: text, actions_taken: false, agent_session_id: failSid, message_id: failId, suggested_web_search_query: null });
+      }
+      // «Завтра в 11 и в пятницу в 12»: одна карточка покрывает одну дату — честно говорим, что остальное отдельно.
+      if ((callName === "create_session" || callName === "create_personal_event") && !confirmArgs.weekday && hasMultipleDates((userMessage ?? "").toLowerCase().replace(/ё/g, "е"))) {
+        description += "\nВ просьбе названо несколько дат — эта карточка только на первую. Остальные напишите следующим сообщением, и я их поставлю.";
       }
       if (callName === "create_client" && hasSessionWords && /сесси|встреч/i.test(userMessage ?? "")) {
         description += "\nСессию с ним поставлю следующим сообщением: напишите, когда клиент будет создан.";
