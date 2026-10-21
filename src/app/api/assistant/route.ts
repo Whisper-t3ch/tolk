@@ -24,7 +24,8 @@ import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pse
 import { logLlmUsage } from "@/lib/agent/usageLog";
 import { describeAction, ActionPreviewError } from "@/lib/agent/describeAction";
 import { inferRecurrence, type CreateSessionArgs } from "@/lib/agent/scheduling";
-import { parseFastIntent } from "@/lib/agent/fastIntent";
+import { explicitDate, messageHasTime, parseFastIntent } from "@/lib/agent/fastIntent";
+import { formatDateInTimeZone } from "@/lib/timezone";
 import { looksLikeGibberish } from "@/lib/agent/gibberish";
 import { findMentionedClients, knowledgeBaseRedirect, unknownNamesInMessage } from "@/lib/agent/mentionedClients";
 import { plainifyMarkdown } from "@/lib/agent/plainText";
@@ -598,6 +599,20 @@ export async function POST(request: NextRequest) {
       }
       let description: string;
       try {
+        // Слабая модель подставляет в сессию текущее время, если психолог его не назвал, — просим уточнить.
+        if (callName === "create_session" && !messageHasTime(userMessage ?? "")) {
+          throw new ActionPreviewError("не указано время сессии — напишите, на какое время поставить");
+        }
+        // «Отмени сессию 1 января» — модель брала ближайшую сессию клиента вместо названной даты.
+        if (callName === "cancel_session" && typeof confirmArgs.session_id === "string") {
+          const wanted = explicitDate(userMessage ?? "", timeZone, now);
+          if (wanted) {
+            const { data: target } = await supabase.from("sessions").select("scheduled_at").eq("id", confirmArgs.session_id).eq("psychologist_id", userId).maybeSingle();
+            if (target && formatDateInTimeZone(new Date(target.scheduled_at as string), timeZone) !== wanted) {
+              throw new ActionPreviewError("на названную дату у этого клиента нет сессии — уточните дату или откройте карточку клиента и проверьте список сессий");
+            }
+          }
+        }
         description = await describeAction(
           supabase,
           userId,

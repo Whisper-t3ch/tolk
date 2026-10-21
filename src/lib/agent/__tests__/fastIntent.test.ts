@@ -64,3 +64,18 @@ describe("fastIntent: сессии", () => {
     expect(parseFastIntent("Перенеси Анну на завтра в 11", ctx())).toBeNull();
   });
 });
+
+import { messageHasTime, explicitDate } from "../fastIntent";
+describe("время и дата в просьбе", () => {
+  it("время названо", () => {
+    expect(messageHasTime("Поставь Егора на завтра в 10")).toBe(true);
+    expect(messageHasTime("поставь на 15:30")).toBe(true);
+    expect(messageHasTime("завтра в десять")).toBe(true);
+    expect(messageHasTime("Поставь Егора на завтра")).toBe(false);
+    expect(messageHasTime("Поставь Егора на 25 октября")).toBe(false);
+  });
+  it("явная дата", () => {
+    expect(explicitDate("Отмени сессию 1 января", TZ, NOW)).toBe("2027-01-01");
+    expect(explicitDate("Отмени сессию с Егором", TZ, NOW)).toBeNull();
+  });
+});

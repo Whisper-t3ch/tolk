@@ -177,3 +177,16 @@ export function parseFastIntent(message: string, ctx: FastIntentContext): FastIn
   if (!text || text.length > 400) return null;
   return parseCreateClients(text) ?? parseCreateSession(text, ctx);
 }
+
+const WORD_HOURS = "один|одиннадцать|два|двенадцать|три|четыре|пять|шесть|семь|восемь|девять|десять|час";
+
+/** Есть ли в просьбе время суток: иначе модель подставляет текущее время («14:13»), которого психолог не называл. */
+export function messageHasTime(message: string): boolean {
+  const t = message.toLowerCase().replace(/ё/g, "е");
+  return parseTime(t) !== null || new RegExp(`(?:^|\\s)(?:в|на|к)\\s+(?:${WORD_HOURS})(?![а-я])`).test(t) || /полдень|полночь|через\s+(?:\S+\s+)?час/.test(t);
+}
+
+/** Дата, названная в просьбе явно («1 января», «25.10», «в пятницу», «завтра»), либо null. */
+export function explicitDate(message: string, timeZone: string, now: Date): string | null {
+  return parseDate(message.toLowerCase().replace(/ё/g, "е"), timeZone, now);
+}
