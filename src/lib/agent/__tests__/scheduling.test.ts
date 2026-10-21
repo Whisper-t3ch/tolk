@@ -31,3 +31,23 @@ describe("collectClientNames", () => {
     expect(collectClientNames({ name: "Мария, Сергей и Иван" })).toEqual(["Мария", "Сергей", "Иван"]);
   });
 });
+
+import { inferRecurrence } from "../scheduling";
+describe("inferRecurrence", () => {
+  it("«на месяц по вторникам» → 4 недели", () => {
+    const a: { weekday: string; time: string; repeat_count?: number } = { weekday: "tue", time: "15:00" };
+    inferRecurrence("Сделай встречи с Анной на месяц по вторникам в 15:00", a);
+    expect(a.repeat_count).toBe(4);
+  });
+  it("разовая сессия не трогается", () => {
+    const a: { time: string; repeat_count?: number; repeat_until?: string } = { time: "10:00" };
+    inferRecurrence("Поставь сессию с Дмитрием на завтра на 10 часов", a);
+    expect(a.repeat_count).toBeUndefined();
+    expect(a.repeat_until).toBeUndefined();
+  });
+  it("до конца месяца", () => {
+    const a: { repeat_until?: string } = {};
+    inferRecurrence("каждую пятницу в 12 до конца месяца", a);
+    expect(a.repeat_until).toBe("end_of_month");
+  });
+});

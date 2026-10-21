@@ -23,6 +23,7 @@ import { guardResponseText } from "@/lib/agent/responseGuard";
 import { parsePseudoToolCall, unwrapPlainMessageEnvelope } from "@/lib/agent/pseudoToolCallParser";
 import { logLlmUsage } from "@/lib/agent/usageLog";
 import { describeAction, ActionPreviewError } from "@/lib/agent/describeAction";
+import { inferRecurrence, type CreateSessionArgs } from "@/lib/agent/scheduling";
 import { findMentionedClients, knowledgeBaseRedirect, unknownNamesInMessage } from "@/lib/agent/mentionedClients";
 import { plainifyMarkdown } from "@/lib/agent/plainText";
 import { looksLikeDiagnosis, DIAGNOSIS_REWRITE_NUDGE } from "@/lib/agent/diagnosisGuard";
@@ -512,6 +513,9 @@ export async function POST(request: NextRequest) {
         })
       );
       const confirmArgs = confirmationCall.functionCall.arguments as Record<string, unknown>;
+      if (confirmationCall.functionCall.name === "create_session") {
+        inferRecurrence(userMessage ?? "", confirmArgs as CreateSessionArgs);
+      }
       let description: string;
       try {
         description = await describeAction(

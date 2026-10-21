@@ -167,3 +167,30 @@ export function collectClientNames(args: { name?: unknown; names?: unknown }): s
   push(args.name);
   return out.slice(0, 30);
 }
+
+/**
+ * Слабая модель часто забывает повторение («по вторникам на месяц» → одна сессия). Достраиваем его по тексту
+ * просьбы психолога, если модель сама не задала ни repeat_until, ни repeat_count.
+ */
+export function inferRecurrence(message: string, args: CreateSessionArgs): void {
+  if (args.repeat_until || (typeof args.repeat_count === "number" && args.repeat_count > 1)) return;
+  const text = message.toLowerCase();
+  const everyWeekday = /по\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)\S*/.test(text);
+  const every = /кажд(ый|ую|ое|ые)\s/.test(text) || /еженедельн|раз в неделю/.test(text);
+  if (!everyWeekday && !every) return;
+  if (/до конца месяца/.test(text)) {
+    args.repeat_until = "end_of_month";
+    return;
+  }
+  const weeks = text.match(/(?:на|в течение)\s+(\d{1,2})\s+недел/);
+  if (weeks) {
+    args.repeat_count = Math.min(Number(weeks[1]), MAX_SESSIONS_PER_REQUEST);
+    return;
+  }
+  if (/месяц/.test(text)) {
+    args.repeat_count = 4;
+    return;
+  }
+  // «по вторникам» без срока — на ближайшие 4 недели; психолог видит весь список в карточке и может отказаться.
+  args.repeat_count = 4;
+}
