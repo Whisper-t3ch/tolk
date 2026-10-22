@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { LogoMark } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/client";
+import { suggestEmailFix } from "@/lib/emailTypos";
 
 // Регистрация новых аккаунтов. Настоящая блокировка — на уровне Supabase
 // Auth (Dashboard → Authentication → Settings → Allow new users to sign up),
@@ -101,7 +102,7 @@ function LoginForm() {
   }
 
   function translateAuthError(message: string): string {
-    if (message.includes("Invalid login credentials")) return "Неверный email или пароль";
+    if (message.includes("Invalid login credentials")) return "Неверный email или пароль. Проверьте, что адрес почты написан без опечаток, или нажмите «Забыли пароль?»";
     if (message.includes("User already registered")) return "Этот email уже зарегистрирован — попробуйте войти";
     if (message.includes("Password should be at least")) return "Пароль слишком короткий (минимум 6 символов)";
     if (message.includes("Unable to validate email")) return "Некорректный email";
@@ -210,6 +211,14 @@ function LoginForm() {
               fontFamily: "var(--font-sans)",
             }}
           />
+          {suggestEmailFix(email) && (
+            <p style={{ fontSize: 12.5, color: "#92400E", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", margin: 0, lineHeight: 1.5 }}>
+              Похоже на опечатку в адресе. Вы имели в виду <b>{suggestEmailFix(email)}</b>?{" "}
+              <button type="button" onClick={() => setEmail(suggestEmailFix(email) ?? email)} style={{ background: "none", border: "none", padding: 0, color: "#2D6A5C", fontWeight: 700, textDecoration: "underline", cursor: "pointer", fontSize: 12.5 }}>
+                Исправить
+              </button>
+            </p>
+          )}
           <div style={{ position: "relative" }}>
             <input
               type={showPassword ? "text" : "password"}

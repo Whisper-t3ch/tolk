@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Send, ChevronLeft, Download,
   TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
-  Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen, Search,
+  Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen, Search, Trash2,
 } from "lucide-react";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
 import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
@@ -420,6 +420,25 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       setSendTestLinkError("Не удалось связаться с сервером");
     } finally {
       setSendingTestLink(false);
+    }
+  };
+
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const deletePastSession = async (sessionId: string, label: string) => {
+    if (!window.confirm(`Удалить сессию ${label}? Расшифровка, протокол и запись будут удалены без возможности восстановления.`)) return;
+    setDeletingSessionId(sessionId);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        window.alert(data.error ?? "Не удалось удалить сессию");
+      } else {
+        await refreshSessions();
+      }
+    } catch {
+      window.alert("Не удалось связаться с сервером");
+    } finally {
+      setDeletingSessionId(null);
     }
   };
 
@@ -998,8 +1017,24 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 {pastSessions.map(s => (
                   <Card key={s.id}>
                     <CardContent className="pt-3 pb-3" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Video size={13} style={{ color: "#6F5A3F" }} />
-                      <span style={{ fontSize: 12, color: "#6B6058" }}>{formatSessionDate(s.date)} · {s.time}</span>
+                      <Link
+                        href={`/session/${s.id}/soap`}
+                        title="Открыть расшифровку и протокол"
+                        style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, textDecoration: "none", minWidth: 0 }}
+                      >
+                        <Video size={13} style={{ color: "#6F5A3F", flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: "#1C1C1E", fontWeight: 600 }}>{formatSessionDate(s.date)} · {s.time}</span>
+                        <span style={{ fontSize: 11.5, color: "#2D6A5C", marginLeft: "auto" }}>Открыть →</span>
+                      </Link>
+                      <button
+                        onClick={() => deletePastSession(s.id, `${formatSessionDate(s.date)} · ${s.time}`)}
+                        disabled={deletingSessionId === s.id}
+                        title="Удалить сессию"
+                        aria-label="Удалить сессию"
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#8A7F70", display: "flex", padding: 4, opacity: deletingSessionId === s.id ? 0.4 : 1 }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </CardContent>
                   </Card>
                 ))}

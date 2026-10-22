@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { LogoMark } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/client";
+import { suggestEmailFix } from "@/lib/emailTypos";
 
 // Запрос письма для сброса пароля. Ответ всегда одинаковый (не раскрываем, есть ли такой email).
 export default function ForgotPasswordPage() {
@@ -32,7 +33,7 @@ export default function ForgotPasswordPage() {
         </div>
         {sent ? (
           <p style={{ fontSize: 14, color: "#1C1C1E", lineHeight: 1.5 }}>
-            Если такой аккаунт есть, мы отправили на {email.trim()} письмо со ссылкой для нового пароля. Проверьте также папку «Спам». Не пришло — напишите в поддержку: tolkplace@gmail.com.
+            Если аккаунт с адресом {email.trim()} существует, мы отправили письмо со ссылкой для нового пароля. Проверьте папку «Спам» и что адрес написан именно так, как при регистрации. Не пришло — напишите в поддержку: tolkplace@gmail.com.
           </p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -40,6 +41,14 @@ export default function ForgotPasswordPage() {
             <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
               style={{ padding: "11px 14px", border: "1px solid #E5DFD5", borderRadius: 10, fontSize: 14, outline: "none", color: "#1C1C1E", width: "100%", boxSizing: "border-box" }} />
+            {suggestEmailFix(email) && (
+              <p style={{ fontSize: 12.5, color: "#92400E", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", margin: 0, lineHeight: 1.5 }}>
+                Похоже на опечатку. Вы имели в виду <b>{suggestEmailFix(email)}</b>?{" "}
+                <button type="button" onClick={() => setEmail(suggestEmailFix(email) ?? email)} style={{ background: "none", border: "none", padding: 0, color: "#2D6A5C", fontWeight: 700, textDecoration: "underline", cursor: "pointer", fontSize: 12.5 }}>
+                  Исправить
+                </button>
+              </p>
+            )}
             {error && <p style={{ fontSize: 12.5, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "8px 12px", margin: 0 }}>{error}</p>}
             <button onClick={submit} disabled={loading}
               style={{ padding: 12, background: loading ? "#1F4E43" : "#2D6A5C", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
