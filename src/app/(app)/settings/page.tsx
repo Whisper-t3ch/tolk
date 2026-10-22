@@ -7,6 +7,7 @@ import {
   ExternalLink, Sun, CalendarClock,
 } from "lucide-react";
 import { useProfile } from "@/lib/ProfileContext";
+import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import PlanPickerModal from "@/components/PlanPickerModal";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
 
@@ -30,6 +31,34 @@ export default function SettingsPage() {
   const [showPlanPicker, setShowPlanPicker] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteWord, setDeleteWord] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function deleteAccount() {
+    if (deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/profile/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: deletePassword, confirm: deleteWord }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(data.error ?? "Не удалось удалить аккаунт");
+        return;
+      }
+      try { await createBrowserSupabase().auth.signOut(); } catch { /* сессия уже недействительна */ }
+      window.location.href = "/login";
+    } catch {
+      setDeleteError("Не удалось связаться с сервером");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   // Лимит запросов к ассистенту — реальные данные из /api/assistant/limit,
   // а не мок currentPsychologist.plan.assistantRequests (в проде used/limit
@@ -792,21 +821,38 @@ export default function SettingsPage() {
                 <AlertTriangle size={20} style={{ color: "#B91C1C" }} />
                 <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Удалить аккаунт?</h3>
               </div>
-              <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.5, marginBottom: 16 }}>
-                Удаление аккаунта — необратимая операция, которую мы пока обрабатываем вручную, чтобы точно ничего не удалить по ошибке. Напишите нам через форму в разделе «Помощь» с темой «Удаление аккаунта» — подтвердим личность и удалим аккаунт вместе со всеми данными клиентов.
+              <p style={{ fontSize: 13, color: "#6B6058", lineHeight: 1.5, marginBottom: 12 }}>
+                Будут безвозвратно удалены аккаунт и все ваши данные: клиенты, сессии, транскрипты и записи, заметки, материалы, переписка и настройки. Восстановить их будет невозможно.
               </p>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={e => { setDeletePassword(e.target.value); setDeleteError(null); }}
+                placeholder="Ваш пароль"
+                autoComplete="current-password"
+                style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, marginBottom: 8, boxSizing: "border-box" }}
+              />
+              <input
+                type="text"
+                value={deleteWord}
+                onChange={e => { setDeleteWord(e.target.value); setDeleteError(null); }}
+                placeholder="Введите слово УДАЛИТЬ"
+                style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, marginBottom: 12, boxSizing: "border-box" }}
+              />
+              {deleteError && <p style={{ fontSize: 12.5, color: "#B91C1C", margin: "0 0 12px" }}>{deleteError}</p>}
               <div style={{ display: "flex", gap: 8 }}>
                 <Button
-                  onClick={() => setShowDeleteConfirm(false)}
+                  onClick={() => { setShowDeleteConfirm(false); setDeletePassword(""); setDeleteWord(""); setDeleteError(null); }}
                   variant="secondary" className="w-full"
                 >
                   Отмена
                 </Button>
                 <Button
-                  onClick={() => { setShowDeleteConfirm(false); window.location.href = "/help"; }}
+                  onClick={deleteAccount}
+                  disabled={deleting || !deletePassword || deleteWord.trim().toUpperCase() !== "УДАЛИТЬ"}
                   variant="danger" className="w-full"
                 >
-                  Написать в поддержку
+                  {deleting ? "Удаляю…" : "Удалить навсегда"}
                 </Button>
               </div>
             </motion.div>
