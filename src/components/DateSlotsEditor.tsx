@@ -1,8 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
-import { generateAvailableSlots, isValidTime, type DateOverrides, type WorkingHours } from "@/lib/booking";
+import { generateAvailableSlots, type DateOverrides, type WorkingHours } from "@/lib/booking";
 
 const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 const WEEKDAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -36,6 +36,202 @@ const navBtn: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0,
 };
 
+const DAY_START = 6 * 60; // шкала с 06:00
+const DAY_END = 23 * 60 + 30; // до 23:30
+const PX_PER_MIN = 1.25;
+const SNAP = 5;
+
+function toMin(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+function toTime(min: number) {
+  return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+}
+
+/**
+ * Шкала дня: слоты — блоки по длительности сессии. Клик по пустому месту добавляет слот,
+ * блок можно перетащить (шаг 5 минут), крестик убирает.
+ */
+function DayTimeline({
+  times,
+  durationMinutes,
+  disabled,
+  onChange,
+}: {
+  times: string[];
+  durationMinutes: number;
+  disabled?: boolean;
+  onChange: (next: string[]) => void;
+}) {
+  const laneRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [ghost, setGhost] = useState<number | null>(null);
+  const [drag, setDrag] = useState<{ time: string; start: number } | null>(null);
+  const dragRef = useRef<{ time: string; orig: number; startX: number; cur: number } | null>(null);
+  const timesRef = useRef(times);
+  timesRef.current = times;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const starts = times.map(toMin);
+  const minStart = Math.min(DAY_START, ...starts);
+  const maxEnd = Math.max(DAY_END, ...starts.map(m => m + durationMinutes));
+  const widthPx = (maxEnd - minStart) * PX_PER_MIN;
+  const x = (min: number) => (min - minStart) * PX_PER_MIN;
+
+  // Стартовая прокрутка к 08:00
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = Math.max(0, x(8 * 60) - 20);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function overlaps(start: number, ignore?: number) {
+    return timesRef.current.map(toMin).some(o => o !== ignore && Math.abs(o - start) < durationMinutes);
+  }
+  function snap(min: number) {
+    return Math.round(min / SNAP) * SNAP;
+  }
+  function minuteAt(clientX: number) {
+    const rect = laneRef.current!.getBoundingClientRect();
+    return minStart + (clientX - rect.left) / PX_PER_MIN;
+  }
+  function clampStart(min: number) {
+    return Math.max(0, Math.min(24 * 60 - durationMinutes, min));
+  }
+
+  function onLaneMove(e: React.PointerEvent) {
+    if (disabled || dragRef.current) return;
+    const m = clampStart(snap(minuteAt(e.clientX) - durationMinutes / 2));
+    setGhost(overlaps(m) ? null : m);
+  }
+  function onLaneClick(e: React.MouseEvent) {
+    if (disabled || dragRef.current) return;
+    const m = clampStart(snap(minuteAt(e.clientX) - durationMinutes / 2));
+    if (overlaps(m)) return;
+    onChange([...times, toTime(m)].sort());
+    setGhost(null);
+  }
+
+  function startDrag(e: React.PointerEvent, time: string) {
+    if (disabled) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const orig = toMin(time);
+    dragRef.current = { time, orig, startX: e.clientX, cur: orig };
+    setDrag({ time, start: orig });
+    setGhost(null);
+
+    const move = (ev: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const next = clampStart(snap(d.orig + (ev.clientX - d.startX) / PX_PER_MIN));
+      if (!overlaps(next, d.orig)) {
+        d.cur = next;
+        setDrag({ time: d.time, start: next });
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (d && d.cur !== d.orig) {
+        const rest = timesRef.current.filter(t => t !== d.time);
+        onChangeRef.current([...rest, toTime(d.cur)].sort());
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  }
+
+  const hours: number[] = [];
+  for (let h = Math.ceil(minStart / 60); h * 60 <= maxEnd; h++) hours.push(h);
+
+  return (
+    <div>
+      <div ref={scrollRef} style={{ overflowX: "auto", paddingBottom: 6 }}>
+        <div style={{ width: widthPx, position: "relative" }}>
+          {/* Часы */}
+          <div style={{ position: "relative", height: 18 }}>
+            {hours.map(h => (
+              <span key={h} style={{ position: "absolute", left: x(h * 60), transform: "translateX(-50%)", fontSize: 10.5, color: "#6B6058" }}>
+                {pad(h)}:00
+              </span>
+            ))}
+          </div>
+          {/* Дорожка */}
+          <div
+            ref={laneRef}
+            onPointerMove={onLaneMove}
+            onPointerLeave={() => setGhost(null)}
+            onClick={onLaneClick}
+            style={{
+              position: "relative", height: 52, background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 8,
+              cursor: disabled ? "default" : "copy", touchAction: "pan-x",
+            }}
+          >
+            {hours.map(h => (
+              <div key={h} style={{ position: "absolute", left: x(h * 60), top: 0, bottom: 0, width: 1, background: "#EFEAE0" }} />
+            ))}
+            {ghost !== null && (
+              <div
+                style={{
+                  position: "absolute", left: x(ghost), width: durationMinutes * PX_PER_MIN, top: 6, bottom: 6, borderRadius: 6,
+                  border: "1.5px dashed #2D6A5C", background: "#2D6A5C14", pointerEvents: "none",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, color: "#2D6A5C", fontWeight: 600,
+                }}
+              >
+                +{toTime(ghost)}
+              </div>
+            )}
+            {times.map(t => {
+              const dragging = drag?.time === t;
+              const start = dragging ? drag!.start : toMin(t);
+              return (
+                <div
+                  key={t}
+                  onPointerDown={e => startDrag(e, t)}
+                  onClick={e => e.stopPropagation()}
+                  title="Перетащите, чтобы сдвинуть"
+                  style={{
+                    position: "absolute", left: x(start), width: durationMinutes * PX_PER_MIN, top: 6, bottom: 6,
+                    borderRadius: 6, background: dragging ? "#2D6A5C" : "#3E8272", color: "#fff",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    fontSize: 11.5, fontWeight: 700, cursor: disabled ? "default" : "grab", touchAction: "none", userSelect: "none",
+                    boxShadow: dragging ? "0 4px 10px rgba(45,106,92,0.35)" : "none", zIndex: dragging ? 3 : 1,
+                  }}
+                >
+                  <span>{toTime(start)}</span>
+                  <span style={{ fontSize: 9.5, fontWeight: 500, opacity: 0.85 }}>{toTime(start + durationMinutes)}</span>
+                  <button
+                    type="button"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); if (!disabled) onChange(times.filter(x2 => x2 !== t)); }}
+                    aria-label={`Убрать ${t}`}
+                    style={{
+                      position: "absolute", top: -7, right: -7, width: 16, height: 16, borderRadius: 8, border: "1px solid #E5DFD5",
+                      background: "#fff", color: "#1C1C1E", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, cursor: "pointer",
+                    }}
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      <p style={{ fontSize: 12, color: "#6F5A3F", margin: "6px 0 0", lineHeight: 1.5 }}>
+        Нажмите на свободное место, чтобы добавить слот ({durationMinutes} мин). Блок можно перетащить, крестик убирает.
+      </p>
+    </div>
+  );
+}
+
 type Mode = "default" | "closed" | "custom";
 
 export function DateSlotsEditor({
@@ -64,7 +260,6 @@ export function DateSlotsEditor({
     return { y: n.getFullYear(), m: n.getMonth() };
   });
   const [selected, setSelected] = useState<string | null>(null);
-  const [newTime, setNewTime] = useState("12:00");
   const [message, setMessage] = useState<string | null>(null);
 
   /** Слоты на дату по обычному расписанию — подсказка и стартовый набор для правки. */
@@ -114,20 +309,6 @@ export function DateSlotsEditor({
     commit(next);
   }
 
-  function removeTime(date: string, t: string) {
-    const cur = overrides[date] ?? [];
-    const rest = cur.filter(x => x !== t);
-    // Убрали последнее время — это уже «выходной», а не «по расписанию»
-    commit({ ...overrides, [date]: rest });
-  }
-
-  function addTime(date: string) {
-    if (!isValidTime(newTime)) return;
-    const cur = overrides[date] ?? [];
-    if (cur.includes(newTime)) return;
-    commit({ ...overrides, [date]: [...cur, newTime].sort() });
-  }
-
   function repeatForWeekday(date: string) {
     const source = overrides[date];
     const wd = weekdayOf(date);
@@ -146,11 +327,6 @@ export function DateSlotsEditor({
   const prevDisabled = view.y === new Date().getFullYear() && view.m === new Date().getMonth();
   const mode = selected ? modeOf(selected) : "default";
   const customTimes = selected ? overrides[selected] ?? [] : [];
-
-  const chip: React.CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 8px 4px 10px",
-    borderRadius: 14, background: "#E8F3EF", color: "#2D6A5C", fontSize: 12.5, fontWeight: 600,
-  };
 
   return (
     <Card className="mb-4">
@@ -255,33 +431,12 @@ export function DateSlotsEditor({
               <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0 }}>Клиенты не смогут записаться на этот день.</p>
             )}
             {mode === "custom" && (
-              <div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                  {customTimes.length === 0 && <span style={{ fontSize: 12.5, color: "#6F5A3F" }}>Времён нет — день закрыт. Добавьте время ниже.</span>}
-                  {customTimes.map(t => (
-                    <span key={t} style={chip}>
-                      {t}
-                      <button
-                        type="button"
-                        onClick={() => removeTime(selected, t)}
-                        aria-label={`Убрать ${t}`}
-                        style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", padding: 2, color: "#2D6A5C" }}
-                      >
-                        <X size={13} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input
-                    type="time"
-                    value={newTime}
-                    onChange={e => setNewTime(e.target.value)}
-                    style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)", color: "#1C1C1E", background: "#FFFFFF" }}
-                  />
-                  <Button size="sm" variant="secondary" onClick={() => addTime(selected)} disabled={disabled}>Добавить время</Button>
-                </div>
-              </div>
+              <DayTimeline
+                times={customTimes}
+                durationMinutes={durationMinutes}
+                disabled={disabled}
+                onChange={next => commit({ ...overrides, [selected]: next })}
+              />
             )}
 
             <div style={{ marginTop: 12 }}>
