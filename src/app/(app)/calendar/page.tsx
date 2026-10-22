@@ -49,6 +49,18 @@ interface DayEntry {
 
 const MAX_PREVIEW_ITEMS = 3;
 
+function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = Math.min(23 * 60 + 59, (h || 0) * 60 + (m || 0) + minutes);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function minutesBetween(from: string, to: string): number {
+  const [h1, m1] = from.split(":").map(Number);
+  const [h2, m2] = to.split(":").map(Number);
+  return (h2 * 60 + m2) - (h1 * 60 + m1);
+}
+
 function toDateStr(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
@@ -60,6 +72,8 @@ export default function CalendarPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newTime, setNewTime] = useState("09:00");
+  const [newEndTime, setNewEndTime] = useState("10:00");
+  const [addError, setAddError] = useState<string | null>(null);
   const { sessions } = useSession();
   const { events: personalEvents, addEvent, removeEvent, updateEventTime } = usePersonalEvents();
   const sessionsByDay = getSessionsByDay(sessions, currentMonth.getMonth(), currentMonth.getFullYear());
@@ -120,7 +134,10 @@ export default function CalendarPage() {
       });
     });
     (personalEventsByDay[selectedDay] ?? []).forEach(evt => {
-      entries.push({ id: evt.id, time: evt.time, kind: "personal", title: evt.title });
+      entries.push({
+        id: evt.id, time: evt.time, kind: "personal", title: evt.title,
+        subtitle: `${evt.time}–${addMinutesToTime(evt.time, evt.durationMinutes ?? 60)}`,
+      });
     });
     return entries.sort((a, b) => a.time.localeCompare(b.time));
   }, [selectedDay, sessionsByDay, personalEventsByDay]);
@@ -138,15 +155,27 @@ export default function CalendarPage() {
   }, [selectedDay, selectedDayEntries]);
 
   const handleAddEvent = () => {
-    if (selectedDay === null || !newTitle.trim()) return;
+    if (selectedDay === null) return;
+    if (!newTitle.trim()) {
+      setAddError("Введите название дела");
+      return;
+    }
+    const duration = minutesBetween(newTime, newEndTime);
+    if (!(duration >= 5)) {
+      setAddError("Окончание должно быть позже начала");
+      return;
+    }
+    setAddError(null);
     const freeTime = findNearestFreeSlot(newTime, occupiedTimesForSelectedDay);
     addEvent({
       date: toDateStr(currentMonth.getFullYear(), currentMonth.getMonth(), selectedDay),
       time: freeTime,
       title: newTitle.trim(),
+      durationMinutes: duration,
     });
     setNewTitle("");
     setNewTime("09:00");
+    setNewEndTime("10:00");
     setShowAddForm(false);
   };
 
@@ -485,19 +514,39 @@ export default function CalendarPage() {
 
                   {showAddForm ? (
                     <div style={{ borderTop: "1px solid #E5DFD5", paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <input
-                        type="time"
-                        value={newTime}
-                        onChange={e => setNewTime(e.target.value)}
-                        style={{
-                          padding: "8px 8px", border: "1px solid #E5DFD5", borderRadius: 6,
-                          fontSize: 12, color: "#1C1C1E", background: "#FFFFFF",
-                        }}
-                      />
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ fontSize: 12, color: "#6F5A3F" }}>с</span>
+                        <input
+                          type="time"
+                          value={newTime}
+                          onChange={e => {
+                            const start = e.target.value;
+                            // сохраняем длительность: конец сдвигается вместе с началом
+                            const dur = Math.max(5, minutesBetween(newTime, newEndTime) || 60);
+                            setNewTime(start);
+                            if (start) setNewEndTime(addMinutesToTime(start, dur));
+                            setAddError(null);
+                          }}
+                          style={{
+                            flex: 1, minWidth: 0, padding: "8px 8px", border: "1px solid #E5DFD5", borderRadius: 6,
+                            fontSize: 12, color: "#1C1C1E", background: "#FFFFFF",
+                          }}
+                        />
+                        <span style={{ fontSize: 12, color: "#6F5A3F" }}>до</span>
+                        <input
+                          type="time"
+                          value={newEndTime}
+                          onChange={e => { setNewEndTime(e.target.value); setAddError(null); }}
+                          style={{
+                            flex: 1, minWidth: 0, padding: "8px 8px", border: "1px solid #E5DFD5", borderRadius: 6,
+                            fontSize: 12, color: "#1C1C1E", background: "#FFFFFF",
+                          }}
+                        />
+                      </div>
                       <input
                         type="text"
                         value={newTitle}
-                        onChange={e => setNewTitle(e.target.value)}
+                        onChange={e => { setNewTitle(e.target.value); setAddError(null); }}
                         onKeyDown={e => { if (e.key === "Enter") handleAddEvent(); }}
                         placeholder="Название дела (например, Зал)"
                         autoFocus
@@ -506,10 +555,13 @@ export default function CalendarPage() {
                           fontSize: 12.5, color: "#1C1C1E", background: "#FFFFFF",
                         }}
                       />
+                      {addError && <p style={{ fontSize: 12, color: "#B91C1C", margin: 0 }}>{addError}</p>}
                       <div style={{ display: "flex", gap: 8 }}>
-                        <Button onClick={handleAddEvent} size="sm" style={{ flex: 1 }}>
-                          Добавить
-                        </Button>
+                        <div style={{ flex: 1 }}>
+                          <Button onClick={handleAddEvent} size="sm" className="w-full">
+                            Добавить
+                          </Button>
+                        </div>
                         <Button onClick={() => setShowAddForm(false)} variant="secondary" size="sm">
                           Отмена
                         </Button>

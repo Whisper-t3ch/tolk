@@ -13,6 +13,7 @@ export function Button({
   className,
   children,
   disabled,
+  style: styleOverride,
   ...props
 }: ButtonProps) {
   const [isPressed, setIsPressed] = useState(false);
@@ -137,6 +138,7 @@ export function Button({
           height: fixedHeight,
           whiteSpace: "normal",
           textAlign: "center",
+          ...styleOverride,
         }}
         disabled={disabled}
         {...props}

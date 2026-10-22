@@ -14,6 +14,8 @@ export interface PersonalEvent {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   title: string;
+  /** Длительность в минутах (по умолчанию 60). */
+  durationMinutes?: number;
 }
 
 interface PersonalEventsContextType {
@@ -59,10 +61,14 @@ interface Row {
   id: string;
   event_date: string;
   start_time: string;
+  duration_minutes?: number | null;
   title: string;
 }
 
-const fromRow = (r: Row): PersonalEvent => ({ id: r.id, date: r.event_date, time: String(r.start_time).slice(0, 5), title: r.title });
+const fromRow = (r: Row): PersonalEvent => ({
+  id: r.id, date: r.event_date, time: String(r.start_time).slice(0, 5), title: r.title,
+  durationMinutes: r.duration_minutes ?? 60,
+});
 
 export function PersonalEventsProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<PersonalEvent[]>([]);
@@ -77,7 +83,7 @@ export function PersonalEventsProvider({ children }: { children: ReactNode }) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("personal_events")
-        .select("id, event_date, start_time, title")
+        .select("id, event_date, start_time, duration_minutes, title")
         .eq("psychologist_id", uid)
         .order("event_date", { ascending: true })
         .limit(5000);
@@ -169,7 +175,7 @@ export function PersonalEventsProvider({ children }: { children: ReactNode }) {
     if (modeRef.current === "db" && psychologistId) {
       createClient()
         .from("personal_events")
-        .insert({ id, psychologist_id: psychologistId, event_date: event.date, start_time: event.time, title: event.title.trim().slice(0, 200) })
+        .insert({ id, psychologist_id: psychologistId, event_date: event.date, start_time: event.time, duration_minutes: event.durationMinutes ?? 60, title: event.title.trim().slice(0, 200) })
         .then(({ error }) => { if (error) setEvents(prev => prev.filter(e => e.id !== id)); });
     }
   }, [psychologistId]);
