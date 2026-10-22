@@ -22,6 +22,7 @@ export const ASSISTANT_REQUEST_COST = {
   multiClient: 1, // зарезервировано на будущее
   agentTask: 1, // вопрос, на который ассистент вызывал инструменты (одна цепочка = один запрос)
   rag: 1, // простой RAG-поиск по истории/базе знаний
+  aiAnalysis: 1, // ИИ-анализ по кнопке: обзор клиента, анализ теста, разбор сессии
 } as const;
 
 export type AssistantRequestCostKey = keyof typeof ASSISTANT_REQUEST_COST;

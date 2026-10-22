@@ -25,15 +25,142 @@ function fmtDate(iso: string, timeZone: string) {
   return new Date(iso).toLocaleDateString("ru", { day: "numeric", month: "short", timeZone });
 }
 
+
+export interface AiAnalysis {
+  id: string;
+  kind: "overview" | "test" | "session";
+  ref: string | null;
+  content: Record<string, string>;
+  score: number | null;
+  created_at: string;
+}
+
+/** ИИ-анализы клиента: список сохранённых + запуск по кнопке (каждый запуск стоит 1 запрос лимита). */
+export function useAiAnalyses(clientId: string) {
+  const [list, setList] = useState<AiAnalysis[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/clients/${clientId}/ai-analysis`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d?.analyses) setList(d.analyses); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  async function generate(kind: AiAnalysis["kind"], ref?: string) {
+    const key = `${kind}:${ref ?? ""}`;
+    setBusy(key);
+    setError(null);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/ai-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, ref }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.analysis) {
+        setList(prev => [data.analysis as AiAnalysis, ...prev]);
+        return data.analysis as AiAnalysis;
+      }
+      setError(data.error ?? data.message ?? "Не удалось получить анализ");
+    } catch {
+      setError("Не удалось связаться с сервером");
+    } finally {
+      setBusy(null);
+    }
+    return null;
+  }
+
+  function latest(kind: AiAnalysis["kind"], ref?: string | null) {
+    return list.find(a => a.kind === kind && (a.ref ?? null) === (ref ?? null)) ?? null;
+  }
+
+  return { list, busy, error, generate, latest };
+}
+export type AiState = ReturnType<typeof useAiAnalyses>;
+
+export const OVERVIEW_LABELS: [string, string][] = [
+  ["dynamics", "Динамика"], ["strengths", "Сильные стороны"], ["supports", "Точки опоры"], ["interventions", "Интервенции"],
+  ["homework", "Домашние задания"], ["attention", "На что обратить внимание"], ["next_focus", "Фокус дальше"],
+];
+export const TEST_LABELS: [string, string][] = [
+  ["summary", "Вывод"], ["dynamics", "Динамика"], ["interpretation", "Как читать результат"], ["recommendations", "Что обсудить"],
+];
+export const SESSION_LABELS: [string, string][] = [
+  ["score_rationale", "На чём основана оценка"], ["key_themes", "Ключевые темы"], ["strengths", "Сильные стороны"], ["supports", "Точки опоры"],
+  ["interventions", "Интервенции"], ["homework", "Домашние задания"], ["next_focus", "Фокус дальше"],
+];
+
+export function AnalysisSections({ content, labels }: { content: Record<string, string>; labels: [string, string][] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {labels.filter(([k]) => content[k]).map(([k, label]) => (
+        <div key={k}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
+          <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{content[k]}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function AiButton({ busy, hasResult, onClick, disabled, what = "ИИ-анализ" }: { busy: boolean; hasResult: boolean; onClick: () => void; disabled?: boolean; what?: string }) {
+  return (
+    <Button size="sm" variant="secondary" onClick={onClick} disabled={busy || disabled}>
+      {busy ? "Анализирую…" : `${hasResult ? "Обновить" : what} · −1 запрос`}
+    </Button>
+  );
+}
+
+const AI_NOTE = "Подготовлено ИИ по данным клиента, проверяйте выводы. Не диагноз.";
+
+/** Обзор клиента по кнопке: протоколы сессий + тесты + отметки состояния. */
+export function AiOverviewCard({ ai }: { ai: AiState }) {
+  const cur = ai.latest("overview");
+  const busy = ai.busy === "overview:";
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>ИИ-обзор клиента</h3>
+          <AiButton busy={busy} hasResult={!!cur} onClick={() => ai.generate("overview")} what="Сделать обзор" />
+        </div>
+        {ai.error && ai.busy === null && <p style={{ fontSize: 12, color: "#B91C1C", margin: "0 0 8px" }}>{ai.error}</p>}
+        {cur ? (
+          <>
+            <p style={{ fontSize: 11.5, color: "#8A7F70", margin: "0 0 10px" }}>
+              {new Date(cur.created_at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+              {cur.content.sessions_used ? ` · протоколов: ${cur.content.sessions_used}` : ""}
+              {cur.content.tests_used ? ` · замеров тестов: ${cur.content.tests_used}` : ""}
+            </p>
+            <AnalysisSections content={cur.content} labels={OVERVIEW_LABELS} />
+            <p style={{ fontSize: 11, color: "#8A7F70", margin: "12px 0 0" }}>{AI_NOTE}</p>
+          </>
+        ) : (
+          <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
+            Сводка по всем протоколам сессий, тестам и отметкам состояния: динамика, сильные стороны, точки опоры, интервенции, домашние задания и на чём сфокусироваться дальше.
+            Запускается только по кнопке и стоит 1 запрос из лимита ассистента.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Карточка на каждую методику: график по датам, последний результат с интерпретацией и изменение с прошлого раза. */
 export function TestsAnalytics({
   tests,
   nameOf,
   timeZone,
+  ai,
 }: {
   tests: AnalyticsTest[];
   nameOf: (t: AnalyticsTest) => string;
   timeZone: string;
+  ai: AiState;
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, AnalyticsTest[]>();
@@ -51,6 +178,8 @@ export function TestsAnalytics({
   if (groups.length === 0) return null;
 
   return (
+    <>
+    {ai.error && ai.busy === null && <p style={{ fontSize: 12, color: "#B91C1C", margin: "0 0 8px" }}>{ai.error}</p>}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12 }}>
       {groups.map(({ type, items }) => {
         const last = items[items.length - 1];
@@ -95,10 +224,27 @@ export function TestsAnalytics({
             <div style={{ fontSize: 11, color: "#8A7F70", marginTop: 4 }}>
               Замеров: {items.length}{higherBetter ? " · чем выше, тем лучше" : " · чем ниже, тем лучше"}
             </div>
+            {(() => {
+              const cur = ai.latest("test", type);
+              return (
+                <div style={{ marginTop: 10, borderTop: "1px solid #EFEAE0", paddingTop: 10 }}>
+                  <AiButton busy={ai.busy === `test:${type}`} hasResult={!!cur} onClick={() => ai.generate("test", type)} what="ИИ-анализ теста" />
+                  {cur && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, color: "#8A7F70", marginBottom: 6 }}>
+                        {new Date(cur.created_at).toLocaleDateString("ru", { day: "numeric", month: "long" })} · {AI_NOTE}
+                      </div>
+                      <AnalysisSections content={cur.content} labels={TEST_LABELS} />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -107,12 +253,13 @@ const METRICS: { key: string; label: string; color: string }[] = [
   { key: "wellbeing", label: "Самочувствие", color: "#1BAF7A" },
   { key: "anxiety", label: "Тревога", color: "#F59E0B" },
   { key: "depression", label: "Подавленность", color: "#B91C1C" },
+  { key: "ai", label: "ИИ (по сессиям)", color: "#7C5CBF" },
 ];
 
 interface ProgressPoint { id: string; metric_type: string; value: number; note: string | null; recorded_at: string }
 
 /** Оценка состояния клиента по шкале 0–10 после встреч: хранится в client_progress, график по метрикам. */
-export function ProgressCard({ clientId, timeZone }: { clientId: string; timeZone: string }) {
+export function ProgressCard({ clientId, timeZone, ai }: { clientId: string; timeZone: string; ai: AiState }) {
   const [points, setPoints] = useState<ProgressPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [metric, setMetric] = useState("general");
@@ -157,6 +304,18 @@ export function ProgressCard({ clientId, timeZone }: { clientId: string; timeZon
   const { chartData, usedMetrics } = useMemo(() => {
     const byDate = new Map<string, Record<string, number | string>>();
     const used = new Set<string>();
+    // ИИ-оценки по сессиям (разбор сессии по кнопке): на дату сессии
+    const sessionScores = ai.list
+      .filter(a => a.kind === "session" && a.score !== null)
+      .map(a => ({ at: a.content.session_date || a.created_at, score: Number(a.score) }))
+      .sort((x, y) => x.at.localeCompare(y.at));
+    for (const a of sessionScores) {
+      const d = fmtDate(a.at, timeZone);
+      const row = byDate.get(d) ?? { date: d };
+      row.ai = a.score;
+      byDate.set(d, row);
+      used.add("ai");
+    }
     for (const p of points) {
       const d = fmtDate(p.recorded_at, timeZone);
       const row = byDate.get(d) ?? { date: d };
@@ -165,9 +324,10 @@ export function ProgressCard({ clientId, timeZone }: { clientId: string; timeZon
       used.add(p.metric_type);
     }
     return { chartData: Array.from(byDate.values()), usedMetrics: METRICS.filter(m => used.has(m.key)) };
-  }, [points, timeZone]);
+  }, [points, timeZone, ai.list]);
 
   const notes = points.filter(p => p.note).slice(-3).reverse();
+  const selectable = METRICS.filter(m => m.key !== "ai");
   const input: React.CSSProperties = { padding: "7px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, color: "#1C1C1E", background: "#FFFFFF", fontFamily: "var(--font-sans)" };
 
   return (
@@ -179,7 +339,7 @@ export function ProgressCard({ clientId, timeZone }: { clientId: string; timeZon
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
           <select value={metric} onChange={e => setMetric(e.target.value)} style={input}>
-            {METRICS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            {selectable.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
           <input type="number" min={0} max={10} step={1} value={value} onChange={e => setValue(e.target.value)} placeholder="0–10" style={{ ...input, width: 80 }} />
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Заметка (необязательно)" style={{ ...input, flex: 1, minWidth: 160 }} />
@@ -189,7 +349,7 @@ export function ProgressCard({ clientId, timeZone }: { clientId: string; timeZon
         {loading ? (
           <p style={{ fontSize: 12, color: "#6F5A3F" }}>Загрузка…</p>
         ) : chartData.length === 0 ? (
-          <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0 }}>Пока нет оценок. Первая отметка запустит график.</p>
+          <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0 }}>Пока нет оценок. Первая отметка (или ИИ-разбор сессии) запустит график.</p>
         ) : (
           <>
             <ResponsiveContainer width="100%" height={220}>
@@ -217,5 +377,38 @@ export function ProgressCard({ clientId, timeZone }: { clientId: string; timeZon
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** ИИ-разбор одной сессии по кнопке (транскрипт или протокол): темы, сильные стороны, интервенции и оценка состояния 0–10 для графика. */
+export function SessionAiCard({ clientId, sessionId }: { clientId: string; sessionId: string }) {
+  const ai = useAiAnalyses(clientId);
+  const cur = ai.latest("session", sessionId);
+  const busy = ai.busy === `session:${sessionId}`;
+  return (
+    <div style={{ marginTop: 16, padding: 16, background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>ИИ-разбор сессии</h3>
+        <AiButton busy={busy} hasResult={!!cur} onClick={() => ai.generate("session", sessionId)} what="Разобрать сессию" />
+      </div>
+      {ai.error && ai.busy === null && <p style={{ fontSize: 12, color: "#B91C1C", margin: "0 0 8px" }}>{ai.error}</p>}
+      {cur ? (
+        <>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 24, fontWeight: 800, color: "#2D6A5C" }}>{cur.score}</span>
+            <span style={{ fontSize: 12.5, color: "#6F5A3F" }}>из 10: оценка состояния клиента на сессии (попадёт на график «Динамика состояния»)</span>
+          </div>
+          <AnalysisSections content={cur.content} labels={SESSION_LABELS} />
+          <p style={{ fontSize: 11, color: "#8A7F70", margin: "12px 0 0" }}>
+            {new Date(cur.created_at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })} · {AI_NOTE}
+          </p>
+        </>
+      ) : (
+        <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
+          Разбор по транскрипту или протоколу: ключевые темы, сильные стороны, точки опоры, интервенции, домашние задания и оценка состояния клиента.
+          Запускается только по кнопке и стоит 1 запрос из лимита ассистента.
+        </p>
+      )}
+    </div>
   );
 }

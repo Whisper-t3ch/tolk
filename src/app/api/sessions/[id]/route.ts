@@ -41,6 +41,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     return NextResponse.json({ error: "Не удалось удалить файлы записи. Сессия не тронута, попробуйте ещё раз." }, { status: 502 });
   }
 
+  // ИИ-разбор этой сессии (ref = id сессии) удаляем вместе с ней
+  await admin.from("client_ai_analyses").delete().eq("kind", "session").eq("ref", id);
+
   const { error: delError } = await admin.rpc("_purge_rows", { rel: "public.sessions", col: "id", val: id });
   if (delError) {
     console.error("SESSION_DELETE_FAILED", id, delError.message);

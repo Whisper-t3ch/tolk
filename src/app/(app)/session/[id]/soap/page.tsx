@@ -7,6 +7,7 @@ import { Button, Card, CardContent } from "@/components/ui";
 import { useProfile } from "@/lib/ProfileContext";
 import { normalizeTimeZone } from "@/lib/timezone";
 import { AI_DRAFT_NOTICE, GUARD_REPLACED_NOTICE } from "@/lib/soap/messages";
+import { SessionAiCard } from "@/components/ClientAnalytics";
 
 // Статус session.recording_status (см. migration_007_video_asr.sql) —
 // подсказка психологу, почему автоматическая генерация SOAP пока
@@ -127,7 +128,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sessionInfo, setSessionInfo] = useState<{ clientName: string; scheduledAt: string; durationMinutes: number; recordingStatus: string } | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{ clientId: string; clientName: string; scheduledAt: string; durationMinutes: number; recordingStatus: string } | null>(null);
   const [soapNoteId, setSoapNoteId] = useState<string | null>(null);
   const [content, setContent] = useState<SoapContent>(EMPTY_SOAP);
   const [protocolExists, setProtocolExists] = useState(false);
@@ -173,6 +174,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         return;
       }
       setSessionInfo({
+        clientId: data.session.clientId,
         clientName: data.session.clientName,
         scheduledAt: data.session.scheduledAt,
         durationMinutes: data.session.durationMinutes,
@@ -723,6 +725,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 <Send size={14} style={{ marginRight: 6 }} /> Отправить резюме клиенту
               </Button>
             </div>
+            {sessionInfo?.clientId && <SessionAiCard clientId={sessionInfo.clientId} sessionId={sessionId} />}
             {/* Ошибку генерации показываем и здесь: карточка «Протокол не
                 создан», где она выводилась раньше, при заполненном протоколе
                 скрыта — иначе неудачная генерация выглядела бы как полное

@@ -9,7 +9,7 @@ import {
   Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen, Search, Trash2,
 } from "lucide-react";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
-import { TestsAnalytics, ProgressCard } from "@/components/ClientAnalytics";
+import { TestsAnalytics, ProgressCard, AiOverviewCard, useAiAnalyses } from "@/components/ClientAnalytics";
 import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
 import { TEST_SCALES, type TestType } from "@/lib/testScales";
 import { useSession } from "@/lib/SessionContext";
@@ -299,6 +299,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [periodSummaryResult, setPeriodSummaryResult] = useState<string | null>(null);
   const [periodSummaryError, setPeriodSummaryError] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
+  const ai = useAiAnalyses(id);
   const [homeworkList, setHomeworkList] = useState<HomeworkItem[]>([]);
   const [testsLoading, setTestsLoading] = useState(true);
   const [showSendTestForm, setShowSendTestForm] = useState(false);
@@ -1406,6 +1407,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       {/* АНАЛИТИКА: тесты + прогресс */}
       {activeTab === "analytics" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <AiOverviewCard ai={ai} />
           <Card>
             <CardContent className="pt-6">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
@@ -1466,7 +1468,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               {testsLoading ? (
                 <p style={{ fontSize: 12, color: "#6F5A3F" }}>Загрузка истории тестов…</p>
               ) : completedTests.length > 0 ? (
-                <TestsAnalytics tests={testResults} nameOf={testDisplayName} timeZone={timeZone} />
+                <TestsAnalytics tests={testResults} nameOf={testDisplayName} timeZone={timeZone} ai={ai} />
               ) : (
                 <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>Тестов пока нет. Внесите результат или отправьте клиенту ссылку на тест: здесь появятся карточки по каждой методике с графиком и интерпретацией.</p>
               )}
@@ -1480,7 +1482,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             </CardContent>
           </Card>
 
-          <ProgressCard clientId={id} timeZone={timeZone} />
+          <ProgressCard clientId={id} timeZone={timeZone} ai={ai} />
         </div>
       )}
 
