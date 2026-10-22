@@ -32,6 +32,23 @@ export default function DashboardPage() {
   const [hoveredClient, setHoveredClient] = useState<string | null>(null);
   const { sessions, loading: sessionsLoading } = useSession();
   const { clients, loading: clientsLoading } = useClients();
+  // Последние реальные результаты тестов по клиентам (client.lastTest для настоящих клиентов не заполняется)
+  const [lastTestByClient, setLastTestByClient] = useState<Record<string, { name: string; score: number; maxScore: number; date: string }>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/dashboard/last-tests")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (cancelled || !d?.last) return;
+        const out: Record<string, { name: string; score: number; maxScore: number; date: string }> = {};
+        for (const [cid, v] of Object.entries(d.last as Record<string, { name: string; score: number; maxScore: number; createdAt: string }>)) {
+          out[cid] = { name: v.name, score: v.score, maxScore: v.maxScore, date: new Date(v.createdAt).toLocaleDateString("ru", { day: "numeric", month: "short" }) };
+        }
+        setLastTestByClient(out);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
   // Пока хотя бы один из источников ещё грузится, показываем плейсхолдер
   // вместо цифр — раньше на первом рендере sessions/clients были пустыми
   // массивами по умолчанию, и дашборд секунду-другую честно показывал
@@ -590,7 +607,8 @@ export default function DashboardPage() {
           </div>
 
           {clients.map((client, i) => {
-            const lastTest = client.lastTest ?? EMPTY_LAST_TEST;
+            const realLastTest = client.lastTest ?? lastTestByClient[client.id];
+            const lastTest = realLastTest ?? EMPTY_LAST_TEST;
             const scorePct = lastTest.maxScore > 0 ? Math.round((lastTest.score / lastTest.maxScore) * 100) : 0;
             const hwTotal = client.hwTotal ?? 0;
             const hwCompleted = client.hwCompleted ?? 0;
@@ -637,12 +655,12 @@ export default function DashboardPage() {
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 5,
                     padding: "3px 8px",
-                    background: client.lastTest ? getScoreBg(lastTest.score, lastTest.maxScore) : "#F0EDE5",
+                    background: realLastTest ? getScoreBg(lastTest.score, lastTest.maxScore) : "#F0EDE5",
                     borderRadius: 6,
                     fontSize: 13, fontWeight: 600,
-                    color: client.lastTest ? getScoreColor(lastTest.score, lastTest.maxScore) : "#6F5A3F",
+                    color: realLastTest ? getScoreColor(lastTest.score, lastTest.maxScore) : "#6F5A3F",
                   }}>
-                    {client.lastTest ? `${lastTest.name}: ${lastTest.score}` : "Нет данных"}
+                    {realLastTest ? `${lastTest.name}: ${lastTest.score}` : "Нет данных"}
                   </span>
                   <div style={{ fontSize: 11, color: "#6F5A3F", marginTop: 3 }}>
                     {lastTest.date}

@@ -9,6 +9,7 @@ import {
   Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen, Search, Trash2,
 } from "lucide-react";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
+import { TestsAnalytics, ProgressCard } from "@/components/ClientAnalytics";
 import { APPROACH_LABELS, type Approach } from "@/lib/approaches";
 import { TEST_SCALES, type TestType } from "@/lib/testScales";
 import { useSession } from "@/lib/SessionContext";
@@ -1366,7 +1367,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 4 }}>Пол</div>
-                  <div style={{ fontSize: 13, color: "#1C1C1E" }}>{client.gender === "female" ? "Женский" : "Мужской"}</div>
+                  <div style={{ fontSize: 13, color: "#1C1C1E" }}>{client.gender === "female" ? "Женский" : client.gender === "male" ? "Мужской" : "Не указан"}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6F5A3F", textTransform: "uppercase", marginBottom: 4 }}>Запрос</div>
@@ -1511,6 +1512,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
 
               {testsLoading ? (
                 <p style={{ fontSize: 12, color: "#6F5A3F" }}>Загрузка истории тестов…</p>
+              ) : completedTests.length > 0 ? (
+                <TestsAnalytics tests={testResults} nameOf={testDisplayName} timeZone={timeZone} />
               ) : clientTestHistory.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={clientTestHistory}>
@@ -1524,7 +1527,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               ) : (
                 <p style={{ fontSize: 12, color: "#6F5A3F" }}>Пока недостаточно данных теста для графика</p>
               )}
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 12, display: completedTests.length > 0 ? "none" : "block" }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
                   {lastTest
                     ? `Последний результат: ${lastTest.name} ${lastTest.score}/${lastTest.maxScore} (${lastTest.date})`
@@ -1534,6 +1537,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             </CardContent>
           </Card>
 
+          {progress.history.length === 0 && <ProgressCard clientId={id} timeZone={timeZone} />}
+          {progress.history.length > 0 && (
           <Card>
             <CardContent className="pt-6">
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>
@@ -1560,6 +1565,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
               )}
             </CardContent>
           </Card>
+          )}
         </div>
       )}
 
