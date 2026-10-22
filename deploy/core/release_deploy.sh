@@ -124,6 +124,16 @@ revert_src() {
   [ -n "$CUR" ] && echo "$CUR" > "$SRC/.git_commit" || true
 }
 
+# Логи web перед пересозданием контейнера (иначе при выкатке пропадают): ~/release-deploy/weblogs/, хранятся 14 дней.
+archive_web_logs() {
+  local c; c="$(sudo docker ps -q --filter label=com.docker.compose.service=web | head -1)"
+  [ -n "$c" ] || return 0
+  mkdir -p "$RD/weblogs"
+  sudo docker logs "$c" > "$RD/weblogs/web-$(date -u +%Y%m%d-%H%M%S)-${CUR:-x}.log" 2>&1 || true
+  find "$RD/weblogs" -type f -mtime +14 -delete 2>/dev/null || true
+}
+archive_web_logs
+
 if ! ./core.sh build >"$RD/build.log" 2>&1; then
   revert_src
   reject "сборка упала (хвост лога: $(tail -n 3 "$RD/build.log" | tr '\n' ' ' | head -c 250))"

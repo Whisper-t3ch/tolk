@@ -94,3 +94,6 @@ cron: `* * * * * /home/ubuntu/core/release_deploy.sh >> /home/ubuntu/tolk-releas
 Файл `deploy/ops/NNN_имя.sql` в ветке release/prod выполняется на сервере один раз (release_deploy.sh, ≤1 мин после пуша): `psql` в supabase-db одной транзакцией,
 результат (вывод запроса или ошибка) приходит в Telegram. Журнал — `~/release-deploy/ops_done`; повторить задачу — удалить её имя оттуда.
 Для выдачи кодов, переименования аккаунта и т.п. Миграции схемы по-прежнему через `migrations_upto`. Необратимое удаление данных этим путём не делаем.
+
+Логи web перед каждой выкаткой сохраняются в `~/release-deploy/weblogs/web-<время>-<предыдущий коммит>.log` (14 дней):
+`grep -hE "LLM_ERROR|FAST_INTENT|VOICE_SEND_FAILED" ~/release-deploy/weblogs/*.log | tail -50`
