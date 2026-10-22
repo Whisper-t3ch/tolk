@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidTimeZone, normalizeTimeZone } from "@/lib/timezone";
+import { isValidTime, type DateOverrides } from "@/lib/booking";
 
 // GET /api/booking-settings — настройки публичной записи текущего
 // психолога (null, если ещё не создавались — на UI это означает
@@ -19,7 +20,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("booking_settings")
     .select(
-      "id, public_slug, working_hours, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
+      "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
     )
     .eq("psychologist_id", user.id)
     .maybeSingle();
@@ -55,6 +56,8 @@ interface WorkingHoursInput {
 
 interface BookingSettingsBody {
   working_hours?: WorkingHoursInput;
+  /** Слоты на конкретные даты: { "2026-10-28": ["11:00","13:00"] }, пустой массив — день закрыт. */
+  date_overrides?: unknown;
   session_duration_minutes?: number;
   buffer_minutes?: number;
   min_notice_hours?: number;
@@ -62,6 +65,28 @@ interface BookingSettingsBody {
   is_active?: boolean;
   /** IANA-идентификатор, например "Europe/Moscow". Пишется в psychologists.timezone. */
   timezone?: string;
+}
+
+/** Проверяет и чистит правки по датам: формат, лимиты, прошедшие дни выбрасываем. */
+function sanitizeDateOverrides(input: unknown): { value?: DateOverrides; error?: string } {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return { error: "date_overrides должен быть объектом" };
+  }
+  const entries = Object.entries(input as Record<string, unknown>);
+  if (entries.length > 400) return { error: "Слишком много дат с отдельными слотами" };
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const out: DateOverrides = {};
+  for (const [date, times] of entries) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date + "T12:00:00Z"))) {
+      return { error: `Некорректная дата: ${date}` };
+    }
+    if (!Array.isArray(times) || times.length > 48 || !times.every(isValidTime)) {
+      return { error: `Для ${date} нужен список времён вида HH:MM (до 48)` };
+    }
+    if (date < yesterday) continue;
+    out[date] = Array.from(new Set(times as string[])).sort();
+  }
+  return { value: out };
 }
 
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -138,6 +163,12 @@ async function upsertHandler(request: NextRequest) {
   if (workingHoursError) {
     return NextResponse.json({ error: workingHoursError }, { status: 400 });
   }
+  let dateOverrides: DateOverrides | undefined;
+  if (body.date_overrides !== undefined) {
+    const res = sanitizeDateOverrides(body.date_overrides);
+    if (res.error) return NextResponse.json({ error: res.error }, { status: 400 });
+    dateOverrides = res.value;
+  }
   if (body.session_duration_minutes !== undefined && ![30, 50, 60, 90].includes(body.session_duration_minutes)) {
     return NextResponse.json({ error: "session_duration_minutes должен быть одним из: 30, 50, 60, 90" }, { status: 400 });
   }
@@ -175,6 +206,7 @@ async function upsertHandler(request: NextRequest) {
 
   const patch: Record<string, unknown> = {};
   if (body.working_hours !== undefined) patch.working_hours = body.working_hours;
+  if (dateOverrides !== undefined) patch.date_overrides = dateOverrides;
   if (body.session_duration_minutes !== undefined) patch.session_duration_minutes = body.session_duration_minutes;
   if (body.buffer_minutes !== undefined) patch.buffer_minutes = body.buffer_minutes;
   if (body.min_notice_hours !== undefined) patch.min_notice_hours = body.min_notice_hours;
@@ -188,7 +220,7 @@ async function upsertHandler(request: NextRequest) {
       .update(patch)
       .eq("id", existing.id)
       .select(
-        "id, public_slug, working_hours, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, updated_at"
+        "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, updated_at"
       )
       .single();
     if (updateError) {
@@ -211,7 +243,7 @@ async function upsertHandler(request: NextRequest) {
         ...patch,
       })
       .select(
-        "id, public_slug, working_hours, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
+        "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
       )
       .single();
     if (!createError) return NextResponse.json({ settings: created });

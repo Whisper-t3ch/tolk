@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { generateAvailableSlots, type WorkingHours } from "@/lib/booking";
+import { generateAvailableSlots, type WorkingHours, type DateOverrides } from "@/lib/booking";
 import { normalizeTimeZone, todayInTimeZone, formatDateInTimeZone } from "@/lib/timezone";
 
 // GET /api/public/booking/[slug]/slots?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { data: settings, error: settingsError } = await supabase
     .from("booking_settings")
-    .select("psychologist_id, working_hours, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active")
+    .select("psychologist_id, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active")
     .eq("public_slug", slug)
     .maybeSingle();
 
@@ -107,6 +107,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     fromDate,
     toDate,
     workingHours: settings.working_hours as WorkingHours,
+    dateOverrides: (settings.date_overrides ?? {}) as DateOverrides,
     sessionDurationMinutes: settings.session_duration_minutes,
     bufferMinutes: settings.buffer_minutes,
     minNoticeHours: settings.min_notice_hours,

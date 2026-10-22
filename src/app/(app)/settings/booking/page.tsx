@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Copy, Check, Link as LinkIcon } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { DateSlotsEditor } from "@/components/DateSlotsEditor";
+import type { DateOverrides } from "@/lib/booking";
 
 interface WorkingHours {
   mon: [string, string] | null;
@@ -39,6 +41,7 @@ const DAY_LABELS: { key: keyof WorkingHours; label: string }[] = [
 interface BookingSettings {
   public_slug: string;
   working_hours: WorkingHours;
+  date_overrides?: DateOverrides | null;
   session_duration_minutes: number;
   buffer_minutes: number;
   min_notice_hours: number;
@@ -56,6 +59,7 @@ export default function BookingSettingsPage() {
   const [isActive, setIsActive] = useState(false);
   const [slug, setSlug] = useState<string | null>(null);
   const [workingHours, setWorkingHours] = useState<WorkingHours>(DEFAULT_HOURS);
+  const [dateOverrides, setDateOverrides] = useState<DateOverrides>({});
   const [duration, setDuration] = useState(50);
   const [buffer, setBuffer] = useState(10);
   const [minNotice, setMinNotice] = useState(2);
@@ -75,6 +79,7 @@ export default function BookingSettingsPage() {
           setSlug(s.public_slug);
           setIsActive(s.is_active);
           setWorkingHours({ ...DEFAULT_HOURS, ...s.working_hours });
+          setDateOverrides(s.date_overrides ?? {});
           setDuration(s.session_duration_minutes);
           setBuffer(s.buffer_minutes);
           setMinNotice(s.min_notice_hours);
@@ -98,6 +103,7 @@ export default function BookingSettingsPage() {
 
   async function save(patch: Partial<{
     working_hours: WorkingHours;
+    date_overrides: DateOverrides;
     session_duration_minutes: number;
     buffer_minutes: number;
     min_notice_hours: number;
@@ -323,6 +329,21 @@ export default function BookingSettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Слоты на конкретные даты */}
+      <DateSlotsEditor
+        overrides={dateOverrides}
+        workingHours={workingHours}
+        durationMinutes={duration}
+        bufferMinutes={buffer}
+        maxAdvanceDays={maxAdvance}
+        timeZone={timezone}
+        disabled={saving}
+        onChange={next => {
+          setDateOverrides(next);
+          save({ date_overrides: next });
+        }}
+      />
 
       {/* Параметры сессии */}
       <Card>

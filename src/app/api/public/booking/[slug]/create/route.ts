@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isSlotAvailable, type WorkingHours } from "@/lib/booking";
+import { isSlotAvailable, type WorkingHours, type DateOverrides } from "@/lib/booking";
 import { notifyUserTelegram } from "@/lib/notify/platformTelegram";
 import { parseClientContact } from "@/lib/bookingContact";
 import { normalizeTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: settings, error: settingsError } = await supabase
     .from("booking_settings")
-    .select("psychologist_id, working_hours, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active")
+    .select("psychologist_id, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active")
     .eq("public_slug", slug)
     .maybeSingle();
   if (settingsError) {
@@ -127,6 +127,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     date,
     time,
     workingHours: settings.working_hours as WorkingHours,
+    dateOverrides: (settings.date_overrides ?? {}) as DateOverrides,
     sessionDurationMinutes: settings.session_duration_minutes,
     bufferMinutes: settings.buffer_minutes,
     minNoticeHours: settings.min_notice_hours,

@@ -30,6 +30,13 @@ const DAY_INDEX_TO_KEY: Record<number, keyof WorkingHours> = {
   6: "sat",
 };
 
+/**
+ * Правки расписания на конкретные даты: ключ — дата YYYY-MM-DD, значение — времена начала
+ * слотов ровно на этот день (любые, не обязательно по сетке). Пустой массив — день закрыт.
+ * Даты без записи живут по обычным рабочим часам.
+ */
+export type DateOverrides = Record<string, string[]>;
+
 export interface BookingSlot {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
@@ -46,6 +53,12 @@ export interface ExistingSessionWindow {
 function parseTimeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
+}
+
+export function isValidTime(t: unknown): t is string {
+  if (typeof t !== "string" || !/^\d{2}:\d{2}$/.test(t)) return false;
+  const [h, m] = t.split(":").map(Number);
+  return h <= 23 && m <= 59;
 }
 
 function minutesToTime(minutes: number): string {
@@ -72,6 +85,8 @@ export function generateAvailableSlots(params: {
   now?: Date;
   /** Часовой пояс психолога — в нём заданы рабочие часы. */
   timeZone?: string;
+  /** Слоты на конкретные даты вместо недельного шаблона. */
+  dateOverrides?: DateOverrides | null;
 }): BookingSlot[] {
   const {
     fromDate,
@@ -83,6 +98,7 @@ export function generateAvailableSlots(params: {
     occupied,
     now = new Date(),
     timeZone = DEFAULT_TIMEZONE,
+    dateOverrides,
   } = params;
 
   const step = sessionDurationMinutes + bufferMinutes;
@@ -99,30 +115,38 @@ export function generateAvailableSlots(params: {
     const dayKey = DAY_INDEX_TO_KEY[cursor.getUTCDay()];
     const window = workingHours[dayKey];
 
-    if (window) {
+    // Стартовые минуты слотов этого дня: либо свои времена на дату, либо сетка по рабочим часам.
+    let starts: number[] = [];
+    const override = dateOverrides?.[dateStr];
+    if (Array.isArray(override)) {
+      starts = Array.from(new Set(override.filter(isValidTime).map(parseTimeToMinutes))).sort((a, b) => a - b);
+    } else if (window) {
       const [startTime, endTime] = window;
       const startMin = parseTimeToMinutes(startTime);
       const endMin = parseTimeToMinutes(endTime);
-
       for (let slotStart = startMin; slotStart + sessionDurationMinutes <= endMin; slotStart += step) {
-        // Рабочие часы психолог задаёт в своём местном времени, поэтому
-        // «15:00» превращаем в момент времени через его часовой пояс, а
-        // не трактуем как 15:00 UTC (из-за этого бронь на 15:00 попадала
-        // в кабинет на 21:00 при GMT+6).
-        const slotStartDate = zonedDateTimeToUtc(dateStr, minutesToTime(slotStart), timeZone);
-        const slotEndDate = new Date(slotStartDate.getTime() + sessionDurationMinutes * 60 * 1000);
-
-        if (slotStartDate.getTime() < minStart.getTime()) continue;
-
-        const overlaps = occupied.some(w => {
-          const wStart = new Date(w.start).getTime();
-          const wEnd = new Date(w.end).getTime();
-          return slotStartDate.getTime() < wEnd && slotEndDate.getTime() > wStart;
-        });
-        if (overlaps) continue;
-
-        slots.push({ date: dateStr, time: minutesToTime(slotStart), durationMinutes: sessionDurationMinutes });
+        starts.push(slotStart);
       }
+    }
+
+    for (const slotStart of starts) {
+      // Рабочие часы психолог задаёт в своём местном времени, поэтому
+      // «15:00» превращаем в момент времени через его часовой пояс, а
+      // не трактуем как 15:00 UTC (из-за этого бронь на 15:00 попадала
+      // в кабинет на 21:00 при GMT+6).
+      const slotStartDate = zonedDateTimeToUtc(dateStr, minutesToTime(slotStart), timeZone);
+      const slotEndDate = new Date(slotStartDate.getTime() + sessionDurationMinutes * 60 * 1000);
+
+      if (slotStartDate.getTime() < minStart.getTime()) continue;
+
+      const overlaps = occupied.some(w => {
+        const wStart = new Date(w.start).getTime();
+        const wEnd = new Date(w.end).getTime();
+        return slotStartDate.getTime() < wEnd && slotEndDate.getTime() > wStart;
+      });
+      if (overlaps) continue;
+
+      slots.push({ date: dateStr, time: minutesToTime(slotStart), durationMinutes: sessionDurationMinutes });
     }
 
     cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -144,6 +168,7 @@ export function isSlotAvailable(params: {
   now?: Date;
   /** Часовой пояс психолога — тот же, что при генерации слотов. */
   timeZone?: string;
+  dateOverrides?: DateOverrides | null;
 }): boolean {
   const { date, time, ...rest } = params;
   const now = params.now ?? new Date();
@@ -161,6 +186,7 @@ export function isSlotAvailable(params: {
     occupied: rest.occupied,
     now,
     timeZone,
+    dateOverrides: rest.dateOverrides,
   });
   return slots.some(s => s.date === date && s.time === time);
 }
