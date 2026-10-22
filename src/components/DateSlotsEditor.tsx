@@ -31,6 +31,11 @@ function formatLong(date: string) {
   return d.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
 }
 
+const navBtn: React.CSSProperties = {
+  width: 30, height: 30, border: "1px solid #E5DFD5", borderRadius: 8, background: "#fff",
+  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0,
+};
+
 type Mode = "default" | "closed" | "custom";
 
 export function DateSlotsEditor({
@@ -161,19 +166,19 @@ export function DateSlotsEditor({
             type="button"
             onClick={() => setView(v => (v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }))}
             disabled={prevDisabled}
-            style={{ background: "none", border: "none", cursor: prevDisabled ? "default" : "pointer", opacity: prevDisabled ? 0.3 : 1 }}
+            style={{ ...navBtn, cursor: prevDisabled ? "default" : "pointer", opacity: prevDisabled ? 0.35 : 1 }}
             aria-label="Предыдущий месяц"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={16} color="#1C1C1E" />
           </button>
           <span style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E" }}>{MONTHS[view.m]} {view.y}</span>
           <button
             type="button"
             onClick={() => setView(v => (v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }))}
-            style={{ background: "none", border: "none", cursor: "pointer" }}
+            style={navBtn}
             aria-label="Следующий месяц"
           >
-            <ChevronRight size={18} />
+            <ChevronRight size={16} color="#1C1C1E" />
           </button>
         </div>
 
@@ -272,7 +277,7 @@ export function DateSlotsEditor({
                     type="time"
                     value={newTime}
                     onChange={e => setNewTime(e.target.value)}
-                    style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)" }}
+                    style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)", color: "#1C1C1E", background: "#FFFFFF" }}
                   />
                   <Button size="sm" variant="secondary" onClick={() => addTime(selected)} disabled={disabled}>Добавить время</Button>
                 </div>

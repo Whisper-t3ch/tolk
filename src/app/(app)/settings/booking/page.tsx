@@ -309,19 +309,19 @@ export default function BookingSettingsPage() {
                         value={window[0]}
                         onChange={e => updateDayTime(key, 0, e.target.value)}
                         onBlur={commitWorkingHours}
-                        style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)" }}
+                        style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)", color: "#1C1C1E", background: "#FFFFFF" }}
                       />
-                      <span style={{ fontSize: 12, color: "#6F5A3F" }}>—</span>
+                      <span style={{ fontSize: 12, color: "#6B6058" }}>—</span>
                       <input
                         type="time"
                         value={window[1]}
                         onChange={e => updateDayTime(key, 1, e.target.value)}
                         onBlur={commitWorkingHours}
-                        style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)" }}
+                        style={{ padding: "5px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12.5, fontFamily: "var(--font-sans)", color: "#1C1C1E", background: "#FFFFFF" }}
                       />
                     </div>
                   ) : (
-                    <span style={{ fontSize: 12, color: "#6F5A3F" }}>—</span>
+                    <span style={{ fontSize: 12, color: "#6B6058" }}>—</span>
                   )}
                 </div>
               );
