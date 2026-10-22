@@ -89,3 +89,8 @@ cron: `* * * * * /home/ubuntu/core/release_deploy.sh >> /home/ubuntu/tolk-releas
 Добавить запросов: `update psychologists set assistant_extra_requests = assistant_extra_requests + 50 where email = '...';`
 Безлимит себе: `update psychologists set plan_name = 'unlimited' where email = '...';`
 Докупка и самостоятельная смена тарифа для этих трёх тарифов закрыта (403, «напишите в Помощь»).
+
+## Разовые SQL-задачи через push (deploy/ops/)
+Файл `deploy/ops/NNN_имя.sql` в ветке release/prod выполняется на сервере один раз (release_deploy.sh, ≤1 мин после пуша): `psql` в supabase-db одной транзакцией,
+результат (вывод запроса или ошибка) приходит в Telegram. Журнал — `~/release-deploy/ops_done`; повторить задачу — удалить её имя оттуда.
+Для выдачи кодов, переименования аккаунта и т.п. Миграции схемы по-прежнему через `migrations_upto`. Необратимое удаление данных этим путём не делаем.

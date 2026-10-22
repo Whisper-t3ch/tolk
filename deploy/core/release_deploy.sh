@@ -6,6 +6,9 @@
 # Что делает: git fetch (read-only deploy key) → если HEAD ветки не равен ~/tolk-src/.git_commit →
 #   проверка миграций БД → git archive поверх ~/tolk-src → ./core.sh build && up → проверка /api/health и /login →
 #   при сбое ./core.sh rollback и возврат исходников. Итог — в Telegram (.alert.env), как у auto_deploy.sh.
+# Разовые SQL-задачи: файлы deploy/ops/NNN_*.sql из ветки выполняются один раз (psql в supabase-db, одной транзакцией),
+#   результат приходит в Telegram; выполненные записаны в ~/release-deploy/ops_done. Нужны для выдачи инвайт-кодов и т.п.
+#   без захода на сервер. Миграции схемы этим путём НЕ применяются (для них — шлюз migrations_upto ниже).
 # Миграции БД автоматически НЕ применяются: если в коммите есть migration_NNN выше номера из ~/release-deploy/migrations_upto,
 #   выкатка ждёт (одно уведомление). Применил SQL → echo NNN > ~/release-deploy/migrations_upto → следующая минута выкатит.
 set -uo pipefail
@@ -49,6 +52,29 @@ if [ "$rc" != 0 ]; then
 fi
 TIP="$(cut -f1 "$RD/ls.out" | head -1)"
 SHORT="${TIP:0:7}"
+
+# --- разовые SQL-задачи из deploy/ops/ (выполняются независимо от выкатки кода) ---
+run_ops() {
+  [ "$(cat "$RD/ops_seen" 2>/dev/null)" = "$TIP" ] && return 0
+  G fetch -q --no-tags "$REMOTE" "+refs/heads/$BRANCH:refs/rd/tip" 2>"$RD/fetch.err" || return 0
+  local tip files f out rc
+  tip="$(G rev-parse refs/rd/tip)"
+  files="$(G ls-tree --name-only "$tip" deploy/ops/ 2>/dev/null | sed -n 's#^deploy/ops/\([0-9]\{3\}_[A-Za-z0-9_.-]*\.sql\)$#\1#p' | sort)"
+  for f in $files; do
+    grep -qxF "$f" "$RD/ops_done" 2>/dev/null && continue
+    echo "$f" >> "$RD/ops_done"       # помечаем до запуска: сбойная задача не крутится по кругу
+    G show "$tip:deploy/ops/$f" > "$RD/ops_task.sql" 2>/dev/null || { notify "SQL-задача $f: не удалось прочитать"; continue; }
+    out="$(sudo docker exec -i supabase-db psql -X -q -P pager=off -v ON_ERROR_STOP=1 -1 -U supabase_admin -d postgres < "$RD/ops_task.sql" 2>&1)"; rc=$?
+    rm -f "$RD/ops_task.sql"
+    if [ "$rc" = 0 ]; then notify "SQL-задача $f выполнена:
+$(printf '%s' "$out" | head -c 3500)"
+    else notify "SQL-задача $f ОШИБКА (откат, не повторяется):
+$(printf '%s' "$out" | tail -c 1500)"; fi
+  done
+  echo "$TIP" > "$RD/ops_seen"
+}
+run_ops
+
 CUR="$(cat "$SRC/.git_commit" 2>/dev/null || true)"
 [ "$CUR" = "$SHORT" ] && exit 0                                  # уже выкачено (в том числе вручную снапшотом)
 [ "$TIP" = "$(cat "$RD/rejected" 2>/dev/null)" ] && exit 0
