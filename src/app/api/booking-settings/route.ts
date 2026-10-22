@@ -178,8 +178,8 @@ async function upsertHandler(request: NextRequest) {
   if (body.min_notice_hours !== undefined && ![1, 2, 4, 24].includes(body.min_notice_hours)) {
     return NextResponse.json({ error: "min_notice_hours должен быть одним из: 1, 2, 4, 24" }, { status: 400 });
   }
-  if (body.max_advance_days !== undefined && ![7, 14, 30, 60].includes(body.max_advance_days)) {
-    return NextResponse.json({ error: "max_advance_days должен быть одним из: 7, 14, 30, 60" }, { status: 400 });
+  if (body.max_advance_days !== undefined && ![7, 14, 30, 60, 90].includes(body.max_advance_days)) {
+    return NextResponse.json({ error: "max_advance_days должен быть одним из: 7, 14, 30, 60, 90" }, { status: 400 });
   }
 
   // Часовой пояс живёт в профиле психолога, а не в booking_settings —

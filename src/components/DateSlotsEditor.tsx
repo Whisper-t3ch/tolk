@@ -393,6 +393,10 @@ export function DateSlotsEditor({
           <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: "#F1ECE4", marginRight: 4 }} />закрыто</span>
         </div>
 
+        <p style={{ fontSize: 12, color: "#6F5A3F", margin: "8px 0 0", lineHeight: 1.5 }}>
+          Выбрать можно даты до {formatLong(lastDate)}: клиенты видят запись не дальше, чем «Максимум дней вперёд» ({maxAdvanceDays}) в параметрах ниже. Хотите дальше — увеличьте его.
+        </p>
+
         {selected && (
           <div style={{ marginTop: 16, padding: 14, background: "#F5F3EF", borderRadius: 10 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: "#1C1C1E", marginBottom: 10, textTransform: "capitalize" }}>{formatLong(selected)}</div>

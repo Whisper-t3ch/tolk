@@ -400,6 +400,7 @@ export default function BookingSettingsPage() {
                 <option value={14}>14 дней</option>
                 <option value={30}>30 дней</option>
                 <option value={60}>60 дней</option>
+                <option value={90}>90 дней</option>
               </select>
             </div>
           </div>
