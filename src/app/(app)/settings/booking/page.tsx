@@ -350,59 +350,14 @@ export default function BookingSettingsPage() {
         <CardContent className="pt-6">
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 14 }}>Параметры записи</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058" }}>Длительность сессии</label>
-              <select
-                value={duration}
-                onChange={e => { const v = Number(e.target.value); setDuration(v); save({ session_duration_minutes: v }); }}
-                style={selectStyle}
-              >
-                <option value={30}>30 минут</option>
-                <option value={50}>50 минут</option>
-                <option value={60}>60 минут</option>
-                <option value={90}>90 минут</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058" }}>Буфер между сессиями</label>
-              <select
-                value={buffer}
-                onChange={e => { const v = Number(e.target.value); setBuffer(v); save({ buffer_minutes: v }); }}
-                style={selectStyle}
-              >
-                <option value={0}>Без буфера</option>
-                <option value={10}>10 минут</option>
-                <option value={15}>15 минут</option>
-                <option value={30}>30 минут</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058" }}>Минимальное уведомление</label>
-              <select
-                value={minNotice}
-                onChange={e => { const v = Number(e.target.value); setMinNotice(v); save({ min_notice_hours: v }); }}
-                style={selectStyle}
-              >
-                <option value={1}>1 час</option>
-                <option value={2}>2 часа</option>
-                <option value={4}>4 часа</option>
-                <option value={24}>24 часа</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058" }}>Максимум дней вперёд</label>
-              <select
-                value={maxAdvance}
-                onChange={e => { const v = Number(e.target.value); setMaxAdvance(v); save({ max_advance_days: v }); }}
-                style={selectStyle}
-              >
-                <option value={7}>7 дней</option>
-                <option value={14}>14 дней</option>
-                <option value={30}>30 дней</option>
-                <option value={60}>60 дней</option>
-                <option value={90}>90 дней</option>
-              </select>
-            </div>
+            <NumberField label="Длительность сессии" unit="мин" value={duration} min={10} max={480}
+              onCommit={v => { setDuration(v); save({ session_duration_minutes: v }); }} />
+            <NumberField label="Буфер между сессиями" unit="мин" value={buffer} min={0} max={240}
+              onCommit={v => { setBuffer(v); save({ buffer_minutes: v }); }} />
+            <NumberField label="Записаться можно не позже чем за" unit="ч" value={minNotice} min={0} max={720}
+              onCommit={v => { setMinNotice(v); save({ min_notice_hours: v }); }} />
+            <NumberField label="Максимум дней вперёд" unit="дн." value={maxAdvance} min={1} max={365}
+              onCommit={v => { setMaxAdvance(v); save({ max_advance_days: v }); }} />
           </div>
         </CardContent>
       </Card>
@@ -424,6 +379,40 @@ export default function BookingSettingsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/** Числовое поле: значение применяется по уходу из поля или Enter, если оно в допустимых пределах. */
+function NumberField({ label, unit, value, min, max, onCommit }: {
+  label: string; unit: string; value: number; min: number; max: number; onCommit: (v: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => { setText(String(value)); }, [value]);
+  const n = Number(text);
+  const valid = text.trim() !== "" && Number.isInteger(n) && n >= min && n <= max;
+  function commit() {
+    if (valid && n !== value) onCommit(n);
+    else if (!valid) setText(String(value));
+  }
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6058" }}>{label}</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          style={{ ...selectStyle, marginTop: 0, width: 110, borderColor: valid ? "#E5DFD5" : "#B91C1C" }}
+        />
+        <span style={{ fontSize: 13, color: "#6B6058" }}>{unit}</span>
+        <span style={{ fontSize: 11, color: "#8A7F70" }}>от {min} до {max}</span>
+      </div>
     </div>
   );
 }

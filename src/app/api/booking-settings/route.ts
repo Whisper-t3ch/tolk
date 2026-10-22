@@ -89,6 +89,13 @@ function sanitizeDateOverrides(input: unknown): { value?: DateOverrides; error?:
   return { value: out };
 }
 
+/** Целое число в диапазоне (undefined — поле не меняется). Возвращает текст ошибки или null. */
+function intError(v: unknown, label: string, min: number, max: number, unit: string): string | null {
+  if (v === undefined) return null;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) return `${label}: целое число от ${min} до ${max} ${unit}`;
+  return null;
+}
+
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 function validateWorkingHours(input: unknown): string | null {
@@ -169,18 +176,12 @@ async function upsertHandler(request: NextRequest) {
     if (res.error) return NextResponse.json({ error: res.error }, { status: 400 });
     dateOverrides = res.value;
   }
-  if (body.session_duration_minutes !== undefined && ![30, 50, 60, 90].includes(body.session_duration_minutes)) {
-    return NextResponse.json({ error: "session_duration_minutes должен быть одним из: 30, 50, 60, 90" }, { status: 400 });
-  }
-  if (body.buffer_minutes !== undefined && ![0, 10, 15, 30].includes(body.buffer_minutes)) {
-    return NextResponse.json({ error: "buffer_minutes должен быть одним из: 0, 10, 15, 30" }, { status: 400 });
-  }
-  if (body.min_notice_hours !== undefined && ![1, 2, 4, 24].includes(body.min_notice_hours)) {
-    return NextResponse.json({ error: "min_notice_hours должен быть одним из: 1, 2, 4, 24" }, { status: 400 });
-  }
-  if (body.max_advance_days !== undefined && ![7, 14, 30, 60, 90].includes(body.max_advance_days)) {
-    return NextResponse.json({ error: "max_advance_days должен быть одним из: 7, 14, 30, 60, 90" }, { status: 400 });
-  }
+  const rangeError =
+    intError(body.session_duration_minutes, "Длительность сессии", 10, 480, "мин") ??
+    intError(body.buffer_minutes, "Буфер", 0, 240, "мин") ??
+    intError(body.min_notice_hours, "Минимальное уведомление", 0, 720, "ч") ??
+    intError(body.max_advance_days, "Максимум дней вперёд", 1, 365, "дн.");
+  if (rangeError) return NextResponse.json({ error: rangeError }, { status: 400 });
 
   // Часовой пояс живёт в профиле психолога, а не в booking_settings —
   // от него зависит и расписание, и трактовка рабочих часов при
