@@ -451,3 +451,76 @@ export async function anonymizeTranscripts(
 ): Promise<string[]> {
   return Promise.all(texts.map(text => anonymizeTranscript(text, clientName, options)));
 }
+
+/** Максимальный размер одного куска при обезличивании длинного текста (символов). */
+export const ANON_CHUNK_CHARS = 2500;
+const ANON_CONCURRENCY = 6;
+
+/**
+ * Режет длинный текст на куски по границам строк/предложений, чтобы каждый кусок уместился и в
+ * контекст модели, и в её ответ со списком замен (раньше весь транскрипт уходил одним запросом и
+ * на длинной сессии обрезался или целиком отклонялся модерацией).
+ */
+export function splitForAnonymization(text: string, maxChars: number = ANON_CHUNK_CHARS): string[] {
+  const pieces: string[] = [];
+  for (const line of text.split(/\n+/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.length <= maxChars) {
+      pieces.push(trimmed);
+      continue;
+    }
+    // Слишком длинная строка (сплошной текст без переносов): режем по предложениям, затем жёстко.
+    let acc = "";
+    for (const sentence of splitSentences(trimmed)) {
+      if (sentence.length > maxChars) {
+        if (acc) { pieces.push(acc); acc = ""; }
+        for (let i = 0; i < sentence.length; i += maxChars) pieces.push(sentence.slice(i, i + maxChars));
+        continue;
+      }
+      if (acc && acc.length + 1 + sentence.length > maxChars) { pieces.push(acc); acc = sentence; }
+      else acc = acc ? `${acc} ${sentence}` : sentence;
+    }
+    if (acc) pieces.push(acc);
+  }
+  const chunks: string[] = [];
+  let cur = "";
+  for (const piece of pieces) {
+    if (cur && cur.length + 1 + piece.length > maxChars) { chunks.push(cur); cur = piece; }
+    else cur = cur ? `${cur}\n${piece}` : piece;
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
+/**
+ * Обезличивание транскрипта любой длины (вставленный текст, .txt): кусками по ANON_CHUNK_CHARS,
+ * по несколько запросов параллельно. Отказ модерации на куске скрывает только его (заглушка);
+ * остальные сбои по-прежнему fail-closed (AnonymizationError).
+ */
+export async function anonymizeLongText(
+  text: string,
+  clientName: string,
+  options: AnonymizeOptions = {}
+): Promise<string> {
+  const trimmed = text?.trim();
+  if (!trimmed) return text ?? "";
+  const chunks = splitForAnonymization(trimmed);
+  const out: string[] = new Array(chunks.length);
+  let next = 0;
+  let moderated = 0;
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= chunks.length) return;
+      const r = await anonymizeSegmentTolerant(chunks[i], clientName, options);
+      out[i] = r.text;
+      moderated += r.moderated;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(ANON_CONCURRENCY, chunks.length) }, worker));
+  if (moderated > 0) console.log("ANON_MODERATED", JSON.stringify({ fragments: moderated, chunks: chunks.length }));
+  const result = out.join("\n");
+  if (result.trim() === "") throw new AnonymizationError("empty_result", "после замен текст пуст");
+  return result;
+}

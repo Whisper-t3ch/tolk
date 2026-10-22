@@ -345,9 +345,14 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({} as { error?: string; embeddingSaved?: boolean }));
       if (!res.ok) {
-        setUploadTranscriptError(data.error ?? "Не удалось загрузить транскрипт");
+        setUploadTranscriptError(
+          data.error ??
+            (res.status === 504 || res.status === 524 || res.status === 502
+              ? "Обработка длинного текста заняла слишком много времени. Попробуйте ещё раз или загрузите транскрипт частями."
+              : `Не удалось загрузить транскрипт (ошибка ${res.status})`)
+        );
         return;
       }
       setShowUploadTranscript(false);

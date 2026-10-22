@@ -23,6 +23,9 @@ import { AnonymizationError, MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST } from "@/li
 // → чанкинг+embedding для RAG). duration_minutes не указываем осознанно
 // (реальная длительность прошлой встречи неизвестна, NULL безопаснее
 // произвольного значения).
+// Обезличивание длинного текста идёт кусками и может занять около минуты.
+export const maxDuration = 300;
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: clientId } = await params;
   const supabase = await createClient();

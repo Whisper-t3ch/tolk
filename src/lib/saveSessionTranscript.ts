@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { anonymizeTranscript } from "@/lib/anonymize";
+import { anonymizeLongText } from "@/lib/anonymize";
 import { chunkAndEmbedTranscript } from "@/lib/transcriptChunking";
 
 // ------------------------------------------------------------
@@ -23,7 +23,7 @@ export async function saveSessionTranscript(
   /** Обработка УЖЕ обезличенного текста перед сохранением (например, разметка реплик). Не должна возвращать пустую строку. */
   postProcess?: (anonymized: string) => Promise<string>
 ): Promise<{ chunksTotal: number; chunksEmbedded: number }> {
-  let anonymizedText = await anonymizeTranscript(text, clientName);
+  let anonymizedText = await anonymizeLongText(text, clientName);
   if (postProcess) {
     const processed = await postProcess(anonymizedText);
     if (processed.trim()) anonymizedText = processed;

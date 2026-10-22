@@ -24,6 +24,9 @@ import { AnonymizationError, MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST } from "@/li
 // source='manual' — то же значение, что уже разрешено CHECK-
 // констрейнтом колонки (migration_007_video_asr.sql), отдельное
 // значение 'manual_upload' не потребовалось.
+// Обезличивание длинного текста идёт кусками и может занять около минуты.
+export const maxDuration = 300;
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = await params;
   const supabase = await createClient();
