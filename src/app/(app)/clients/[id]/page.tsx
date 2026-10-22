@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Send, ChevronLeft, Download,
-  TrendingUp, TrendingDown, Minus, ArrowRight, Video, Clock,
+  ArrowRight, Video, Clock,
   Sparkles, X, Link2, Copy, Check, Paperclip, BookOpen, Search, Trash2,
 } from "lucide-react";
 import { demoClientExtrasByName } from "@/lib/demo-client-extras";
@@ -18,7 +18,6 @@ import { useProfile } from "@/lib/ProfileContext";
 import { updateClientRecord, softDeleteClient } from "@/lib/data/clients";
 import { formatDateInTimeZone, formatTimeInTimeZone, todayInTimeZone, isSessionPast, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { Button, Card, CardContent } from "@/components/ui";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { ClientFace } from "@/components/Avatar";
 import VoiceMessageButton from "@/components/VoiceMessageButton";
 import ClientNotesTab from "@/components/ClientNotesTab";
@@ -51,7 +50,6 @@ function formatSessionDate(date: string): string {
 }
 
 const EMPTY_TRIGGERS: string[] = [];
-const EMPTY_PROGRESS = { aiScore: 0, psychologistScore: null, clientScore: null, history: [] as Array<{ date: string; aiScore: number; psychologistScore?: number; clientScore?: number }> };
 
 const avatarColors = ["#2D6A5C", "#157347", "#B45309", "#B91C1C", "#6D28D9"];
 
@@ -458,35 +456,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const upcomingSessions = clientSessions.filter(s => !isSessionPast(s.date, s.time, timeZone));
   const pastSessions = clientSessions.filter(s => isSessionPast(s.date, s.time, timeZone)).reverse();
 
-  const progress = client?.progress ?? EMPTY_PROGRESS;
-  // Реальная история теста — из test_results (Supabase). Пока психолог
-  // ничего не внёс — используем demo-extras как наглядную заглушку
-  // (только для показа UI, не смешивается с реальными данными после
-  // первого сохранённого результата).
-  const demoExtrasForTrend = demoClientExtrasByName[client?.name ?? ""];
   const completedTests = useMemo(() => testResults.filter(t => t.status === "completed"), [testResults]);
-  const clientTestHistoryForTrend = completedTests.length > 0
-    ? completedTests.map(t => ({ date: new Date(t.created_at).toLocaleDateString("ru", { day: "numeric", month: "short", timeZone }), score: t.score }))
-    : demoExtrasForTrend?.testHistory ?? [];
-  // Тренд считаем по истории теста (score ниже = лучше для GAD-7/PHQ-9/MBI,
-  // поэтому направление здесь условное — просто "снизился/вырос за 2 замера").
-  // Пока в БД нет флага "меньше = лучше" по методике, это грубое приближение
-  // для демонстрации, не клиническая оценка.
-  const trend = useMemo(() => {
-    if (clientTestHistoryForTrend.length >= 2) {
-      const recent = clientTestHistoryForTrend.slice(-2);
-      if (recent[1].score < recent[0].score) return "improving";
-      if (recent[1].score > recent[0].score) return "degrading";
-      return "stable";
-    }
-    if (progress.history.length < 2) return "stable";
-    const recent = progress.history.slice(-2);
-    if (recent[1].aiScore > recent[0].aiScore) return "improving";
-    if (recent[1].aiScore < recent[0].aiScore) return "degrading";
-    return "stable";
-  }, [progress, clientTestHistoryForTrend]);
-  const trendColor = trend === "improving" ? "#1BAF7A" : trend === "degrading" ? "#EF4444" : "#F59E0B";
-  const TrendIcon = trend === "improving" ? TrendingUp : trend === "degrading" ? TrendingDown : Minus;
 
   const sendMessage = async () => {
     if (!chatInput.trim() || sending) return;
@@ -707,7 +677,6 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   // triggers/ДЗ пока остаются демо-заглушкой (см. lib/demo-client-extras.ts) —
   // тесты и прогресс теперь реальные (test_results в Supabase, см. выше).
   const demoExtras = demoClientExtrasByName[client.name];
-  const clientTestHistory = clientTestHistoryForTrend;
   const triggers = client.triggers ?? demoExtras?.triggers ?? EMPTY_TRIGGERS;
   const latestCompletedTest = completedTests.length > 0 ? completedTests[completedTests.length - 1] : null;
   const lastTest = latestCompletedTest
@@ -717,7 +686,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
         maxScore: latestCompletedTest.max_score,
         date: new Date(latestCompletedTest.created_at).toLocaleDateString("ru", { day: "numeric", month: "short", timeZone }),
       }
-    : client.lastTest ?? demoExtras?.lastTest;
+    : null;
   const hwTotal = client.hwTotal || demoExtras?.hwTotal || 0;
   const hwCompleted = client.hwCompleted || demoExtras?.hwCompleted || 0;
   const hwPct = hwTotal > 0 ? Math.round((hwCompleted / hwTotal) * 100) : 0;
@@ -1441,25 +1410,9 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             <CardContent className="pt-6">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
-                  {lastTest?.name ? `Динамика теста ${lastTest.name}` : "Динамика тестов"}
+                  Тесты и динамика
                 </h3>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {/* Бейдж динамики показываем, только когда есть хотя бы
-                      два замера, между которыми эта динамика и считается.
-                      Раньше он висел всегда и у клиента без единого теста
-                      бодро утверждал «Стабильно» — рядом с надписью
-                      «Тесты ещё не проводились». */}
-                  {testResults.length >= 2 && (
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      padding: "5px 10px", background: `${trendColor}20`, borderRadius: 20,
-                    }}>
-                      <TrendIcon size={14} style={{ color: trendColor }} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: trendColor }}>
-                        {trend === "improving" ? "Улучшение" : trend === "degrading" ? "Ухудшение" : "Стабильно"}
-                      </span>
-                    </div>
-                  )}
                   <Button size="sm" variant="secondary" onClick={() => setShowSendTestForm(v => !v)}>
                     + Внести результат теста
                   </Button>
@@ -1514,18 +1467,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 <p style={{ fontSize: 12, color: "#6F5A3F" }}>Загрузка истории тестов…</p>
               ) : completedTests.length > 0 ? (
                 <TestsAnalytics tests={testResults} nameOf={testDisplayName} timeZone={timeZone} />
-              ) : clientTestHistory.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={clientTestHistory}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
-                    <XAxis dataKey="date" stroke="#6F5A3F" style={{ fontSize: 11 }} />
-                    <YAxis stroke="#6F5A3F" style={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E5DFD5" }} />
-                    <Line type="monotone" dataKey="score" stroke="#2D6A5C" strokeWidth={2} dot={{ fill: "#2D6A5C", r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
               ) : (
-                <p style={{ fontSize: 12, color: "#6F5A3F" }}>Пока недостаточно данных теста для графика</p>
+                <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>Тестов пока нет. Внесите результат или отправьте клиенту ссылку на тест: здесь появятся карточки по каждой методике с графиком и интерпретацией.</p>
               )}
               <div style={{ marginTop: 12, display: completedTests.length > 0 ? "none" : "block" }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>
@@ -1537,35 +1480,7 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             </CardContent>
           </Card>
 
-          {progress.history.length === 0 && <ProgressCard clientId={id} timeZone={timeZone} />}
-          {progress.history.length > 0 && (
-          <Card>
-            <CardContent className="pt-6">
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", marginBottom: 16 }}>
-                Оценка прогресса (ИИ / психолог / клиент)
-              </h3>
-              {/* Пустой график с осью −5…5 и без единой точки выглядел как
-                  сломанный виджет, а не как «данных пока нет». */}
-              {progress.history.length === 0 ? (
-                <p style={{ fontSize: 13, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
-                  График появится, когда накопятся оценки за несколько сессий — свою и клиента можно проставлять после каждой встречи.
-                </p>
-              ) : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={progress.history}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD5" />
-                    <XAxis dataKey="date" stroke="#6F5A3F" style={{ fontSize: 11 }} />
-                    <YAxis domain={[0, 10]} stroke="#6F5A3F" style={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: "#fff", border: "1px solid #E5DFD5" }} />
-                    <Line type="monotone" dataKey="aiScore" name="ИИ" stroke="#2D6A5C" strokeWidth={2} dot={{ fill: "#2D6A5C", r: 3 }} />
-                    <Line type="monotone" dataKey="psychologistScore" name="Психолог" stroke="#1BAF7A" strokeWidth={2} dot={{ fill: "#1BAF7A", r: 3 }} />
-                    <Line type="monotone" dataKey="clientScore" name="Клиент" stroke="#F59E0B" strokeWidth={2} dot={{ fill: "#F59E0B", r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-          )}
+          <ProgressCard clientId={id} timeZone={timeZone} />
         </div>
       )}
 
