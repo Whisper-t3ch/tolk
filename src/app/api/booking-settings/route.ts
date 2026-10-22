@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidTimeZone, normalizeTimeZone } from "@/lib/timezone";
 
 // GET /api/booking-settings — настройки публичной записи текущего
@@ -89,17 +90,18 @@ function validateWorkingHours(input: unknown): string | null {
   return null;
 }
 
-/** Генерирует уникальный public_slug из имени психолога, добавляя число при коллизии. */
-async function generateUniqueSlug(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  name: string
-): Promise<string> {
+/**
+ * Генерирует уникальный public_slug из имени психолога, добавляя число при коллизии.
+ * Проверка идёт через service role: под RLS психолог видит только свои строки, и чужой slug
+ * (например, у другого «Артёма») казался свободным — вставка падала на unique-ограничении.
+ */
+async function generateUniqueSlug(name: string): Promise<string> {
+  const admin = createAdminClient();
   const base = slugify(name);
   let candidate = base;
   let suffix = 1;
-  // На бете psychologists — единицы-десятки, цикл коротким не будет.
-  while (true) {
-    const { data: existing } = await supabase
+  while (suffix < 1000) {
+    const { data: existing } = await admin
       .from("booking_settings")
       .select("id")
       .eq("public_slug", candidate)
@@ -108,6 +110,7 @@ async function generateUniqueSlug(
     suffix += 1;
     candidate = `${base}-${suffix}`;
   }
+  return `${base}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 // POST/PUT /api/booking-settings — создать или обновить настройки.
@@ -196,23 +199,29 @@ async function upsertHandler(request: NextRequest) {
 
   const metadataName = typeof user.user_metadata?.name === "string" ? user.user_metadata.name.trim() : "";
   const nameForSlug = metadataName || (user.email ? user.email.split("@")[0] : "psychologist");
-  const publicSlug = await generateUniqueSlug(supabase, nameForSlug);
+  let publicSlug = await generateUniqueSlug(nameForSlug);
 
-  const { data: created, error: createError } = await supabase
-    .from("booking_settings")
-    .insert({
-      psychologist_id: user.id,
-      public_slug: publicSlug,
-      ...patch,
-    })
-    .select(
-      "id, public_slug, working_hours, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
-    )
-    .single();
-  if (createError) {
+  // Две регистрации одновременно могли взять один slug — при конфликте (23505) пробуем ещё раз со случайным хвостом.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { data: created, error: createError } = await supabase
+      .from("booking_settings")
+      .insert({
+        psychologist_id: user.id,
+        public_slug: publicSlug,
+        ...patch,
+      })
+      .select(
+        "id, public_slug, working_hours, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
+      )
+      .single();
+    if (!createError) return NextResponse.json({ settings: created });
+    if (createError.code === "23505" && /public_slug/.test(createError.message)) {
+      publicSlug = `${slugify(nameForSlug)}-${Math.random().toString(36).slice(2, 6)}`;
+      continue;
+    }
     return NextResponse.json({ error: createError.message }, { status: 500 });
   }
-  return NextResponse.json({ settings: created });
+  return NextResponse.json({ error: "Не удалось создать ссылку записи, попробуйте ещё раз" }, { status: 500 });
 }
 
 export const POST = upsertHandler;
