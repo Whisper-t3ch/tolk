@@ -12,7 +12,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const { data, error } = await supabase
     .from("client_ai_analyses")
-    .select("id, kind, ref, content, score, created_at")
+    .select("id, kind, ref, content, score, created_at, auto, edited_at")
     .eq("client_id", clientId)
     .eq("psychologist_id", user.id)
     .order("created_at", { ascending: false })
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       content: built.content,
       score: built.score,
     })
-    .select("id, kind, ref, content, score, created_at")
+    .select("id, kind, ref, content, score, created_at, auto, edited_at")
     .single();
   if (saveError) {
     console.error("AI_ANALYSIS_SAVE_FAILED", saveError.message);

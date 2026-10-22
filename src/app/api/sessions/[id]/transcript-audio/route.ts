@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { runAutoSessionSummary } from "@/lib/autoSessionSummary";
 import { checkAudioFile, pickUploadAdapter, processUploadedAudio, releaseAudioSlot, tryAcquireAudioSlot } from "@/lib/recording/uploadedAudio";
 
 // POST /api/sessions/[id]/transcript-audio — multipart: file (аудио). Для существующей сессии (запись вне платформы).
@@ -46,7 +48,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   after(async () => {
     try {
-      await processUploadedAudio({ supabase, sessionId, clientName, audio, adapter });
+      await processUploadedAudio({ supabase, sessionId, clientName, audio, adapter, onReady: async () => { await runAutoSessionSummary(createAdminClient(), sessionId); } });
     } finally {
       releaseAudioSlot();
     }

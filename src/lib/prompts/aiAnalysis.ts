@@ -24,7 +24,11 @@ const RULES = `Опирайся только на переданные данн�
 
 const OVERVIEW_KEYS = ["dynamics", "strengths", "supports", "interventions", "homework", "attention", "next_focus"] as const;
 const TEST_KEYS = ["summary", "dynamics", "interpretation", "recommendations"] as const;
-const SESSION_KEYS = ["state_score", "score_rationale", "key_themes", "strengths", "supports", "interventions", "homework", "next_focus"] as const;
+export const SESSION_KEYS = [
+  "state_score", "score_rationale", "key_themes", "strengths", "supports", "growth", "alliance", "interventions", "identity", "homework", "next_focus",
+] as const;
+/** Без этих блоков итоги сессии считаются неполными (остальные могут быть «недостаточно данных»). */
+const SESSION_REQUIRED = ["strengths", "supports", "growth", "interventions"] as const;
 
 const PROMPTS: Record<AnalysisKind, string> = {
   overview: `Ты клинический ассистент психолога. По протоколам сессий, результатам тестов и отметкам состояния составь обзор работы с клиентом.
@@ -34,8 +38,21 @@ ${RULES}`,
 Ключи JSON: "summary" (общий вывод в 1–2 предложениях), "dynamics" (как менялись баллы и что это значит), "interpretation" (как читать последний результат с учётом шкалы), "recommendations" (что обсудить с клиентом, когда повторить тест).
 Учитывай направление шкалы, оно указано в данных. Результат теста — скрининговый ориентир, а не диагноз.
 ${RULES}`,
-  session: `Ты клинический ассистент психолога. Разбери одну сессию по транскрипту или протоколу.
-Ключи JSON: "state_score" (ЧИСЛО от 0 до 10: оценка состояния клиента на этой сессии по тому, что прозвучало; 0 — очень тяжёлое, 10 — хорошее, устойчивое), "score_rationale" (на чём основана оценка, 1–2 предложения), "key_themes" (ключевые темы), "strengths" (сильные стороны клиента, проявившиеся на сессии), "supports" (точки опоры), "interventions" (какие интервенции были и как отозвались), "homework" (какие задания обсуждались или стоит дать), "next_focus" (на чём сфокусироваться дальше).
+  session: `Ты ассистент-супервизор психолога. Разбери одну сессию по транскрипту или протоколу и составь итоги для самого психолога. Обращайся к нему на «вы», тёплым профессиональным тоном. Клиенту диагнозов не ставь.
+Опирайся только на материал сессии: ничего не выдумывай, фразы цитируй коротко и только дословно из материала. Про то, что происходило у психолога внутри (чувства, контрперенос), пиши как осторожное предположение («возможно, вы чувствовали…»).
+Ключи JSON:
+"state_score" (ЧИСЛО от 0 до 10: оценка состояния клиента на этой сессии по тому, что прозвучало; 0 — очень тяжёлое, 10 — хорошее, устойчивое),
+"score_rationale" (на чём основана оценка, 1–2 предложения),
+"key_themes" (ключевые темы сессии),
+"strengths" (Ваши сильные стороны: 2–3 пункта. Каждый: название; строка «Значимость для терапии: Ключевая / Важная / Вспомогательная»; строка «Что именно было сделано удачно:» с конкретикой из сессии),
+"supports" (Точки опоры: 2–3 пункта, на что вы можете опереться в сложный момент. Каждый: название; «Ресурс:»; «Использование:» (когда и как применить); «Напоминание себе:» (короткая фраза от первого лица)),
+"growth" (Идеи и возможности роста: 2–3 мягких предложения, что можно попробовать дальше, с опорой на конкретные моменты сессии),
+"alliance" (Терапевтический альянс и контрперенос: качество контакта, что могло происходить у вас в процессе),
+"interventions" (Эффективность интервенций: по каждой заметной интервенции «Интервенция:», «Эффективность:» высокая / средняя / низкая / неясно и обоснование по реакции клиента),
+"identity" (Профессиональная идентичность: какой образ психолога мог переживать клиент и какие профессиональные качества проявились),
+"homework" (какие задания обсуждались или стоит дать),
+"next_focus" (на чём сфокусироваться дальше).
+Каждое значение — не длиннее 900 символов.
 ${RULES}`,
 };
 
@@ -71,12 +88,12 @@ export function parseScore(text: string): number | null {
   return Math.max(0, Math.min(10, Math.round(n * 10) / 10));
 }
 
-async function runModel(system: string, user: string, keys: readonly string[], sessionKey: string, required: readonly string[]) {
+async function runModel(system: string, user: string, keys: readonly string[], sessionKey: string, required: readonly string[], maxTokens?: number) {
   const messages = [
     { role: "system" as const, text: system },
     { role: "user" as const, text: user },
   ];
-  const options = { sessionId: `tolk-ai-${sessionKey}`.slice(0, 80) };
+  const options = { sessionId: `tolk-ai-${sessionKey}`.slice(0, 80), ...(maxTokens ? { maxTokens } : {}) };
   const ok = (r: Record<string, string>) => required.every(k => r[k] && r[k].trim().length > 0);
   try {
     let result = normalizeAnalysis(await yandexGptCompleteJson<unknown>(messages, options), keys);
@@ -220,7 +237,7 @@ export async function buildSessionAnalysis(supabase: SupabaseClient, client: Cli
   if (!material) throw new AiAnalysisError("У этой сессии нет ни транскрипта, ни протокола, разбирать нечего.", 422);
 
   const user = `Запрос клиента: ${client.request || "не указан"}. Подход психолога: ${client.approach || "не указан"}.\nДата сессии: ${dateOf(session.scheduled_at as string)}.\n\n${material}`;
-  const result = await runModel(PROMPTS.session, user, SESSION_KEYS, `s-${sessionId}`, SESSION_KEYS.filter(k => k !== "state_score"));
+  const result = await runModel(PROMPTS.session, user, SESSION_KEYS, `s-${sessionId}`, SESSION_REQUIRED, 4000);
   const score = parseScore(result.state_score ?? "");
   if (score === null) throw new AiAnalysisError("Модель не вернула числовую оценку. Попробуйте ещё раз (запрос не списан).");
   return { content: { ...result, state_score: String(score), session_date: session.scheduled_at as string }, score };

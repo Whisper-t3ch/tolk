@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -33,6 +33,9 @@ export interface AiAnalysis {
   content: Record<string, string>;
   score: number | null;
   created_at: string;
+  /** Создано автоматически после расшифровки записи (а не кнопкой). */
+  auto?: boolean;
+  edited_at?: string | null;
 }
 
 /** ИИ-анализы клиента: список сохранённых + запуск по кнопке (каждый запуск стоит 1 запрос лимита). */
@@ -41,14 +44,40 @@ export function useAiAnalyses(clientId: string) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/clients/${clientId}/ai-analysis`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (!cancelled && d?.analyses) setList(d.analyses); })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
+  const refresh = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/clients/${clientId}/ai-analysis`);
+      const d = r.ok ? await r.json() : null;
+      if (d?.analyses) setList(d.analyses);
+    } catch {
+      /* без сети список останется прежним */
+    }
   }, [clientId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  /** Правка блока психологом (value=null — удалить блок). Запрос ИИ не тратится. */
+  async function saveBlock(analysisId: string, key: string, value: string | null): Promise<boolean> {
+    setError(null);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/ai-analysis/${analysisId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.analysis) {
+        setList(prev => prev.map(a => (a.id === analysisId ? (data.analysis as AiAnalysis) : a)));
+        return true;
+      }
+      setError(data.error ?? "Не удалось сохранить правку");
+    } catch {
+      setError("Не удалось связаться с сервером");
+    }
+    return false;
+  }
 
   async function generate(kind: AiAnalysis["kind"], ref?: string) {
     const key = `${kind}:${ref ?? ""}`;
@@ -78,7 +107,7 @@ export function useAiAnalyses(clientId: string) {
     return list.find(a => a.kind === kind && (a.ref ?? null) === (ref ?? null)) ?? null;
   }
 
-  return { list, busy, error, generate, latest };
+  return { list, busy, error, generate, latest, refresh, saveBlock };
 }
 export type AiState = ReturnType<typeof useAiAnalyses>;
 
@@ -90,8 +119,9 @@ export const TEST_LABELS: [string, string][] = [
   ["summary", "Вывод"], ["dynamics", "Динамика"], ["interpretation", "Как читать результат"], ["recommendations", "Что обсудить"],
 ];
 export const SESSION_LABELS: [string, string][] = [
-  ["score_rationale", "На чём основана оценка"], ["key_themes", "Ключевые темы"], ["strengths", "Сильные стороны"], ["supports", "Точки опоры"],
-  ["interventions", "Интервенции"], ["homework", "Домашние задания"], ["next_focus", "Фокус дальше"],
+  ["score_rationale", "На чём основана оценка"], ["key_themes", "Ключевые темы"], ["strengths", "Ваши сильные стороны"], ["supports", "Точки опоры"],
+  ["growth", "Идеи и возможности роста"], ["alliance", "Терапевтический альянс и контрперенос"], ["interventions", "Эффективность интервенций"],
+  ["identity", "Профессиональная идентичность"], ["homework", "Домашние задания"], ["next_focus", "Фокус дальше"],
 ];
 
 export function AnalysisSections({ content, labels }: { content: Record<string, string>; labels: [string, string][] }) {
@@ -381,32 +411,104 @@ export function ProgressCard({ clientId, timeZone, ai }: { clientId: string; tim
 }
 
 /** ИИ-разбор одной сессии по кнопке (транскрипт или протокол): темы, сильные стороны, интервенции и оценка состояния 0–10 для графика. */
+/** Блоки итогов сессии: можно править и удалять (как у psyAI). */
+function EditableSections({ analysis, labels, onSave }: { analysis: AiAnalysis; labels: [string, string][]; onSave: (id: string, key: string, value: string | null) => Promise<boolean> }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const linkBtn = { background: "none", border: "none", padding: 0, fontSize: 11.5, color: "#6F5A3F", cursor: "pointer", textDecoration: "underline" } as const;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {labels.filter(([k]) => analysis.content[k]).map(([k, label]) => (
+        <div key={k}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#1C1C1E" }}>{label}</span>
+            {editing !== k && (
+              <>
+                <button type="button" style={linkBtn} onClick={() => { setEditing(k); setDraft(analysis.content[k]); }}>Править</button>
+                <button
+                  type="button"
+                  style={linkBtn}
+                  onClick={async () => { if (window.confirm(`Удалить блок «${label}»?`)) await onSave(analysis.id, k, null); }}
+                >
+                  Удалить
+                </button>
+              </>
+            )}
+          </div>
+          {editing === k ? (
+            <div>
+              <textarea
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                rows={Math.min(14, Math.max(4, draft.split("\n").length + 1))}
+                style={{ width: "100%", boxSizing: "border-box", padding: 10, fontSize: 12.5, lineHeight: 1.55, color: "#1C1C1E", background: "#FFFFFF", border: "1px solid #D9D0C1", borderRadius: 8, fontFamily: "inherit", resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <Button
+                  size="sm"
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true);
+                    const ok = await onSave(analysis.id, k, draft);
+                    setSaving(false);
+                    if (ok) setEditing(null);
+                  }}
+                >
+                  {saving ? "Сохраняю…" : "Сохранить"}
+                </Button>
+                <Button size="sm" variant="secondary" disabled={saving} onClick={() => setEditing(null)}>Отмена</Button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: "#1C1C1E", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{analysis.content[k]}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SessionAiCard({ clientId, sessionId }: { clientId: string; sessionId: string }) {
   const ai = useAiAnalyses(clientId);
   const cur = ai.latest("session", sessionId);
   const busy = ai.busy === `session:${sessionId}`;
+  // Итоги готовятся автоматически после расшифровки записи: пока их нет, несколько раз перечитываем список.
+  const tries = useRef(0);
+  useEffect(() => {
+    if (cur) return;
+    const t = setInterval(() => {
+      tries.current += 1;
+      if (tries.current > 12) { clearInterval(t); return; }
+      void ai.refresh();
+    }, 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cur?.id]);
   return (
     <div style={{ marginTop: 16, padding: 16, background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>ИИ-разбор сессии</h3>
-        <AiButton busy={busy} hasResult={!!cur} onClick={() => ai.generate("session", sessionId)} what="Разобрать сессию" />
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Резюме и итоги сессии</h3>
+        <AiButton busy={busy} hasResult={!!cur} onClick={() => ai.generate("session", sessionId)} what="Подготовить итоги сессии" />
       </div>
       {ai.error && ai.busy === null && <p style={{ fontSize: 12, color: "#B91C1C", margin: "0 0 8px" }}>{ai.error}</p>}
       {cur ? (
         <>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
             <span style={{ fontSize: 24, fontWeight: 800, color: "#2D6A5C" }}>{cur.score}</span>
             <span style={{ fontSize: 12.5, color: "#6F5A3F" }}>из 10: оценка состояния клиента на сессии (попадёт на график «Динамика состояния»)</span>
           </div>
-          <AnalysisSections content={cur.content} labels={SESSION_LABELS} />
-          <p style={{ fontSize: 11, color: "#8A7F70", margin: "12px 0 0" }}>
-            {new Date(cur.created_at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })} · {AI_NOTE}
+          <EditableSections analysis={cur} labels={SESSION_LABELS} onSave={ai.saveBlock} />
+          <p style={{ fontSize: 11, color: "#8A7F70", margin: "14px 0 0" }}>
+            {cur.auto ? "Составлено автоматически после расшифровки записи · " : ""}
+            {new Date(cur.created_at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+            {cur.edited_at ? " · вы редактировали" : ""} · {AI_NOTE}
           </p>
         </>
       ) : (
         <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
-          Разбор по транскрипту или протоколу: ключевые темы, сильные стороны, точки опоры, интервенции, домашние задания и оценка состояния клиента.
-          Запускается только по кнопке и стоит 1 запрос из лимита ассистента.
+          Сильные стороны, точки опоры, идеи роста, альянс и контрперенос, эффективность интервенций, профессиональная идентичность и оценка состояния клиента.
+          Итоги готовятся сами после расшифровки записи и стоят 1 запрос из лимита ассистента. Если их нет, нажмите кнопку.
         </p>
       )}
     </div>

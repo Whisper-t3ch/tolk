@@ -5,6 +5,8 @@ import { processNextRecordingJob, type JobOutcome, type RecordingJobRow } from "
 import { transcribeAssembledSession } from "@/lib/recording/transcribeSession";
 import { createMockAsrAdapter, createHttpAsrAdapter, type AsrAdapter } from "@/lib/recording/asrAdapter";
 import type { SessionAssemblyOk } from "@/lib/recording/attemptAssembly";
+import { assembleSessionRecording } from "@/lib/recording/attemptAssembly";
+import { runAutoSessionSummary } from "@/lib/autoSessionSummary";
 
 // GET/POST /api/jobs/process — Этап 3.4/3.5, воркер-контур без
 // выделенной ВМ: Vercel Cron бьёт сюда по расписанию (см. vercel.json)
@@ -103,7 +105,16 @@ async function handle(request: NextRequest) {
 
   let result;
   try {
-    result = await processNextRecordingJob(admin, workerId, (assembly, job) => transcribe(admin, assembly, job));
+    result = await processNextRecordingJob(
+      admin,
+      workerId,
+      (assembly, job) => transcribe(admin, assembly, job),
+      assembleSessionRecording,
+      // Итоги и протокол готовятся в фоне, чтобы вызов воркера (cron) не ждал модель.
+      sessionId => {
+        void runAutoSessionSummary(admin, sessionId);
+      }
+    );
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }

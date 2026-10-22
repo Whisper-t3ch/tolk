@@ -146,7 +146,9 @@ export async function processNextRecordingJob(
   workerId: string,
   transcribe: (assembly: SessionAssemblyOk, job: RecordingJobRow) => Promise<JobOutcome>,
   /** Сборка записи — подменяется только в тестах. */
-  assemble: (supabase: SupabaseClient, sessionId: string) => ReturnType<typeof assembleSessionRecording> = assembleSessionRecording
+  assemble: (supabase: SupabaseClient, sessionId: string) => ReturnType<typeof assembleSessionRecording> = assembleSessionRecording,
+  /** Вызывается после успешной расшифровки (сессия в статусе ready): автоитоги. Ошибки не влияют на задачу. */
+  onTranscriptReady?: (sessionId: string) => void | Promise<void>
 ): Promise<{ jobId: string; outcome: ProcessOutcome } | null> {
   const job = await claimNextJob(supabase, workerId);
   if (!job) return null;
@@ -168,6 +170,13 @@ export async function processNextRecordingJob(
     // Раньше sessions.recording_status после успешной транскрипции оставался 'processing'
     // навсегда (страница протокола показывала «Запись обрабатывается»).
     await setSessionRecordingStatus(supabase, job.session_id, { recording_status: "ready", transcript_error: null });
+    if (onTranscriptReady) {
+      try {
+        await onTranscriptReady(job.session_id);
+      } catch (e) {
+        console.error("processNextRecordingJob: onTranscriptReady:", e instanceof Error ? e.message : e);
+      }
+    }
   } else if (outcome.kind === "manual_review_required") {
     await setJobStatus(supabase, job.id, { status: "manual_review_required", last_error: outcome.reason });
     await setSessionRecordingStatus(supabase, job.session_id, {

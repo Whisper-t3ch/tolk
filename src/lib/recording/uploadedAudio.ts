@@ -75,6 +75,8 @@ export interface ProcessAudioParams {
   clientName: string;
   audio: Buffer;
   adapter: AsrAdapter;
+  /** После успешной расшифровки (например, автоитоги сессии). Ошибки игнорируются. */
+  onReady?: () => Promise<void>;
 }
 
 /**
@@ -94,6 +96,7 @@ export async function processUploadedAudio(p: ProcessAudioParams): Promise<{ ok:
     if (result.durationSeconds) {
       await p.supabase.from("session_transcripts").update({ duration_seconds: Math.round(result.durationSeconds) }).eq("session_id", p.sessionId);
     }
+    if (p.onReady) await p.onReady().catch(() => undefined);
     return { ok: true };
   } catch (e) {
     if (e instanceof AnonymizationError) {

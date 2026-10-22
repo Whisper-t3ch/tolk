@@ -1,6 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { saveSessionTranscript } from "@/lib/saveSessionTranscript";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { runAutoSessionSummary } from "@/lib/autoSessionSummary";
 import { AnonymizationError, MANUAL_REVIEW_MESSAGE_FOR_PSYCHOLOGIST } from "@/lib/anonymize";
 
 // POST /api/sessions/[id]/transcript
@@ -85,6 +87,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     return NextResponse.json({ error: e instanceof Error ? e.message : "Не удалось сохранить транскрипт" }, { status: 500 });
   }
+
+  // Протокол и итоги сессии готовятся сами, уже после ответа.
+  after(async () => {
+    await runAutoSessionSummary(createAdminClient(), sessionId);
+  });
 
   return NextResponse.json({ ok: true, embeddingSaved: chunksEmbedded > 0, chunksTotal, chunksEmbedded });
 }

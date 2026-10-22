@@ -23,3 +23,17 @@ describe("parseScore", () => {
     expect(parseScore("нет")).toBeNull();
   });
 });
+
+describe("итоги сессии (psyAI-блоки)", () => {
+  it("достаёт все блоки, регистр и вложенность ключей не страшны", async () => {
+    const { normalizeAnalysis, SESSION_KEYS } = await import("../prompts/aiAnalysis");
+    const out = normalizeAnalysis(
+      { Итоги: { State_Score: 7, strengths: ["Эмпатия", "Рефрейминг"], supports: "Ресурс: гибкость", growth: "Телесность", alliance: "Контакт тёплый", interventions: "Рефрейминг: высокая", identity: "Наставник" } },
+      SESSION_KEYS
+    );
+    expect(out.strengths).toBe("— Эмпатия\n— Рефрейминг");
+    expect(out.alliance).toBe("Контакт тёплый");
+    expect(out.identity).toBe("Наставник");
+    expect(out.homework).toBe("");
+  });
+});
