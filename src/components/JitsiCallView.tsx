@@ -537,10 +537,11 @@ function JitsiCallView(
           </>
         )}
 
-        {/* Плашка записи показывается только при проблеме (прервана дорожка клиента / не выгружены фрагменты):
-            в штатной работе она лишь закрывала картинку собеседника. */}
-        {viewState === "in_call" && (recordingStatus?.tracks.some(tr => tr.state === "track_lost") || chunkStats.failed > 0) && (
+        {/* Плашка записи видна всегда: психолог должен понимать, что запись идёт (или не идёт).
+            Компактная, в углу, чтобы не закрывать собеседника; при проблеме — красный/жёлтый текст. */}
+        {viewState === "in_call" && (
           <div
+            data-testid="recording-indicator"
             style={{
               position: "absolute",
               top: isUsingPublicTestServer() ? 28 : 16,
@@ -556,12 +557,17 @@ function JitsiCallView(
               color: recordingLabel.color,
             }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: recordingLabel.color }} />
+            <span
+              style={{
+                width: 8, height: 8, borderRadius: "50%", background: recordingLabel.color,
+                animation: recordingStatus?.recording ? "tolk-rec-pulse 1.4s ease-in-out infinite" : undefined,
+              }}
+            />
             {recordingLabel.text}
-            {/* Технические счётчики (фрагменты, КБ) психологу не нужны; показываем только проблему выгрузки. */}
             {chunkStats.failed > 0 && (
               <span style={{ color: "#FCA5A5" }}>&middot; {chunkStats.failed} не выгружено</span>
             )}
+            <style>{"@keyframes tolk-rec-pulse{0%,100%{opacity:1}50%{opacity:.35}}"}</style>
           </div>
         )}
 
@@ -612,7 +618,7 @@ function describeRecordingStatus(
   const clientTrack = status.tracks.find(t => t.role === "client");
   if (clientTrack?.state === "track_lost") return { text: "Запись клиента прервана", color: "#FCA5A5" };
   if (!remoteConnected) return { text: "Запись идёт — ожидание клиента", color: "#FCD34D" };
-  if (status.recording) return { text: "Запись идёт", color: "#FCA5A5" };
+  if (status.recording) return { text: "Идёт запись", color: "#FCA5A5" };
   return { text: "Запись остановлена", color: "#E5DFD5" };
 }
 
