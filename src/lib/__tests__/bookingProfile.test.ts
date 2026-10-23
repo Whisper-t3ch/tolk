@@ -25,6 +25,9 @@ describe("sanitizeProfile", () => {
     expect(sanitizeProfile({ photo: "data:image/svg+xml;base64,AAAA" }).error).toBeTruthy();
     expect(sanitizeProfile({ links: { website: "javascript:1" } }).error).toBeTruthy();
     expect(sanitizeProfile({ accent: "pink" }).value?.accent).toBe("green");
+    const faq = sanitizeProfile({ faq: [{ q: "Вопрос?", a: "Ответ" }, { q: "", a: "x" }, { q: "Без ответа", a: "" }] }).value?.faq;
+    expect(faq?.length).toBe(1);
+    expect(faq?.[0].q).toBe("Вопрос?");
   });
 });
 

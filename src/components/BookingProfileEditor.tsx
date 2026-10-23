@@ -4,7 +4,7 @@ import { Plus, Trash2, Upload } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
 import {
   ACCENTS, MAX_PHOTO_CHARS, FORMAT_LABELS,
-  type AccentKey, type BookingProfile, type BookingReview, type BookingService, type ServiceFormat,
+  type AccentKey, type BookingFaq, type BookingProfile, type BookingReview, type BookingService, type ServiceFormat,
 } from "@/lib/bookingProfile";
 
 type Patch = { profile?: BookingProfile; services?: BookingService[]; reviews?: BookingReview[] };
@@ -157,6 +157,31 @@ export default function BookingProfileEditor({ profile, services, reviews, savin
               <div>
                 <label style={label}>Сайт</label>
                 <input style={input} value={p.links.website ?? ""} placeholder="example.ru" onChange={e => setLink("website", e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label style={label}>Частые вопросы (раскрывающийся список на странице)</label>
+              <div style={{ display: "grid", gap: 10, marginTop: 8 }}>
+                {p.faq.map((f: BookingFaq) => (
+                  <div key={f.id} style={{ border: "1px solid #E5DFD5", borderRadius: 10, padding: 10, background: "#FBF9F5" }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input style={{ ...input, marginTop: 0 }} maxLength={200} value={f.q} placeholder="Вопрос, например «Есть ли бесплатная ознакомительная встреча?»"
+                        onChange={e => setP(prev => ({ ...prev, faq: prev.faq.map(x => (x.id === f.id ? { ...x, q: e.target.value } : x)) }))} />
+                      <button type="button" aria-label="Удалить вопрос" onClick={() => setP(prev => ({ ...prev, faq: prev.faq.filter(x => x.id !== f.id) }))}
+                        style={{ border: "1px solid #E5DFD5", borderRadius: 8, background: "#fff", cursor: "pointer", padding: "0 10px" }}>
+                        <Trash2 size={14} color="#B91C1C" />
+                      </button>
+                    </div>
+                    <textarea style={{ ...input, minHeight: 60, resize: "vertical" }} maxLength={1500} value={f.a} placeholder="Ответ"
+                      onChange={e => setP(prev => ({ ...prev, faq: prev.faq.map(x => (x.id === f.id ? { ...x, a: e.target.value } : x)) }))} />
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <Button size="sm" variant="secondary" disabled={p.faq.length >= 10}
+                  onClick={() => setP(prev => ({ ...prev, faq: [...prev.faq, { id: newId(), q: "", a: "" }] }))}>
+                  <Plus size={13} style={{ marginRight: 5 }} /> Добавить вопрос
+                </Button>
               </div>
             </div>
             <div>

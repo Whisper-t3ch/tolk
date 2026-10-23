@@ -431,15 +431,15 @@ export default function Sidebar() {
             }}
           >
             <Avatar src={profile?.avatarData} initials={avatarInitials} size={34} fontSize={12} />
-            <div style={{ overflow: "hidden" }}>
+            <div style={{ overflow: "hidden", minWidth: 0 }}>
               <div style={{
                 fontSize: 13, fontWeight: 500,
                 color: "#1C1C1E",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
               }}>{name}</div>
               <div style={{
-                fontSize: 11, color: "#6F5A3F",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                fontSize: 11, color: "#6F5A3F", lineHeight: 1.3,
+                whiteSpace: "normal", wordBreak: "break-word",
               }}>{specialty}</div>
             </div>
           </motion.div>

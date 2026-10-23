@@ -21,9 +21,17 @@ export interface BookingProfile {
   about: string;
   links: { telegram?: string; vk?: string; website?: string };
   qualifications: string[];
+  /** Частые вопросы: сворачиваемый список на странице записи. */
+  faq: BookingFaq[];
   accent: AccentKey;
   /** data:image/jpeg;base64,... (сжато на клиенте до ~480px). */
   photo?: string;
+}
+
+export interface BookingFaq {
+  id: string;
+  q: string;
+  a: string;
 }
 
 export type ServiceFormat = "online" | "offline" | "both";
@@ -50,6 +58,7 @@ export const EMPTY_PROFILE: BookingProfile = {
   about: "",
   links: {},
   qualifications: [],
+  faq: [],
   accent: "green",
 };
 
@@ -89,6 +98,21 @@ export function normalizeLink(kind: "telegram" | "vk" | "website", raw: unknown)
   }
 }
 
+function sanitizeFaq(input: unknown): BookingFaq[] {
+  if (!Array.isArray(input)) return [];
+  const out: BookingFaq[] = [];
+  for (const raw of input.slice(0, 10)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const f = raw as Record<string, unknown>;
+    const q = str(f.q, 200);
+    const a = str(f.a, 1500);
+    if (!q || !a) continue;
+    const id = typeof f.id === "string" && /^[a-z0-9-]{1,40}$/.test(f.id) ? f.id : newId();
+    out.push({ id, q, a });
+  }
+  return out;
+}
+
 export function sanitizeProfile(input: unknown): Result<BookingProfile> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return { error: "profile должен быть объектом" };
   const o = input as Record<string, unknown>;
@@ -108,7 +132,8 @@ export function sanitizeProfile(input: unknown): Result<BookingProfile> {
     tags: strList(o.tags, 8, 40),
     about: str(o.about, 2000),
     links,
-    qualifications: strList(o.qualifications, 10, 200),
+    qualifications: strList(o.qualifications, 15, 200),
+    faq: sanitizeFaq(o.faq),
     accent,
   };
   if (typeof o.photo === "string" && o.photo) {
