@@ -146,7 +146,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
   const [pdfLoading, setPdfLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
-  const [downloadingTranscript, setDownloadingTranscript] = useState(false);
+  const [transcriptRefresh, setTranscriptRefresh] = useState(0);
   const [showUploadTranscript, setShowUploadTranscript] = useState(false);
   const [uploadTranscriptText, setUploadTranscriptText] = useState("");
   const [uploadingTranscript, setUploadingTranscript] = useState(false);
@@ -299,34 +299,6 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
     }
   }
 
-  async function handleDownloadTranscript() {
-    setDownloadingTranscript(true);
-    try {
-      const res = await fetch(`/api/sessions/${sessionId}/export/transcript`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setNotification(data.error ?? "Не удалось скачать транскрипт");
-        setTimeout(() => setNotification(null), 3000);
-        return;
-      }
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") ?? "";
-      const match = disposition.match(/filename="([^"]+)"/);
-      const filename = match?.[1] ?? "transcript.txt";
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      setNotification("Не удалось скачать транскрипт — проверьте соединение");
-      setTimeout(() => setNotification(null), 3000);
-    } finally {
-      setDownloadingTranscript(false);
-    }
-  }
-
   // Ручная загрузка транскрипта — для сессий, проведённых не через
   // видеозвонок платформы (очная встреча, звонок в другом сервисе), или
   // когда автоматическая расшифровка не удалась. Текст проходит тот же
@@ -358,6 +330,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
       }
       setShowUploadTranscript(false);
       setUploadTranscriptText("");
+      setTranscriptRefresh(k => k + 1);
       setNotification(
         data.embeddingSaved
           ? "Транскрипт загружен — теперь его можно использовать в ассистенте и для генерации протокола"
@@ -719,26 +692,19 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                   )}
                 </Button>
               )}
-              <Link href={`/content?session=${sessionId}`} style={{ textDecoration: "none" }}>
-                <Button variant="primary">
-                  <FileOutput size={14} style={{ marginRight: 6 }} /> Сгенерировать контент
-                </Button>
-              </Link>
               <Button onClick={handleCopy} variant="secondary">
-                {copied ? <><CheckCircle size={14} style={{ marginRight: 6 }} /> Скопировано</> : <><Copy size={14} style={{ marginRight: 6 }} /> Копировать</>}
-              </Button>
-              <Button onClick={handleDownloadTranscript} variant="secondary" disabled={downloadingTranscript}>
-                <Download size={14} style={{ marginRight: 6 }} />
-                {downloadingTranscript ? "Скачиваю..." : "Скачать транскрипт"}
-              </Button>
-              <Button onClick={() => setShowUploadTranscript(true)} variant="secondary">
-                <FileOutput size={14} style={{ marginRight: 6 }} /> Загрузить транскрипт
+                {copied ? <><CheckCircle size={14} style={{ marginRight: 6 }} /> Скопировано</> : <><Copy size={14} style={{ marginRight: 6 }} /> Копировать протокол</>}
               </Button>
               <Button onClick={openSendSummary} variant="secondary">
                 <Send size={14} style={{ marginRight: 6 }} /> Отправить резюме клиенту
               </Button>
+              <Link href={`/content?session=${sessionId}`} style={{ textDecoration: "none" }}>
+                <Button variant="secondary">
+                  <FileOutput size={14} style={{ marginRight: 6 }} /> Пост для соцсетей
+                </Button>
+              </Link>
             </div>
-            <SessionTranscriptCard sessionId={sessionId} />
+            <SessionTranscriptCard sessionId={sessionId} refreshKey={transcriptRefresh} onUpload={() => setShowUploadTranscript(true)} />
             {/* Ошибку генерации показываем и здесь: карточка «Протокол не
                 создан», где она выводилась раньше, при заполненном протоколе
                 скрыта — иначе неудачная генерация выглядела бы как полное

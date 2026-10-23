@@ -7,25 +7,29 @@ import { Button } from "@/components/ui";
  * Расшифровка сессии прямо на странице протокола: можно прочитать, скопировать целиком
  * и скачать .txt. Если расшифровки ещё нет (404), блок не показывается.
  */
-export default function SessionTranscriptCard({ sessionId, refreshKey = 0 }: { sessionId: string; refreshKey?: number }) {
+export default function SessionTranscriptCard({ sessionId, refreshKey = 0, onUpload }: { sessionId: string; refreshKey?: number; onUpload?: () => void }) {
   const [text, setText] = useState<string | null>(null);
   const [filename, setFilename] = useState("transcript.txt");
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch(`/api/sessions/${sessionId}/export/transcript`);
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        if (!res.ok) { setText(null); return; }
         const match = (res.headers.get("Content-Disposition") ?? "").match(/filename="([^"]+)"/);
         const body = await res.text();
         if (cancelled) return;
         if (match?.[1]) setFilename(match[1]);
         setText(body);
       } catch {
-        /* нет расшифровки или сеть — блок просто не показываем */
+        /* нет расшифровки или сеть — покажем вариант «загрузить» */
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
     })();
     return () => {
@@ -33,7 +37,18 @@ export default function SessionTranscriptCard({ sessionId, refreshKey = 0 }: { s
     };
   }, [sessionId, refreshKey]);
 
-  if (!text) return null;
+  if (!text) {
+    if (!loaded || !onUpload) return null;
+    return (
+      <div style={{ marginTop: 16, border: "1px dashed #D9D2C5", borderRadius: 12, background: "#fff", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>Расшифровки пока нет</div>
+          <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 2 }}>Если сессия была не в видеозвонке ТОЛК, вставьте текст или загрузите файл .txt</div>
+        </div>
+        <Button variant="secondary" size="sm" onClick={onUpload}>Загрузить расшифровку</Button>
+      </div>
+    );
+  }
 
   async function copy() {
     try {
@@ -77,6 +92,9 @@ export default function SessionTranscriptCard({ sessionId, refreshKey = 0 }: { s
           <Button variant="secondary" size="sm" onClick={download}>
             <Download size={13} style={{ marginRight: 5 }} /> Скачать .txt
           </Button>
+          {onUpload && (
+            <Button variant="secondary" size="sm" onClick={onUpload}>Загрузить другую</Button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => setOpen(o => !o)}>
             {open ? <><ChevronUp size={13} style={{ marginRight: 5 }} /> Скрыть</> : <><ChevronDown size={13} style={{ marginRight: 5 }} /> Показать</>}
           </Button>
