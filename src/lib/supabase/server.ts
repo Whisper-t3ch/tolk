@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { hardenCookieOptions } from "./cookieOptions";
 
 /**
  * Supabase-клиент для серверных компонентов, route handlers и Server Actions.
@@ -20,7 +21,7 @@ export async function createClient() {
         setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, hardenCookieOptions(options))
             );
           } catch {
             // setAll вызван из Server Component — можно игнорировать,

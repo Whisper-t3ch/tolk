@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { rateLimit, clientIp } from "@/lib/security/rateLimit";
+import { AUTH_COOKIE_RE, hardenCookieOptions } from "@/lib/supabase/cookieOptions";
 
 // Пути, доступные без авторизации
 // /api/health — лёгкая проверка живости (Docker healthcheck, мониторинг), без БД и секретов.
@@ -33,7 +34,7 @@ const PUBLIC_PATHS = ["/", "/login", "/email-recovery.html", "/forgot-password",
 // сессией, а CRON_SECRET в самом обработчике (checkAuth): пока секрет не
 // задан, любой запрос получает 401.
 // /api/admin/* — служебные выгрузки владельца; авторизация внутри обработчика (Bearer SUPPORT_ADMIN_TOKEN или email из SUPPORT_ADMIN_EMAILS).
-const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/join/", "/api/public/", "/api/join/", "/api/webhooks/", "/api/jobs/", "/api/admin/"];
+const PUBLIC_PATH_PREFIXES = ["/book/", "/test/", "/join/", "/api/public/", "/api/join/", "/api/webhooks/", "/api/jobs/", "/api/admin/", "/api/auth/"];
 
 /**
  * Middleware выполняется на каждый запрос: обновляет сессию Supabase
@@ -45,7 +46,7 @@ export async function middleware(request: NextRequest) {
 
   // Лимиты на публичные API (без сессии): защита от перебора и мусорного трафика.
   // Вебхуки Telegram/VK и воркер не ограничиваем — у них свои секреты и частота.
-  if (path.startsWith("/api/") && !path.startsWith("/api/webhooks/") && !path.startsWith("/api/jobs/") && path !== "/api/health") {
+  if (path.startsWith("/api/") && !path.startsWith("/api/webhooks/") && !path.startsWith("/api/jobs/") && path !== "/api/health" && !path.startsWith("/api/sb/")) {
     const isPublicApi = path.startsWith("/api/public/") || path.startsWith("/api/join/");
     const ip = clientIp(request.headers);
     const rl = isPublicApi
@@ -87,7 +88,7 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
+            response.cookies.set(name, value, hardenCookieOptions(options))
           );
         },
       },
@@ -97,6 +98,19 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Миграция: куки сессии, выданные раньше без HttpOnly, переустанавливаем с HttpOnly
+  // (если их не обновил refresh выше). Значение не меняется, вход сохраняется.
+  for (const c of request.cookies.getAll()) {
+    if (AUTH_COOKIE_RE.test(c.name) && !response.cookies.has(c.name)) {
+      response.cookies.set(c.name, c.value, hardenCookieOptions({ maxAge: 400 * 24 * 3600 }));
+    }
+  }
+
+  // Прокси данных для браузерного клиента: без сессии отвечаем JSON 401, а не редиректом на HTML.
+  if (!user && path.startsWith("/api/sb/")) {
+    return NextResponse.json({ message: "Не авторизован", error: "Unauthorized" }, { status: 401 });
+  }
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();
