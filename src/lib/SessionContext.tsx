@@ -1,6 +1,6 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
-import { fetchSessions, createSessionRecord, confirmSessionPayment, type NewSessionInput } from "@/lib/data/sessions";
+import { fetchSessions, createSessionRecord, confirmSessionPayment, rescheduleSessionRecord, deleteSessionRecord, type NewSessionInput } from "@/lib/data/sessions";
 import { useProfile } from "@/lib/ProfileContext";
 import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 
@@ -22,6 +22,8 @@ interface SessionContextType {
   error: string | null;
   addSession: (session: Omit<PlannedSession, "id" | "status" | "bookedVia" | "videoRoomUrl">) => Promise<PlannedSession>;
   confirmPayment: (sessionId: string) => Promise<void>;
+  rescheduleSession: (sessionId: string, date: string, time: string) => Promise<void>;
+  removeSession: (sessionId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -80,8 +82,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSessions(prev => prev.map(s => (s.id === sessionId ? updated : s)));
   }, [timeZone]);
 
+  const rescheduleSession = useCallback(async (sessionId: string, date: string, time: string) => {
+    const updated = await rescheduleSessionRecord(sessionId, date, time, timeZone);
+    setSessions(prev => prev.map(s => (s.id === sessionId ? updated : s)));
+  }, [timeZone]);
+
+  const removeSession = useCallback(async (sessionId: string) => {
+    await deleteSessionRecord(sessionId);
+    setSessions(prev => prev.filter(s => s.id !== sessionId));
+  }, []);
+
   return (
-    <SessionContext.Provider value={{ sessions, loading, error, addSession, confirmPayment, refresh }}>
+    <SessionContext.Provider value={{ sessions, loading, error, addSession, confirmPayment, rescheduleSession, removeSession, refresh }}>
       {children}
     </SessionContext.Provider>
   );

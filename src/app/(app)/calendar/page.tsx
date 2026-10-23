@@ -2,13 +2,13 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, X, Video, Clock, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Video, Clock, Plus, Trash2, CalendarClock } from "lucide-react";
 import { useSession } from "@/lib/SessionContext";
 import { usePersonalEvents } from "@/lib/PersonalEventsContext";
 import { findNearestFreeSlot } from "@/lib/calendarSlots";
 import { Card, CardContent, Button } from "@/components/ui";
 
-type SessionsByDay = Record<number, Array<{ clientId: string; clientName: string; time: string }>>;
+type SessionsByDay = Record<number, Array<{ id: string; clientId: string; clientName: string; time: string; date: string; status: string }>>;
 
 function getSessionsByDay(sessions: any[], month: number, year: number): SessionsByDay {
   const result: SessionsByDay = {};
@@ -18,6 +18,9 @@ function getSessionsByDay(sessions: any[], month: number, year: number): Session
     if (y === year && m === month + 1) {
       if (!result[d]) result[d] = [];
       result[d].push({
+        id: session.id,
+        date: session.date,
+        status: session.status,
         clientId: session.clientId,
         clientName: session.clientName,
         time: session.time,
@@ -45,6 +48,9 @@ interface DayEntry {
   subtitle?: string;
   color?: string;
   clientId?: string;
+  sessionId?: string;
+  sessionDate?: string;
+  status?: string;
 }
 
 const MAX_PREVIEW_ITEMS = 3;
@@ -74,7 +80,12 @@ export default function CalendarPage() {
   const [newTime, setNewTime] = useState("09:00");
   const [newEndTime, setNewEndTime] = useState("10:00");
   const [addError, setAddError] = useState<string | null>(null);
-  const { sessions } = useSession();
+  const { sessions, rescheduleSession, removeSession } = useSession();
+  const [movingId, setMovingId] = useState<string | null>(null);
+  const [moveDate, setMoveDate] = useState("");
+  const [moveTime, setMoveTime] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const { events: personalEvents, addEvent, removeEvent, updateEventTime } = usePersonalEvents();
   const sessionsByDay = getSessionsByDay(sessions, currentMonth.getMonth(), currentMonth.getFullYear());
 
@@ -128,9 +139,12 @@ export default function CalendarPage() {
         time: s.time,
         kind: "session",
         title: s.clientName,
-        subtitle: "Сессия",
+        subtitle: s.status === "cancelled" ? "Сессия (отменена)" : s.status === "pending_payment" ? "Сессия (ждёт оплаты)" : "Сессия",
         color: colorForClient(s.clientId),
         clientId: s.clientId,
+        sessionId: s.id,
+        sessionDate: s.date,
+        status: s.status,
       });
     });
     (personalEventsByDay[selectedDay] ?? []).forEach(evt => {
@@ -177,6 +191,37 @@ export default function CalendarPage() {
     setNewTime("09:00");
     setNewEndTime("10:00");
     setShowAddForm(false);
+  };
+
+  const startMove = (entry: DayEntry) => {
+    setMovingId(entry.sessionId ?? null);
+    setMoveDate(entry.sessionDate ?? "");
+    setMoveTime(entry.time);
+    setActionError(null);
+  };
+
+  const submitMove = async () => {
+    if (!movingId || !moveDate || !moveTime) { setActionError("Укажите дату и время"); return; }
+    setActionBusy(true); setActionError(null);
+    try {
+      await rescheduleSession(movingId, moveDate, moveTime);
+      setMovingId(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не удалось перенести");
+    } finally { setActionBusy(false); }
+  };
+
+  const handleDeleteSession = async (entry: DayEntry) => {
+    if (!entry.sessionId) return;
+    const ok = window.confirm(`Удалить сессию с «${entry.title}» (${entry.time})? Вместе с ней удалятся запись, расшифровка и протокол. Действие необратимо.`);
+    if (!ok) return;
+    setActionBusy(true); setActionError(null);
+    try {
+      await removeSession(entry.sessionId);
+      if (movingId === entry.sessionId) setMovingId(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не удалось удалить");
+    } finally { setActionBusy(false); }
   };
 
   const handleUpdateEventTime = (id: string, requestedTime: string) => {
@@ -491,6 +536,27 @@ export default function CalendarPage() {
                               <div style={{ fontSize: 11, color: "#6F5A3F", marginTop: 2 }}>{entry.subtitle}</div>
                             )}
                           </div>
+                          {entry.kind === "session" && entry.sessionId && entry.status !== "in_progress" && (
+                            <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                              {(entry.status === "scheduled" || entry.status === "pending_payment") && (
+                                <button
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); startMove(entry); }}
+                                  title="Перенести"
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 2 }}
+                                >
+                                  <CalendarClock size={14} />
+                                </button>
+                              )}
+                              <button
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteSession(entry); }}
+                                title="Удалить сессию"
+                                disabled={actionBusy}
+                                style={{ background: "none", border: "none", cursor: "pointer", color: "#6F5A3F", padding: 2 }}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
                           {isPersonal && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeEvent(entry.id!); }}
@@ -503,15 +569,38 @@ export default function CalendarPage() {
                         </div>
                       );
                       return entry.kind === "session" && entry.clientId ? (
-                        <Link key={i} href={`/clients/${entry.clientId}`} style={{ textDecoration: "none" }}>
-                          {content}
-                        </Link>
+                        <div key={i}>
+                          <Link href={`/clients/${entry.clientId}`} style={{ textDecoration: "none" }}>
+                            {content}
+                          </Link>
+                          {movingId && movingId === entry.sessionId && (
+                            <div style={{ marginTop: 6, padding: 10, border: "1px solid #E5DFD5", borderRadius: 10, background: "#fff", display: "flex", flexDirection: "column", gap: 8 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "#1C1C1E" }}>Перенести сессию</div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <input type="date" value={moveDate} onChange={e => setMoveDate(e.target.value)}
+                                  style={{ flex: 1, minWidth: 0, padding: "7px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12 }} />
+                                <input type="time" value={moveTime} onChange={e => setMoveTime(e.target.value)}
+                                  style={{ width: 92, padding: "7px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12 }} />
+                              </div>
+                              {actionError && <p style={{ fontSize: 12, color: "#B91C1C", margin: 0 }}>{actionError}</p>}
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <div style={{ flex: 1 }}>
+                                  <Button onClick={submitMove} size="sm" className="w-full" disabled={actionBusy}>
+                                    {actionBusy ? "Переношу…" : "Перенести"}
+                                  </Button>
+                                </div>
+                                <Button onClick={() => setMovingId(null)} variant="secondary" size="sm">Отмена</Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <div key={i}>{content}</div>
                       );
                     })}
                   </div>
 
+                  {actionError && !movingId && <p style={{ fontSize: 12, color: "#B91C1C", margin: "0 0 8px 0" }}>{actionError}</p>}
                   {showAddForm ? (
                     <div style={{ borderTop: "1px solid #E5DFD5", paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

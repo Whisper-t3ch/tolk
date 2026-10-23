@@ -575,7 +575,7 @@ function ClientsPageInner() {
                 transition={{ delay: idx * 0.02 }}
               >
                 <button
-                  onClick={() => setSelectedClientId(client.id)}
+                  onClick={() => router.push(`/clients/${client.id}`)}
                   style={{
                     width: "100%",
                     padding: 12,

@@ -164,6 +164,12 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const timeZone = profile?.timezone ?? DEFAULT_TIMEZONE;
   const router = useRouter();
   const [startingSession, setStartingSession] = useState(false);
+  // Планирование сессии на конкретное время прямо из карточки клиента
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("10:00");
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
 
   // Раньше карточку клиента нельзя было отредактировать или архивировать
   // никак — ни опечатку в имени поправить, ни завершить работу с
@@ -261,6 +267,21 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
       router.push(`/session/${created.id}`);
     } finally {
       setStartingSession(false);
+    }
+  }
+
+  async function scheduleSession() {
+    if (!client || scheduling || !scheduleDate || !scheduleTime) return;
+    setScheduling(true);
+    setScheduleMsg(null);
+    try {
+      await addSession({ clientId: client.id, clientName: client.name, date: scheduleDate, time: scheduleTime });
+      setShowSchedule(false);
+      setScheduleMsg(`Сессия запланирована на ${scheduleDate.split("-").reverse().join(".")} в ${scheduleTime} — она в календаре.`);
+    } catch {
+      setScheduleMsg("Не удалось создать сессию — попробуйте ещё раз");
+    } finally {
+      setScheduling(false);
     }
   }
 
@@ -873,11 +894,46 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
           >
             Редактировать
           </button>
+          <button
+            onClick={() => {
+              setScheduleDate(formatDateInTimeZone(new Date(), timeZone));
+              setShowSchedule(v => !v);
+              setScheduleMsg(null);
+            }}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "9px 14px", background: "#F5F3EF",
+              border: "1px solid #E5DFD5", borderRadius: 8,
+              fontSize: 13, fontWeight: 600, color: "#1C1C1E",
+              cursor: "pointer",
+            }}
+          >
+            Запланировать сессию
+          </button>
           <Button size="md" onClick={startSessionNow} disabled={startingSession}>
             {startingSession ? "Создаю сессию..." : <>Начать сессию <ArrowRight size={15} style={{ marginLeft: 8 }} /></>}
           </Button>
         </div>
       </div>
+
+      {(showSchedule || scheduleMsg) && (
+        <div style={{ marginBottom: 16, padding: 12, background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 10, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+          {showSchedule && (
+            <>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>Новая сессия:</span>
+              <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)}
+                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13 }} />
+              <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)}
+                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13 }} />
+              <Button size="sm" onClick={scheduleSession} disabled={scheduling || !scheduleDate || !scheduleTime}>
+                {scheduling ? "Создаю…" : "Запланировать"}
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowSchedule(false)}>Отмена</Button>
+            </>
+          )}
+          {scheduleMsg && <span style={{ fontSize: 13, color: scheduleMsg.startsWith("Не удалось") ? "#B91C1C" : "#157347" }}>{scheduleMsg}</span>}
+        </div>
+      )}
 
       {/* Табы */}
       <div className="tolk-tabs" style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid #E5DFD5" }}>

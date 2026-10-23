@@ -141,6 +141,22 @@ export async function handleClientTelegramUpdate(
         .maybeSingle();
 
       if (client) {
+        // Защита: психолог сам перешёл по ссылке клиента (проверить, как она открывается) —
+        // его собственный чат нельзя привязывать к клиенту, иначе в карточке появится ложное «подключён».
+        const { data: own } = await db
+          .from("notification_channels")
+          .select("chat_id")
+          .eq("user_id", psychologistId)
+          .eq("channel", "telegram")
+          .maybeSingle();
+        if (own?.chat_id != null && String(own.chat_id) === chatId) {
+          await sendTelegramReply(
+            integration.bot_token,
+            chatId,
+            "Это ссылка для подключения клиента, и открыли её вы сами — ваш чат к клиенту не привязан. Отправьте ссылку клиенту: когда он перейдёт по ней, подключение сработает."
+          );
+          return;
+        }
         await db.from("client_messenger_links").upsert(
           {
             client_id: clientId,

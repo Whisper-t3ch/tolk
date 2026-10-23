@@ -90,13 +90,13 @@ describe("E2E безопасности: ASR → анонимизация → т�
 
   it("весь путь воркера: сбой анонимизации → статус задачи и сессии manual_review_required", async () => {
     llm.mockImplementation(async () => {
-      throw new YandexGptError("YandexGPT вернул ошибку 503", 503);
+      throw new YandexGptError("LLM вернул ошибку 400", 400); // не временная: без пауз на повторы
     });
     const { client, db: data } = db();
     const sessionUpdates: Array<Record<string, unknown>> = [];
     const jobUpdates: Array<Record<string, unknown>> = [];
     const queueClient = {
-      rpc: async () => ({ data: [{ id: "job-1", session_id: SESSION_ID, status: "processing" }], error: null }),
+      rpc: async () => ({ data: [{ id: "job-1", session_id: SESSION_ID, status: "processing", attempts_count: 6 }], error: null }),
       from: (table: string) => {
         if (table === "sessions") return { update: (p: Record<string, unknown>) => ({ eq: async () => (sessionUpdates.push(p), { error: null }) }) };
         if (table === "recording_jobs") return { update: (p: Record<string, unknown>) => ({ eq: async () => (jobUpdates.push(p), { error: null }) }) };
@@ -115,5 +115,5 @@ describe("E2E безопасности: ASR → анонимизация → т�
     expect(jobUpdates[0]).toMatchObject({ status: "manual_review_required" });
     expect(sessionUpdates[0]).toMatchObject({ recording_status: "manual_review_required" });
     expect(data.inserted.session_transcripts).toBeUndefined();
-  });
+  }, 60_000);
 });

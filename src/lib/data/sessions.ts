@@ -138,3 +138,27 @@ export async function confirmSessionPayment(id: string, timeZone: string): Promi
   if (error) throw error;
   return mapRow(data as unknown as SessionRow, timeZone);
 }
+
+/** Перенос сессии на другую дату/время (в поясе психолога). */
+export async function rescheduleSessionRecord(id: string, date: string, time: string, timeZone: string): Promise<DbSession> {
+  const supabase = createClient();
+  const scheduledAt = zonedDateTimeToUtc(date, time, timeZone).toISOString();
+  const { data, error } = await supabase
+    .from("sessions")
+    .update({ scheduled_at: scheduledAt })
+    .eq("id", id)
+    .select(SESSION_COLUMNS)
+    .single();
+
+  if (error) throw error;
+  return mapRow(data as unknown as SessionRow, timeZone);
+}
+
+/** Удаление сессии вместе с её данными (серверный маршрут проверяет владельца). */
+export async function deleteSessionRecord(id: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || "Не удалось удалить сессию");
+  }
+}
