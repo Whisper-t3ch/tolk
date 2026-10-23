@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 // POST /api/clients/[id]/ai-analysis { kind: "overview" | "test" | "session", ref?: string }
-// Каждый вызов стоит 1 запрос из лимита ассистента; списывается только после успешного ответа модели.
+// Обзор клиента и анализ теста стоят 1 запрос из лимита ассистента, резюме сессии — бесплатно; списывается только после успешного ответа модели.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: clientId } = await params;
   const supabase = await createClient();
@@ -41,9 +41,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   if (kind !== "overview" && !body.ref) return NextResponse.json({ error: "Укажите ref (тест или сессию)" }, { status: 400 });
 
-  const limitCheck = await checkAssistantLimit(supabase, user.id, "aiAnalysis");
-  if (!limitCheck.allowed) {
-    return NextResponse.json(limitExceededResponse(limitCheck.limit, limitCheck), { status: 429 });
+  // Резюме сессии бесплатное (не списывает запросы ассистента), но не безлимитное: не более 5 пересборок
+  // одной сессии за сутки — защита от случайных и автоматических повторов. Остальные анализы — 1 запрос.
+  const isFree = kind === "session";
+  if (isFree) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count } = await supabase
+      .from("client_ai_analyses")
+      .select("id", { count: "exact", head: true })
+      .eq("psychologist_id", user.id)
+      .eq("kind", "session")
+      .eq("ref", body.ref as string)
+      .gte("created_at", since);
+    if ((count ?? 0) >= 5) {
+      return NextResponse.json({ error: "Резюме этой сессии уже обновлялось 5 раз за сутки — попробуйте завтра." }, { status: 429 });
+    }
+  } else {
+    const limitCheck = await checkAssistantLimit(supabase, user.id, "aiAnalysis");
+    if (!limitCheck.allowed) {
+      return NextResponse.json(limitExceededResponse(limitCheck.limit, limitCheck), { status: 429 });
+    }
   }
 
   const { data: client, error: clientError } = await supabase
@@ -85,6 +102,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Анализ получен, но не сохранился. Запрос не списан." }, { status: 500 });
   }
 
-  await consumeAssistantLimit(supabase, user.id, "aiAnalysis");
+  if (!isFree) await consumeAssistantLimit(supabase, user.id, "aiAnalysis");
   return NextResponse.json({ analysis: saved });
 }

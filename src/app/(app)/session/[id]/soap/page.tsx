@@ -529,7 +529,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         </Card>
       </motion.div>
 
-      {/* ИИ-резюме сессии — сразу под шапкой, чтобы бросалось в глаза (стоит 1 запрос, часть сессий считается автоматически). */}
+      {/* ИИ-резюме сессии — сразу под шапкой, чтобы бросалось в глаза (бесплатно, часть сессий считается автоматически). */}
       {!loading && sessionInfo?.clientId && (
         <div style={{ marginBottom: 20 }}>
           <SessionAiCard clientId={sessionInfo.clientId} sessionId={sessionId} />

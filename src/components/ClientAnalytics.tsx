@@ -137,10 +137,10 @@ export function AnalysisSections({ content, labels }: { content: Record<string, 
   );
 }
 
-export function AiButton({ busy, hasResult, onClick, disabled, what = "ИИ-анализ", primary }: { busy: boolean; hasResult: boolean; onClick: () => void; disabled?: boolean; what?: string; primary?: boolean }) {
+export function AiButton({ busy, hasResult, onClick, disabled, what = "ИИ-анализ", primary, free }: { busy: boolean; hasResult: boolean; onClick: () => void; disabled?: boolean; what?: string; primary?: boolean; free?: boolean }) {
   return (
     <Button size={primary && !hasResult ? "md" : "sm"} variant={primary && !hasResult ? "primary" : "secondary"} onClick={onClick} disabled={busy || disabled}>
-      {busy ? "Анализирую…" : `${hasResult ? "Обновить" : what} · −1 запрос`}
+      {busy ? "Анализирую…" : `${hasResult ? "Обновить" : what}${free ? "" : " · −1 запрос"}`}
     </Button>
   );
 }
@@ -501,7 +501,7 @@ export function SessionAiCard({ clientId, sessionId }: { clientId: string; sessi
           </span>
           <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1C1C1E", margin: 0 }}>ИИ-резюме сессии</h3>
         </div>
-        <AiButton primary busy={busy} hasResult={!!cur} onClick={() => ai.generate("session", sessionId)} what="Составить резюме сессии" />
+        <AiButton primary free busy={busy} hasResult={!!cur} onClick={() => ai.generate("session", sessionId)} what="Составить резюме сессии" />
       </div>
       {ai.error && ai.busy === null && <p style={{ fontSize: 12, color: "#B91C1C", margin: "0 0 8px" }}>{ai.error}</p>}
       {cur ? (
@@ -531,8 +531,8 @@ export function SessionAiCard({ clientId, sessionId }: { clientId: string; sessi
       ) : (
         <p style={{ fontSize: 13, color: "#3A3530", margin: 0, lineHeight: 1.6 }}>
           Нажмите кнопку — ИИ по записи или заметкам сессии составит краткое резюме, оценку состояния клиента, сильные стороны,
-          точки опоры и идеи роста. Стоит 1 запрос из лимита ассистента. Если запись сессии была, резюме появится само
-          после расшифровки; обновите страницу через пару минут.
+          точки опоры и идеи роста. Это бесплатно и не списывает запросы ассистента. Если запись сессии была, резюме
+          появится само после расшифровки; обновите страницу через пару минут.
         </p>
       )}
     </div>

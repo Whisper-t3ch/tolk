@@ -11,7 +11,6 @@ import { buildSoapUserMessage, selectSoapSystemPrompt } from "@/lib/prompts/soap
 import { guardSoapDraft, parseSoapJson } from "@/lib/soap/groundedness";
 import { buildGroundingCorpus, loadSoapSourceMaterial } from "@/lib/soap/sourceMaterial";
 import { assessTranscriptQuality, countMeaningfulWords, MIN_NOTES_WORDS } from "@/lib/soap/transcriptQuality";
-import { checkAssistantLimit, consumeAssistantLimit } from "@/lib/assistantLimits";
 import { AiAnalysisError, buildSessionAnalysis } from "@/lib/prompts/aiAnalysis";
 
 export interface AutoSummaryResult {
@@ -70,9 +69,6 @@ async function autoSummary(admin: SupabaseClient, p: { sessionId: string; client
     .limit(1);
   if (existing && existing.length > 0) return "exists";
 
-  const limit = await checkAssistantLimit(admin, p.psychologistId, "aiAnalysis");
-  if (!limit.allowed) return "no_limit";
-
   let built;
   try {
     built = await buildSessionAnalysis(admin, { id: p.clientId, request: p.request, approach: p.approach }, p.sessionId);
@@ -90,8 +86,7 @@ async function autoSummary(admin: SupabaseClient, p: { sessionId: string; client
     auto: true,
   });
   if (error) throw new Error(error.message);
-  await consumeAssistantLimit(admin, p.psychologistId, "aiAnalysis");
-  return "created";
+  return "created"; // резюме сессии бесплатное: запросы ассистента не списываются
 }
 
 /** Запускать после готовой расшифровки. Не бросает исключений. */
