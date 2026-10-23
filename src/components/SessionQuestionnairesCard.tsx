@@ -9,7 +9,7 @@ interface TestRow {
   created_at: string; session_id: string | null; phase: "before" | "after" | null; title: string | null;
 }
 
-const PHASE_LABEL = { before: "В начале сессии", after: "В конце сессии" } as const;
+const PHASE_LABEL = { before: "До сессии", after: "После сессии" } as const;
 
 /**
  * Опросники в сессии: отправить клиенту тест «в начале» или «в конце» встречи
@@ -90,23 +90,23 @@ export default function SessionQuestionnairesCard({ clientId, sessionId }: { cli
     <div style={{ marginTop: 16, border: "1px solid #E5DFD5", borderRadius: 12, background: "#fff", padding: "12px 14px" }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>Опросники сессии</div>
       <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 2 }}>
-        Отправьте клиенту тест в начале и в конце сессии, чтобы увидеть динамику.
+        Тест «до» — состояние клиента перед встречей, «после» — как он себя чувствует по её итогам. Сравнение покажет динамику. Для уже прошедшей сессии отправьте «после сессии».
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
         <select
           value={key}
           onChange={e => setKey(e.target.value)}
-          style={{ flex: "1 1 220px", minWidth: 0, padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, background: "#fff" }}
+          style={{ flex: "1 1 220px", minWidth: 0, padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 8, fontSize: 13, color: "#1C1C1E", background: "#fff" }}
         >
           <option value="">Выберите опросник…</option>
           {list.map(q => <option key={q.test_key} value={q.test_key}>{q.title}</option>)}
         </select>
         <Button size="sm" variant="secondary" onClick={() => send("before")} disabled={!key || !!busy}>
-          <Send size={13} style={{ marginRight: 6 }} />{busy === "before" ? "Отправляю…" : "В начале сессии"}
+          <Send size={13} style={{ marginRight: 6 }} />{busy === "before" ? "Отправляю…" : "До сессии"}
         </Button>
         <Button size="sm" variant="secondary" onClick={() => send("after")} disabled={!key || !!busy}>
-          <Send size={13} style={{ marginRight: 6 }} />{busy === "after" ? "Отправляю…" : "В конце сессии"}
+          <Send size={13} style={{ marginRight: 6 }} />{busy === "after" ? "Отправляю…" : "После сессии"}
         </Button>
       </div>
 

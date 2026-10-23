@@ -578,9 +578,9 @@ export default function CalendarPage() {
                               <div style={{ fontSize: 12, fontWeight: 700, color: "#1C1C1E" }}>Перенести сессию</div>
                               <div style={{ display: "flex", gap: 8 }}>
                                 <input type="date" value={moveDate} onChange={e => setMoveDate(e.target.value)}
-                                  style={{ flex: 1, minWidth: 0, padding: "7px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12 }} />
+                                  style={{ flex: 1, minWidth: 0, padding: "7px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12, color: "#1C1C1E", background: "#FFFFFF" }} />
                                 <input type="time" value={moveTime} onChange={e => setMoveTime(e.target.value)}
-                                  style={{ width: 92, padding: "7px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12 }} />
+                                  style={{ width: 92, padding: "7px 8px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 12, color: "#1C1C1E", background: "#FFFFFF" }} />
                               </div>
                               {actionError && <p style={{ fontSize: 12, color: "#B91C1C", margin: 0 }}>{actionError}</p>}
                               <div style={{ display: "flex", gap: 8 }}>

@@ -940,11 +940,11 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
             <>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#1C1C1E" }}>Новая сессия:</span>
               <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)}
-                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13 }} />
+                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13, color: "#1C1C1E", background: "#FFFFFF" }} />
               <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)}
-                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13 }} />
+                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13, color: "#1C1C1E", background: "#FFFFFF" }} />
               <select value={repeatWeeks} onChange={e => setRepeatWeeks(Number(e.target.value))}
-                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13, background: "#fff" }}>
+                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13, color: "#1C1C1E", background: "#FFFFFF" }}>
                 <option value={1}>Один раз</option>
                 <option value={4}>Каждую неделю, 4 недели</option>
                 <option value={8}>Каждую неделю, 8 недель</option>
