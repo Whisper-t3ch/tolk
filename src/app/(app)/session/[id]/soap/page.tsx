@@ -9,6 +9,7 @@ import { normalizeTimeZone } from "@/lib/timezone";
 import { AI_DRAFT_NOTICE, GUARD_REPLACED_NOTICE } from "@/lib/soap/messages";
 import { SessionAiCard } from "@/components/ClientAnalytics";
 import SessionTranscriptCard from "@/components/SessionTranscriptCard";
+import SessionQuestionnairesCard from "@/components/SessionQuestionnairesCard";
 
 // Статус session.recording_status (см. migration_007_video_asr.sql) —
 // подсказка психологу, почему автоматическая генерация SOAP пока
@@ -506,6 +507,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
       {!loading && sessionInfo?.clientId && (
         <div style={{ marginBottom: 20 }}>
           <SessionAiCard clientId={sessionInfo.clientId} sessionId={sessionId} />
+          <SessionQuestionnairesCard clientId={sessionInfo.clientId} sessionId={sessionId} />
         </div>
       )}
 

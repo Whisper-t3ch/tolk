@@ -169,6 +169,8 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("10:00");
   const [scheduling, setScheduling] = useState(false);
+  // Регулярный слот: сколько недель подряд повторять (1 = разовая сессия)
+  const [repeatWeeks, setRepeatWeeks] = useState(1);
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
 
   // Раньше карточку клиента нельзя было отредактировать или архивировать
@@ -275,9 +277,25 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
     setScheduling(true);
     setScheduleMsg(null);
     try {
-      await addSession({ clientId: client.id, clientName: client.name, date: scheduleDate, time: scheduleTime });
+      const [y, m, d] = scheduleDate.split("-").map(Number);
+      const taken = new Set(sessions.filter(x => x.status !== "cancelled").map(x => `${x.date} ${x.time}`));
+      let created = 0;
+      let skipped = 0;
+      for (let i = 0; i < repeatWeeks; i++) {
+        const dt = new Date(Date.UTC(y, m - 1, d + 7 * i));
+        const dateStr = dt.toISOString().slice(0, 10);
+        if (taken.has(`${dateStr} ${scheduleTime}`)) { skipped++; continue; }
+        await addSession({ clientId: client.id, clientName: client.name, date: dateStr, time: scheduleTime });
+        created++;
+      }
       setShowSchedule(false);
-      setScheduleMsg(`Сессия запланирована на ${scheduleDate.split("-").reverse().join(".")} в ${scheduleTime} — она в календаре.`);
+      setRepeatWeeks(1);
+      const first = scheduleDate.split("-").reverse().join(".");
+      setScheduleMsg(
+        repeatWeeks === 1
+          ? `Сессия запланирована на ${first} в ${scheduleTime} — она в календаре.`
+          : `Создано сессий: ${created}, каждую неделю в ${scheduleTime}, начиная с ${first}.${skipped ? ` Пропущено занятых времён: ${skipped}.` : ""}`
+      );
     } catch {
       setScheduleMsg("Не удалось создать сессию — попробуйте ещё раз");
     } finally {
@@ -925,8 +943,15 @@ export default function ClientProfilePage({ params }: { params: Promise<{ id: st
                 style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13 }} />
               <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)}
                 style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13 }} />
+              <select value={repeatWeeks} onChange={e => setRepeatWeeks(Number(e.target.value))}
+                style={{ padding: "8px 10px", border: "1px solid #E5DFD5", borderRadius: 6, fontSize: 13, background: "#fff" }}>
+                <option value={1}>Один раз</option>
+                <option value={4}>Каждую неделю, 4 недели</option>
+                <option value={8}>Каждую неделю, 8 недель</option>
+                <option value={12}>Каждую неделю, 12 недель</option>
+              </select>
               <Button size="sm" onClick={scheduleSession} disabled={scheduling || !scheduleDate || !scheduleTime}>
-                {scheduling ? "Создаю…" : "Запланировать"}
+                {scheduling ? "Создаю…" : repeatWeeks > 1 ? "Закрепить время" : "Запланировать"}
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setShowSchedule(false)}>Отмена</Button>
             </>

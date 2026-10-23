@@ -18,7 +18,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
 
-  let body: { questionnaire_key?: string; title?: string; channel?: "telegram" | "vk" };
+  let body: { questionnaire_key?: string; title?: string; channel?: "telegram" | "vk"; session_id?: string; phase?: "before" | "after" };
   try {
     body = await request.json();
   } catch {
@@ -30,6 +30,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Укажите questionnaire_key" }, { status: 400 });
   }
   const channel = body.channel ?? "telegram";
+  const phase = body.phase === "before" || body.phase === "after" ? body.phase : null;
+  const sessionId = typeof body.session_id === "string" && body.session_id ? body.session_id : null;
 
   // Клиент должен принадлежать текущему психологу.
   const { data: client, error: clientError } = await supabase
@@ -40,6 +42,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .maybeSingle();
   if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 });
   if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 });
+
+  // Привязка к сессии: сессия должна быть этого психолога и этого клиента.
+  if (sessionId) {
+    const { data: sess } = await supabase
+      .from("sessions")
+      .select("id")
+      .eq("id", sessionId)
+      .eq("psychologist_id", user.id)
+      .eq("client_id", clientId)
+      .maybeSingle();
+    if (!sess) return NextResponse.json({ error: "Сессия не найдена" }, { status: 404 });
+  }
 
   const { data: questionnaire, error: qError } = await supabase
     .from("test_questionnaires")
@@ -68,6 +82,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       interpretation: null,
       status: "pending",
       access_token: accessToken,
+      session_id: sessionId,
+      phase: sessionId ? phase : null,
     })
     .select("id, access_token")
     .single();

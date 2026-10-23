@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // undefined (reading 'label')».
   const { data, error } = await supabase
     .from("test_results")
-    .select("id, test_type, score, max_score, interpretation, status, created_at, test_questionnaires ( title )")
+    .select("id, test_type, score, max_score, interpretation, status, created_at, session_id, phase, test_questionnaires ( title )")
     .eq("client_id", clientId)
     .eq("psychologist_id", user.id)
     .order("created_at", { ascending: true });
@@ -43,6 +43,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       interpretation: row.interpretation,
       status: row.status,
       created_at: row.created_at,
+      session_id: row.session_id ?? null,
+      phase: row.phase ?? null,
       title: questionnaire?.title ?? null,
     };
   });
