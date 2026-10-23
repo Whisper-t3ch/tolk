@@ -25,7 +25,7 @@ const RULES = `Опирайся только на переданные данн�
 const OVERVIEW_KEYS = ["dynamics", "strengths", "supports", "interventions", "homework", "attention", "next_focus"] as const;
 const TEST_KEYS = ["summary", "dynamics", "interpretation", "recommendations"] as const;
 export const SESSION_KEYS = [
-  "state_score", "score_rationale", "key_themes", "strengths", "supports", "growth", "alliance", "interventions", "identity", "homework", "next_focus",
+  "state_score", "summary", "score_rationale", "key_themes", "strengths", "supports", "growth", "alliance", "interventions", "identity", "homework", "next_focus",
 ] as const;
 /** Без этих блоков итоги сессии считаются неполными (остальные могут быть «недостаточно данных»). */
 const SESSION_REQUIRED = ["strengths", "supports", "growth", "interventions"] as const;
@@ -42,6 +42,7 @@ ${RULES}`,
 Опирайся только на материал сессии: ничего не выдумывай, фразы цитируй коротко и только дословно из материала. Про то, что происходило у психолога внутри (чувства, контрперенос), пиши как осторожное предположение («возможно, вы чувствовали…»).
 Ключи JSON:
 "state_score" (ЧИСЛО от 0 до 10: оценка состояния клиента на этой сессии по тому, что прозвучало; 0 — очень тяжёлое, 10 — хорошее, устойчивое),
+"summary" (Краткое резюме сессии: 5–7 предложений связным текстом — с каким запросом пришёл клиент, о чём шла работа, что стало главным открытием или сдвигом, о чём договорились; без списков и повторов блоков ниже),
 "score_rationale" (на чём основана оценка, 1–2 предложения),
 "key_themes" (ключевые темы сессии),
 "strengths" (Ваши сильные стороны: 2–3 пункта. Каждый: название; строка «Значимость для терапии: Ключевая / Важная / Вспомогательная»; строка «Что именно было сделано удачно:» с конкретикой из сессии),

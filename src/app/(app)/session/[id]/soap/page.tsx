@@ -529,6 +529,13 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
         </Card>
       </motion.div>
 
+      {/* ИИ-резюме сессии — сразу под шапкой, чтобы бросалось в глаза (стоит 1 запрос, часть сессий считается автоматически). */}
+      {!loading && sessionInfo?.clientId && (
+        <div style={{ marginBottom: 20 }}>
+          <SessionAiCard clientId={sessionInfo.clientId} sessionId={sessionId} />
+        </div>
+      )}
+
       {/* Выбор формата протокола — подставляет текст шаблона из базы знаний
           (source_type=protocol) как ориентир при ручном заполнении и как
           инструкцию для AI-генерации (см. lib/prompts/soap.ts). Раньше
@@ -731,7 +738,6 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
                 <Send size={14} style={{ marginRight: 6 }} /> Отправить резюме клиенту
               </Button>
             </div>
-            {sessionInfo?.clientId && <SessionAiCard clientId={sessionInfo.clientId} sessionId={sessionId} />}
             <SessionTranscriptCard sessionId={sessionId} />
             {/* Ошибку генерации показываем и здесь: карточка «Протокол не
                 создан», где она выводилась раньше, при заполненном протоколе

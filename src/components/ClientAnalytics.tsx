@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TrendingDown, TrendingUp, Minus } from "lucide-react";
+import { TrendingDown, TrendingUp, Minus, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button, Card, CardContent } from "@/components/ui";
 
@@ -119,7 +119,7 @@ export const TEST_LABELS: [string, string][] = [
   ["summary", "Вывод"], ["dynamics", "Динамика"], ["interpretation", "Как читать результат"], ["recommendations", "Что обсудить"],
 ];
 export const SESSION_LABELS: [string, string][] = [
-  ["score_rationale", "На чём основана оценка"], ["key_themes", "Ключевые темы"], ["strengths", "Ваши сильные стороны"], ["supports", "Точки опоры"],
+  ["summary", "Резюме сессии"], ["score_rationale", "На чём основана оценка"], ["key_themes", "Ключевые темы"], ["strengths", "Ваши сильные стороны"], ["supports", "Точки опоры"],
   ["growth", "Идеи и возможности роста"], ["alliance", "Терапевтический альянс и контрперенос"], ["interventions", "Эффективность интервенций"],
   ["identity", "Профессиональная идентичность"], ["homework", "Домашние задания"], ["next_focus", "Фокус дальше"],
 ];
@@ -137,9 +137,9 @@ export function AnalysisSections({ content, labels }: { content: Record<string, 
   );
 }
 
-export function AiButton({ busy, hasResult, onClick, disabled, what = "ИИ-анализ" }: { busy: boolean; hasResult: boolean; onClick: () => void; disabled?: boolean; what?: string }) {
+export function AiButton({ busy, hasResult, onClick, disabled, what = "ИИ-анализ", primary }: { busy: boolean; hasResult: boolean; onClick: () => void; disabled?: boolean; what?: string; primary?: boolean }) {
   return (
-    <Button size="sm" variant="secondary" onClick={onClick} disabled={busy || disabled}>
+    <Button size={primary && !hasResult ? "md" : "sm"} variant={primary && !hasResult ? "primary" : "secondary"} onClick={onClick} disabled={busy || disabled}>
       {busy ? "Анализирую…" : `${hasResult ? "Обновить" : what} · −1 запрос`}
     </Button>
   );
@@ -473,6 +473,7 @@ export function SessionAiCard({ clientId, sessionId }: { clientId: string; sessi
   const ai = useAiAnalyses(clientId);
   const cur = ai.latest("session", sessionId);
   const busy = ai.busy === `session:${sessionId}`;
+  const [expanded, setExpanded] = useState(false);
   // Итоги готовятся автоматически после расшифровки записи: пока их нет, несколько раз перечитываем список.
   const tries = useRef(0);
   useEffect(() => {
@@ -485,20 +486,42 @@ export function SessionAiCard({ clientId, sessionId }: { clientId: string; sessi
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur?.id]);
+  const hasSummary = Boolean(cur?.content?.summary);
+  const summaryLabels = SESSION_LABELS.filter(([k]) => k === "summary");
+  const detailLabels = SESSION_LABELS.filter(([k]) => k !== "summary");
   return (
-    <div style={{ marginTop: 16, padding: 16, background: "#FFFFFF", border: "1px solid #E5DFD5", borderRadius: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1C1C1E", margin: 0 }}>Резюме и итоги сессии</h3>
-        <AiButton busy={busy} hasResult={!!cur} onClick={() => ai.generate("session", sessionId)} what="Подготовить итоги сессии" />
+    <div style={{
+      padding: 18, borderRadius: 14, border: "1.5px solid #2D6A5C",
+      background: "linear-gradient(135deg, #F1F8F5 0%, #FFFFFF 70%)", boxShadow: "0 2px 10px rgba(45,106,92,0.10)",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 30, height: 30, borderRadius: 8, background: "#2D6A5C", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            <Sparkles size={16} />
+          </span>
+          <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1C1C1E", margin: 0 }}>ИИ-резюме сессии</h3>
+        </div>
+        <AiButton primary busy={busy} hasResult={!!cur} onClick={() => ai.generate("session", sessionId)} what="Составить резюме сессии" />
       </div>
       {ai.error && ai.busy === null && <p style={{ fontSize: 12, color: "#B91C1C", margin: "0 0 8px" }}>{ai.error}</p>}
       {cur ? (
         <>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
             <span style={{ fontSize: 24, fontWeight: 800, color: "#2D6A5C" }}>{cur.score}</span>
-            <span style={{ fontSize: 12.5, color: "#6F5A3F" }}>из 10: оценка состояния клиента на сессии (попадёт на график «Динамика состояния»)</span>
+            <span style={{ fontSize: 12.5, color: "#6F5A3F" }}>из 10: оценка состояния клиента на сессии (попадёт на график «Динамика»)</span>
           </div>
-          <EditableSections analysis={cur} labels={SESSION_LABELS} onSave={ai.saveBlock} />
+          {hasSummary && <EditableSections analysis={cur} labels={summaryLabels} onSave={ai.saveBlock} />}
+          {hasSummary && (
+            <button
+              type="button"
+              onClick={() => setExpanded(e => !e)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: "6px 0 10px", padding: 0, background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#2D6A5C", fontFamily: "var(--font-sans)" }}
+            >
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {expanded ? "Скрыть подробный разбор" : "Подробный разбор: сильные стороны, точки опоры, идеи роста"}
+            </button>
+          )}
+          {(!hasSummary || expanded) && <EditableSections analysis={cur} labels={detailLabels} onSave={ai.saveBlock} />}
           <p style={{ fontSize: 11, color: "#8A7F70", margin: "14px 0 0" }}>
             {cur.auto ? "Составлено автоматически после расшифровки записи · " : ""}
             {new Date(cur.created_at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
@@ -506,9 +529,10 @@ export function SessionAiCard({ clientId, sessionId }: { clientId: string; sessi
           </p>
         </>
       ) : (
-        <p style={{ fontSize: 12.5, color: "#6F5A3F", margin: 0, lineHeight: 1.5 }}>
-          Сильные стороны, точки опоры, идеи роста, альянс и контрперенос, эффективность интервенций, профессиональная идентичность и оценка состояния клиента.
-          Итоги готовятся сами после расшифровки записи и стоят 1 запрос из лимита ассистента. Если их нет, нажмите кнопку.
+        <p style={{ fontSize: 13, color: "#3A3530", margin: 0, lineHeight: 1.6 }}>
+          Нажмите кнопку — ИИ по записи или заметкам сессии составит краткое резюме, оценку состояния клиента, сильные стороны,
+          точки опоры и идеи роста. Стоит 1 запрос из лимита ассистента. Если запись сессии была, резюме появится само
+          после расшифровки; обновите страницу через пару минут.
         </p>
       )}
     </div>
