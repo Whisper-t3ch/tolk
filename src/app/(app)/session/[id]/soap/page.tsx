@@ -8,6 +8,7 @@ import { useProfile } from "@/lib/ProfileContext";
 import { normalizeTimeZone } from "@/lib/timezone";
 import { AI_DRAFT_NOTICE, GUARD_REPLACED_NOTICE } from "@/lib/soap/messages";
 import { SessionAiCard } from "@/components/ClientAnalytics";
+import SessionTranscriptCard from "@/components/SessionTranscriptCard";
 
 // Статус session.recording_status (см. migration_007_video_asr.sql) —
 // подсказка психологу, почему автоматическая генерация SOAP пока
@@ -731,6 +732,7 @@ export default function SOAPPage({ params }: { params: Promise<{ id: string }> }
               </Button>
             </div>
             {sessionInfo?.clientId && <SessionAiCard clientId={sessionInfo.clientId} sessionId={sessionId} />}
+            <SessionTranscriptCard sessionId={sessionId} />
             {/* Ошибку генерации показываем и здесь: карточка «Протокол не
                 создан», где она выводилась раньше, при заполненном протоколе
                 скрыта — иначе неудачная генерация выглядела бы как полное
