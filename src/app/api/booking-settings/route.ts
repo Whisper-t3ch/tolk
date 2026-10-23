@@ -4,6 +4,7 @@ import { slugify } from "@/lib/slug";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidTimeZone, normalizeTimeZone } from "@/lib/timezone";
 import { isValidTime, type DateOverrides } from "@/lib/booking";
+import { sanitizeProfile, sanitizeServices, sanitizeReviews, readProfile, readServices, readReviews } from "@/lib/bookingProfile";
 
 // GET /api/booking-settings — настройки публичной записи текущего
 // психолога (null, если ещё не создавались — на UI это означает
@@ -20,7 +21,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("booking_settings")
     .select(
-      "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
+      "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, profile, services, reviews, created_at, updated_at"
     )
     .eq("psychologist_id", user.id)
     .maybeSingle();
@@ -39,7 +40,9 @@ export async function GET() {
     .maybeSingle();
 
   return NextResponse.json({
-    settings: data,
+    settings: data
+      ? { ...data, profile: readProfile(data.profile), services: readServices(data.services), reviews: readReviews(data.reviews) }
+      : data,
     timezone: normalizeTimeZone(profile?.timezone as string | undefined),
   });
 }
@@ -63,6 +66,10 @@ interface BookingSettingsBody {
   min_notice_hours?: number;
   max_advance_days?: number;
   is_active?: boolean;
+  /** Профиль специалиста, услуги и отзывы для публичной страницы (см. lib/bookingProfile). */
+  profile?: unknown;
+  services?: unknown;
+  reviews?: unknown;
   /** IANA-идентификатор, например "Europe/Moscow". Пишется в psychologists.timezone. */
   timezone?: string;
 }
@@ -176,6 +183,13 @@ async function upsertHandler(request: NextRequest) {
     if (res.error) return NextResponse.json({ error: res.error }, { status: 400 });
     dateOverrides = res.value;
   }
+  const extra: Record<string, unknown> = {};
+  for (const [key, fn] of [["profile", sanitizeProfile], ["services", sanitizeServices], ["reviews", sanitizeReviews]] as const) {
+    if (body[key] === undefined) continue;
+    const res = (fn as (v: unknown) => { value?: unknown; error?: string })(body[key]);
+    if (res.error) return NextResponse.json({ error: res.error }, { status: 400 });
+    extra[key] = res.value;
+  }
   const rangeError =
     intError(body.session_duration_minutes, "Длительность сессии", 10, 480, "мин") ??
     intError(body.buffer_minutes, "Буфер", 0, 240, "мин") ??
@@ -213,6 +227,7 @@ async function upsertHandler(request: NextRequest) {
   if (body.min_notice_hours !== undefined) patch.min_notice_hours = body.min_notice_hours;
   if (body.max_advance_days !== undefined) patch.max_advance_days = body.max_advance_days;
   if (body.is_active !== undefined) patch.is_active = body.is_active;
+  Object.assign(patch, extra);
   patch.updated_at = new Date().toISOString();
 
   if (existing) {
@@ -221,7 +236,7 @@ async function upsertHandler(request: NextRequest) {
       .update(patch)
       .eq("id", existing.id)
       .select(
-        "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, updated_at"
+        "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, profile, services, reviews, updated_at"
       )
       .single();
     if (updateError) {
@@ -244,7 +259,7 @@ async function upsertHandler(request: NextRequest) {
         ...patch,
       })
       .select(
-        "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, created_at, updated_at"
+        "id, public_slug, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, profile, services, reviews, created_at, updated_at"
       )
       .single();
     if (!createError) return NextResponse.json({ settings: created });

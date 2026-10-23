@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isSlotAvailable, type WorkingHours, type DateOverrides } from "@/lib/booking";
 import { notifyUserTelegram } from "@/lib/notify/platformTelegram";
 import { parseClientContact } from "@/lib/bookingContact";
+import { readServices } from "@/lib/bookingProfile";
 import { normalizeTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 
 // POST /api/public/booking/[slug]/create
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { slug } = await params;
   const supabase = createAdminClient();
 
-  let body: { date?: string; time?: string; client_name?: string; client_contact?: string; client_telegram?: string };
+  let body: { date?: string; time?: string; client_name?: string; client_contact?: string; client_telegram?: string; service_id?: string };
   try {
     body = await request.json();
   } catch {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: settings, error: settingsError } = await supabase
     .from("booking_settings")
-    .select("psychologist_id, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active")
+    .select("psychologist_id, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, services")
     .eq("public_slug", slug)
     .maybeSingle();
   if (settingsError) {
@@ -58,6 +59,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Страница бронирования не найдена" }, { status: 404 });
   }
   const psychologistId = settings.psychologist_id as string;
+
+  // Выбранная услуга задаёт длительность брони; если услуги заведены, а id не передан/неизвестен — первая.
+  const services = readServices(settings.services);
+  const service = services.length > 0 ? (services.find(sv => sv.id === body.service_id) ?? services[0]) : undefined;
+  const sessionDuration = service?.duration_minutes ?? settings.session_duration_minutes;
 
   // Часовой пояс психолога — в нём заданы рабочие часы и в нём клиент
   // выбирал слот. Без него «15:00» превращалось в 15:00 UTC, и сессия
@@ -128,7 +134,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     time,
     workingHours: settings.working_hours as WorkingHours,
     dateOverrides: (settings.date_overrides ?? {}) as DateOverrides,
-    sessionDurationMinutes: settings.session_duration_minutes,
+    sessionDurationMinutes: sessionDuration,
     bufferMinutes: settings.buffer_minutes,
     minNoticeHours: settings.min_notice_hours,
     maxAdvanceDays: settings.max_advance_days,
@@ -182,7 +188,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       psychologist_id: psychologistId,
       client_id: clientId,
       scheduled_at: scheduledAt,
-      duration_minutes: settings.session_duration_minutes,
+      duration_minutes: sessionDuration,
+      service_title: service?.title ?? null,
       status: "pending_payment",
       booked_via: "public_link",
       client_contact_name: clientName,
@@ -204,7 +211,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .format(new Date(scheduledAt));
     await notifyUserTelegram(
       psychologistId,
-      `Новая запись: ${clientName}, ${when} (${timeZone}).\n${contact.kind === "telegram" ? `Telegram клиента: @${contact.value}` : `Телефон клиента: ${contact.value}`}\nСтатус: ожидает подтверждения — свяжитесь с клиентом.`
+      `Новая запись: ${clientName}${service ? ` — ${service.title}` : ""}, ${when} (${timeZone}).\n${contact.kind === "telegram" ? `Telegram клиента: @${contact.value}` : `Телефон клиента: ${contact.value}`}\nСтатус: ожидает подтверждения — свяжитесь с клиентом.`
     );
   } catch {
     /* уведомление не критично */

@@ -7,6 +7,8 @@ import { Button, Card, CardContent } from "@/components/ui";
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { DateSlotsEditor } from "@/components/DateSlotsEditor";
 import type { DateOverrides } from "@/lib/booking";
+import BookingProfileEditor from "@/components/BookingProfileEditor";
+import { EMPTY_PROFILE, type BookingProfile, type BookingService, type BookingReview } from "@/lib/bookingProfile";
 
 interface WorkingHours {
   mon: [string, string] | null;
@@ -47,6 +49,9 @@ interface BookingSettings {
   min_notice_hours: number;
   max_advance_days: number;
   is_active: boolean;
+  profile?: BookingProfile;
+  services?: BookingService[];
+  reviews?: BookingReview[];
 }
 
 export default function BookingSettingsPage() {
@@ -65,6 +70,9 @@ export default function BookingSettingsPage() {
   const [minNotice, setMinNotice] = useState(2);
   const [maxAdvance, setMaxAdvance] = useState(30);
   const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
+  const [profile, setProfile] = useState<BookingProfile>(EMPTY_PROFILE);
+  const [services, setServices] = useState<BookingService[]>([]);
+  const [reviews, setReviews] = useState<BookingReview[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +92,9 @@ export default function BookingSettingsPage() {
           setBuffer(s.buffer_minutes);
           setMinNotice(s.min_notice_hours);
           setMaxAdvance(s.max_advance_days);
+          if (s.profile) setProfile({ ...EMPTY_PROFILE, ...s.profile });
+          setServices(s.services ?? []);
+          setReviews(s.reviews ?? []);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -110,7 +121,10 @@ export default function BookingSettingsPage() {
     max_advance_days: number;
     is_active: boolean;
     timezone: string;
-  }>) {
+    profile: BookingProfile;
+    services: BookingService[];
+    reviews: BookingReview[];
+  }>): Promise<boolean> {
     setSaving(true);
     setError(null);
     try {
@@ -124,11 +138,14 @@ export default function BookingSettingsPage() {
         setSlug(data.settings.public_slug);
         setNotification("Сохранено");
         setTimeout(() => setNotification(null), 2000);
+        return true;
       } else {
         setError(data.error ?? "Не удалось сохранить настройки");
+        return false;
       }
     } catch {
       setError("Не удалось связаться с сервером");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -342,6 +359,23 @@ export default function BookingSettingsPage() {
         onChange={next => {
           setDateOverrides(next);
           save({ date_overrides: next });
+        }}
+      />
+
+      {/* Профиль, услуги и отзывы для публичной страницы */}
+      <BookingProfileEditor
+        profile={profile}
+        services={services}
+        reviews={reviews}
+        saving={saving}
+        onSave={async patch => {
+          const ok = await save(patch);
+          if (ok) {
+            if (patch.profile) setProfile(patch.profile);
+            if (patch.services) setServices(patch.services);
+            if (patch.reviews) setReviews(patch.reviews);
+          }
+          return ok;
         }}
       />
 

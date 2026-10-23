@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateAvailableSlots, type WorkingHours, type DateOverrides } from "@/lib/booking";
+import { readServices } from "@/lib/bookingProfile";
 import { normalizeTimeZone, todayInTimeZone, formatDateInTimeZone } from "@/lib/timezone";
 
 // GET /api/public/booking/[slug]/slots?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { data: settings, error: settingsError } = await supabase
     .from("booking_settings")
-    .select("psychologist_id, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active")
+    .select("psychologist_id, working_hours, date_overrides, session_duration_minutes, buffer_minutes, min_notice_hours, max_advance_days, is_active, services")
     .eq("public_slug", slug)
     .maybeSingle();
 
@@ -61,6 +62,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // видит слоты. Без него «сегодня» и границы суток считались по UTC,
   // из-за чего слоты съезжали относительно реального расписания.
   const timeZone = normalizeTimeZone(profile?.timezone as string | undefined);
+
+  // Услуга со своей длительностью: ?service=<id>. Без параметра (или с неизвестным id) — длительность по умолчанию.
+  const serviceId = request.nextUrl.searchParams.get("service");
+  const service = serviceId ? readServices(settings.services).find(sv => sv.id === serviceId) : undefined;
+  const sessionDuration = service?.duration_minutes ?? settings.session_duration_minutes;
 
   const now = new Date();
   const dateParam = request.nextUrl.searchParams.get("date");
@@ -108,7 +114,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     toDate,
     workingHours: settings.working_hours as WorkingHours,
     dateOverrides: (settings.date_overrides ?? {}) as DateOverrides,
-    sessionDurationMinutes: settings.session_duration_minutes,
+    sessionDurationMinutes: sessionDuration,
     bufferMinutes: settings.buffer_minutes,
     minNoticeHours: settings.min_notice_hours,
     occupied,
@@ -119,7 +125,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({
     slots,
     psychologist: { name: psychologistName, specialty: profile?.specialty ?? null },
-    session_duration_minutes: settings.session_duration_minutes,
+    session_duration_minutes: sessionDuration,
     telegram_connected: telegramConnected,
     // Пояс нужен клиенту уже на экране ВЫБОРА времени, а не только на
     // экране подтверждения: без подписи «по московскому времени» клиент
