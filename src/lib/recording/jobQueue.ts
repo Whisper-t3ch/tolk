@@ -48,6 +48,9 @@ export type JobOutcome =
   | { kind: "failed"; reason: string };
 
 /** Результат processNextRecordingJob — надмножество JobOutcome: 'requeued' бывает ТОЛЬКО на уровне сборки (transient-блокировка), transcribe() сама никогда не requeue-ит. */
+/** Сколько раз задача перезапускается при временном сбое LLM-обезличивания, прежде чем уйти на ручную проверку. */
+const MAX_TRANSIENT_ATTEMPTS = 6;
+
 export type ProcessOutcome = JobOutcome | { kind: "requeued"; reason: string };
 
 function isDuplicateKeyError(error: { code?: string; message?: string } | null): boolean {
@@ -177,6 +180,15 @@ export async function processNextRecordingJob(
         console.error("processNextRecordingJob: onTranscriptReady:", e instanceof Error ? e.message : e);
       }
     }
+  } else if (
+    outcome.kind === "manual_review_required" &&
+    /^anonymization_llm_error/.test(outcome.reason) &&
+    job.attempts_count < MAX_TRANSIENT_ATTEMPTS
+  ) {
+    // Временный сбой LLM (429/5xx/сеть), а не проблема с данными: пробуем снова на следующих тиках крона,
+    // а не отправляем психолога заполнять протокол вручную. Статус сессии остаётся 'processing'.
+    await setJobStatus(supabase, job.id, { status: "pending", locked_at: null, locked_by: null, last_error: outcome.reason });
+    return { jobId: job.id, outcome: { kind: "requeued", reason: outcome.reason } };
   } else if (outcome.kind === "manual_review_required") {
     await setJobStatus(supabase, job.id, { status: "manual_review_required", last_error: outcome.reason });
     await setSessionRecordingStatus(supabase, job.session_id, {

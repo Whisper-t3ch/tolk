@@ -355,15 +355,30 @@ describe("processNextRecordingJob", () => {
     const client = makeClient(backend);
     await enqueueTranscriptionJob(client, SESSION_ID);
 
-    const transcribe = vi.fn(async (): Promise<JobOutcome> => ({ kind: "manual_review_required", reason: "anonymization_llm_error: status=503" }));
+    const transcribe = vi.fn(async (): Promise<JobOutcome> => ({ kind: "manual_review_required", reason: "anonymization_invalid_response: ответ модели не JSON" }));
     const result = await processNextRecordingJob(client, "worker-1", transcribe);
 
     expect(result?.outcome.kind).toBe("manual_review_required");
     expect(backend.jobs[0].status).toBe("manual_review_required");
-    expect(backend.jobs[0].last_error).toBe("anonymization_llm_error: status=503");
+    expect(backend.jobs[0].last_error).toBe("anonymization_invalid_response: ответ модели не JSON");
     expect(backend.sessionUpdates).toEqual([
-      { id: SESSION_ID, patch: { recording_status: "manual_review_required", transcript_error: "anonymization_llm_error: status=503" } },
+      { id: SESSION_ID, patch: { recording_status: "manual_review_required", transcript_error: "anonymization_invalid_response: ответ модели не JSON" } },
     ]);
+  });
+
+  it("временный сбой LLM-обезличивания (429/5xx) → задача возвращается в очередь, а не уходит на ручную проверку", async () => {
+    const backend = makeBackend();
+    backend.attempts.push({ id: "attempt-1", session_id: SESSION_ID, status: "completed", started_at: "2026-10-02T10:00:00Z" });
+    addChunk(backend, { sessionId: SESSION_ID, attemptId: "attempt-1", track: "psychologist", sequence: 0, content: "AAA" });
+    const client = makeClient(backend);
+    await enqueueTranscriptionJob(client, SESSION_ID);
+
+    const transcribe = vi.fn(async (): Promise<JobOutcome> => ({ kind: "manual_review_required", reason: "anonymization_llm_error: сбой запроса к YandexGPT (status=429, попыток=5)" }));
+    const result = await processNextRecordingJob(client, "worker-1", transcribe);
+
+    expect(result?.outcome.kind).toBe("requeued");
+    expect(backend.jobs[0].status).toBe("pending");
+    expect(backend.sessionUpdates).toEqual([]);
   });
 
   it("сборка ок, но transcribe() сообщает blocked (например ASR не настроен) → статус blocked", async () => {

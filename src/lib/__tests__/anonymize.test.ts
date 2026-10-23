@@ -70,7 +70,7 @@ describe("anonymizeTranscript (fail-closed)", () => {
     mocked.mockImplementation(async () => { throw new YandexGptError("YandexGPT вернул ошибку 503", 503); });
     const err = await failure(anonymizeTranscript(SECRET, "Анна", FAST));
     expect(err.reason).toBe("llm_error");
-    expect(mocked).toHaveBeenCalledTimes(3);
+    expect(mocked).toHaveBeenCalledTimes(5);
     expect(err.message).not.toContain(SECRET);
   });
 

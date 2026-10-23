@@ -291,8 +291,8 @@ export async function anonymizeTranscript(
   if (!trimmed) return text ?? "";
 
   const masked = maskProfanity(trimmed);
-  const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
-  const retryDelayMs = options.retryDelayMs ?? 600;
+  const maxAttempts = Math.max(1, options.maxAttempts ?? 5);
+  const retryDelayMs = options.retryDelayMs ?? 1000;
 
   let result: AnonymizeResult | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -434,7 +434,18 @@ export async function anonymizeTranscriptsTolerant(
   clientName: string,
   options: AnonymizeOptions = {}
 ): Promise<{ texts: string[]; moderatedFragments: number }> {
-  const results = await Promise.all(texts.map(text => anonymizeSegmentTolerant(text, clientName, options)));
+  // Раньше все сегменты уходили в YandexGPT одновременно: на получасовой сессии (сотни сегментов)
+  // это давало шквал запросов и 429 → задача падала в manual_review_required. Теперь — пул из 6.
+  const results: Array<{ text: string; moderated: number }> = new Array(texts.length);
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= texts.length) return;
+      results[i] = await anonymizeSegmentTolerant(texts[i], clientName, options);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(ANON_CONCURRENCY, texts.length) }, worker));
   const moderatedFragments = results.reduce((sum, r) => sum + r.moderated, 0);
   if (moderatedFragments > 0) console.log("ANON_MODERATED", JSON.stringify({ fragments: moderatedFragments, segments: texts.length }));
   return { texts: results.map(r => r.text), moderatedFragments };
