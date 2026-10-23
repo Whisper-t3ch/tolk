@@ -27,6 +27,7 @@ describe("sanitizeProfile", () => {
     expect(sanitizeProfile({ accent: "pink" }).value?.accent).toBe("green");
     const faq = sanitizeProfile({ faq: [{ q: "Вопрос?", a: "Ответ" }, { q: "", a: "x" }, { q: "Без ответа", a: "" }] }).value?.faq;
     expect(faq?.length).toBe(1);
+    expect(sanitizeProfile({ audience_title: "Заголовок", audience: "• Пункт\n\nВажно" }).value?.audience).toBe("• Пункт\n\nВажно");
     expect(faq?.[0].q).toBe("Вопрос?");
   });
 });

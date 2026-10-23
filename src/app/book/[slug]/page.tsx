@@ -369,6 +369,17 @@ export default function PublicBookingPage({ params }: { params: Promise<{ slug: 
               </div>
             )}
 
+            {profile.audience.trim() && (
+              <div style={{ textAlign: "center", padding: "8px 8px 0" }}>
+                <h2 style={{ ...h2, fontSize: 28, margin: "0 0 18px" }}>
+                  {profile.audience_title.trim() || "Я смогу быть вам полезен, если вы:"}
+                </h2>
+                <p style={{ fontSize: 16, color: "#3A3530", lineHeight: 1.8, margin: "0 auto", maxWidth: 640, whiteSpace: "pre-wrap" }}>
+                  {profile.audience}
+                </p>
+              </div>
+            )}
+
             <button className="bk-btn" onClick={chooseService} style={{ ...gradBtn, width: "100%", padding: "16px 20px", fontSize: 17, boxShadow: `0 6px 18px ${accent.color}40` }}>
               Выбрать услугу и записаться
             </button>

@@ -140,6 +140,16 @@ export default function BookingProfileEditor({ profile, services, reviews, savin
                 onChange={e => setP({ ...p, about: e.target.value })} />
             </div>
             <div>
+              <label style={label}>Блок «Кому я могу помочь» — заголовок</label>
+              <input style={input} maxLength={120} value={p.audience_title}
+                placeholder="Я смогу быть вам полезной, если вы:"
+                onChange={e => setP({ ...p, audience_title: e.target.value })} />
+              <textarea style={{ ...input, minHeight: 150, resize: "vertical", marginTop: 8 }} maxLength={3000} value={p.audience}
+                placeholder={"• Застряли в отношениях, работе или эмоциях\n• Хотите понимать себя и свои жизненные сценарии\n\nВажно: оговорки о том, с чем вы не работаете.\n\nЗаключительные слова клиенту."}
+                onChange={e => setP({ ...p, audience: e.target.value })} />
+              <div style={{ fontSize: 12, color: "#6F5A3F", marginTop: 4 }}>Показывается по центру над кнопкой записи. Переносы строк сохраняются.</div>
+            </div>
+            <div>
               <label style={label}>Квалификация (каждый пункт с новой строки)</label>
               <textarea style={{ ...input, minHeight: 90, resize: "vertical" }} value={quals}
                 placeholder={"Высшее психологическое образование, МГУ\nПовышение квалификации: КПТ, 2024\nСупервизия, личная терапия"}

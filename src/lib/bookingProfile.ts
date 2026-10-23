@@ -19,6 +19,9 @@ export interface BookingProfile {
   headline: string;
   tags: string[];
   about: string;
+  /** Блок «Я смогу быть вам полезной, если вы…»: заголовок и свободный текст (пункты, оговорки). */
+  audience_title: string;
+  audience: string;
   links: { telegram?: string; vk?: string; website?: string };
   qualifications: string[];
   /** Частые вопросы: сворачиваемый список на странице записи. */
@@ -56,6 +59,8 @@ export const EMPTY_PROFILE: BookingProfile = {
   headline: "",
   tags: [],
   about: "",
+  audience_title: "",
+  audience: "",
   links: {},
   qualifications: [],
   faq: [],
@@ -131,6 +136,8 @@ export function sanitizeProfile(input: unknown): Result<BookingProfile> {
     headline: str(o.headline, 120),
     tags: strList(o.tags, 8, 40),
     about: str(o.about, 2000),
+    audience_title: str(o.audience_title, 120),
+    audience: str(o.audience, 3000),
     links,
     qualifications: strList(o.qualifications, 15, 200),
     faq: sanitizeFaq(o.faq),
