@@ -9,6 +9,10 @@ import path from "node:path";
 // не добавлено — тестовый раннер в проекте появился только 27.09.2026
 // (см. claude/jitsi-pilot-test-report-27-09.md), минимальный конфиг.
 export default defineConfig({
+  test: {
+    // служебные копии/worktree не должны попадать в прогон
+    exclude: ["**/node_modules/**", "**/dist/**", ".wt-*/**", ".next/**"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

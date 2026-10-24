@@ -189,6 +189,14 @@ export async function processNextRecordingJob(
     // а не отправляем психолога заполнять протокол вручную. Статус сессии остаётся 'processing'.
     await setJobStatus(supabase, job.id, { status: "pending", locked_at: null, locked_by: null, last_error: outcome.reason });
     return { jobId: job.id, outcome: { kind: "requeued", reason: outcome.reason } };
+  } else if (
+    outcome.kind === "failed" &&
+    /^ASR не смог обработать дорожку/.test(outcome.reason) &&
+    job.attempts_count < MAX_TRANSIENT_ATTEMPTS
+  ) {
+    // Сервис ASR мог быть перезапущен/перегружен/недоступен — запись цела, пробуем снова на следующих тиках крона.
+    await setJobStatus(supabase, job.id, { status: "pending", locked_at: null, locked_by: null, last_error: outcome.reason });
+    return { jobId: job.id, outcome: { kind: "requeued", reason: outcome.reason } };
   } else if (outcome.kind === "manual_review_required") {
     await setJobStatus(supabase, job.id, { status: "manual_review_required", last_error: outcome.reason });
     await setSessionRecordingStatus(supabase, job.session_id, {

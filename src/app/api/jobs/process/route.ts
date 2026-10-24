@@ -7,6 +7,7 @@ import { createMockAsrAdapter, createHttpAsrAdapter, type AsrAdapter } from "@/l
 import type { SessionAssemblyOk } from "@/lib/recording/attemptAssembly";
 import { assembleSessionRecording } from "@/lib/recording/attemptAssembly";
 import { runAutoSessionSummary } from "@/lib/autoSessionSummary";
+import { finalizeAbandonedRecordings } from "@/lib/recording/abandoned";
 
 // GET/POST /api/jobs/process — Этап 3.4/3.5, воркер-контур без
 // выделенной ВМ: Vercel Cron бьёт сюда по расписанию (см. vercel.json)
@@ -103,6 +104,15 @@ async function handle(request: NextRequest) {
   const admin = createAdminClient();
   const workerId = `vercel-${randomUUID()}`;
 
+  // Сначала добиваем «брошенные» записи (закрытая вкладка → manifest не ушёл): иначе сессия
+  // навсегда остаётся в статусе «идёт запись». Сбой здесь не должен мешать обработке очереди.
+  let abandoned: unknown[] = [];
+  try {
+    abandoned = await finalizeAbandonedRecordings(admin);
+  } catch (e) {
+    console.error("ABANDONED_SWEEP_FAILED", e instanceof Error ? e.message : e);
+  }
+
   let result;
   try {
     result = await processNextRecordingJob(
@@ -120,7 +130,7 @@ async function handle(request: NextRequest) {
   }
 
   if (!result) {
-    return NextResponse.json({ ok: true, processed: false });
+    return NextResponse.json({ ok: true, processed: false, abandoned: abandoned.length });
   }
   return NextResponse.json({ ok: true, processed: true, jobId: result.jobId, outcome: result.outcome });
 }
